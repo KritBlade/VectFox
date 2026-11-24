@@ -369,6 +369,14 @@ describe('strip_mvu_cast_records builtin', () => {
     });
 });
 
+describe('presets', () => {
+    it('list only built-ins that exist, as a preset cleans with each of its IDs as it is', () => {
+        for (const preset of Object.values(CLEANING_PRESETS)) {
+            for (const patternId of preset.patterns) expect(BUILTIN_PATTERNS, `${preset.id} lists ${patternId}`).toHaveProperty(patternId);
+        }
+    });
+});
+
 describe('MVU preset', () => {
     it('is the fresh-install default', () => {
         expect(getCleaningSettings().selectedPreset).toBe('mvu_game_maker');

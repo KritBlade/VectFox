@@ -21,7 +21,7 @@ import {
 } from '../src/features/eventbase/content-vectorizer-markup.js';
 
 const CHAT = { messageCount: 2400, characterName: 'Harbor Keeper', chatId: 'abc-123' };
-const VIEW = { chat: CHAT, cleaningPresets: [{ id: 'light', name: 'Light', description: 'Strips markup.' }, { id: 'custom', name: 'Custom', description: 'Your own patterns.' }], cleaningPreset: 'light' };
+const VIEW = { chat: CHAT, cleaningPresets: [{ id: 'light', name: 'Light', description: 'Strips markup.' }, { id: 'custom', name: 'Custom', description: 'Your own patterns.' }], cleaningPreset: 'light', cleaningNote: 'Strips markup.' };
 
 function parse(markup) {
     const template = document.createElement('template');

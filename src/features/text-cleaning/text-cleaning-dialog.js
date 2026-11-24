@@ -44,7 +44,7 @@ import {
     testResultMarkup,
     textCleaningMarkup,
 } from './text-cleaning-dialog-markup.js';
-import { patternFromText, setupFileName } from './text-cleaning-dialog-core.js';
+import { patternFromText, presetDescription, setupFileName } from './text-cleaning-dialog-core.js';
 
 /** The open dialog's root, so a second open while it shows does not draw another. */
 let openRoot = null;
@@ -97,7 +97,7 @@ export async function openTextCleaningDialog() {
 function showPresetState(root) {
     const view = dialogView();
     root.querySelector(`#${CLEANING_IDS.preset}`).value = view.selectedPreset;
-    partOf(root, 'preset-description').textContent = view.presets.find(preset => preset.id === view.selectedPreset)?.description ?? '';
+    partOf(root, 'preset-description').textContent = presetDescription(view.presets, view.selectedPreset);
     partOf(root, 'builtins').innerHTML = builtinListMarkup(view);
     for (const box of root.querySelectorAll('[data-tc-builtin]')) box.disabled = !view.isCustom;
     setShown(partOf(root, 'builtins-locked'), !view.isCustom);

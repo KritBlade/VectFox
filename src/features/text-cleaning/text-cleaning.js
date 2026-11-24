@@ -2,8 +2,9 @@
  * ============================================================================
  * VectFox TEXT CLEANING
  * ============================================================================
- * Pre-vectorization text cleaning with regex patterns.
- * Strips HTML, metadata blocks, and custom tags before chunking.
+ * Text cleaning with regex patterns: strips HTML, metadata blocks and the tags the user lists from a message before
+ * EventBase extracts it, and before Agent Mode's planner and LoreBase's scene read it. A tag no pattern matches stays,
+ * with its text.
  *
  * @author Kritblade
  * ============================================================================
@@ -322,6 +323,23 @@ export function saveCleaningSettings(settings) {
 /** The preset that cleans with the built-ins and custom patterns the user picks. */
 export const CUSTOM_PRESET_ID = 'custom';
 
+/** Whether this VectFox has a preset by this ID, Custom included. */
+function isKnownPresetId(presetId) {
+    return presetId === CUSTOM_PRESET_ID || Object.hasOwn(CLEANING_PRESETS, presetId);
+}
+
+const isBuiltinId = patternId => Object.hasOwn(BUILTIN_PATTERNS, patternId);
+
+// The saved preset and built-in IDs this VectFox does not have, each reported once a page load, as cleaning runs on
+// every message.
+const reportedUnknownIds = new Set();
+
+function reportUnknownId(text) {
+    if (reportedUnknownIds.has(text)) return;
+    reportedUnknownIds.add(text);
+    log.warn(`VectFox Text Cleaning: ${text}`);
+}
+
 /** The presets a select offers: VectFox's, then Custom. */
 export function cleaningPresetChoices() {
     return [...Object.values(CLEANING_PRESETS), { id: CUSTOM_PRESET_ID, name: 'Custom', description: 'Your own built-ins and custom patterns.' }];
@@ -357,22 +375,20 @@ export function getActivePatterns() {
     const settings = getCleaningSettings();
     const patterns = [];
 
-    // If using a preset, get its patterns
-    if (settings.selectedPreset && settings.selectedPreset !== 'custom') {
-        const preset = CLEANING_PRESETS[settings.selectedPreset];
-        if (preset) {
-            for (const patternId of preset.patterns) {
-                if (BUILTIN_PATTERNS[patternId]) {
-                    patterns.push(BUILTIN_PATTERNS[patternId]);
-                }
-            }
+    // A preset cleans with its own built-ins; a preset this VectFox does not have cleans nothing, and says so.
+    if (settings.selectedPreset && settings.selectedPreset !== CUSTOM_PRESET_ID) {
+        if (!isKnownPresetId(settings.selectedPreset)) {
+            reportUnknownId(`the saved preset "${settings.selectedPreset}" is not in this VectFox, so nothing is cleaned. Pick a preset in Text Cleaning.`);
+            return patterns;
+        }
+        for (const patternId of CLEANING_PRESETS[settings.selectedPreset].patterns) {
+            patterns.push(BUILTIN_PATTERNS[patternId]);
         }
     } else {
-        // Custom mode - use enabled builtins + custom patterns
+        // Custom: the ticked built-ins, then the custom patterns.
         for (const patternId of (settings.enabledBuiltins || [])) {
-            if (BUILTIN_PATTERNS[patternId]) {
-                patterns.push(BUILTIN_PATTERNS[patternId]);
-            }
+            if (isBuiltinId(patternId)) patterns.push(BUILTIN_PATTERNS[patternId]);
+            else reportUnknownId(`the saved built-in pattern "${patternId}" is not in this VectFox, so it cleans nothing`);
         }
         // A pattern that does not compile is flagged in the editor and left out here, so it warns once, not per text.
         for (const custom of (settings.customPatterns || [])) {
@@ -637,14 +653,24 @@ export function importPatterns(json) {
         settings.customPatterns = settings.customPatterns || [];
         const warnings = [];
 
-        // Check if this is a full template (has preset/enabledBuiltins/customPatterns)
+        // A whole setup (preset, ticked built-ins, custom patterns). A preset or built-in this VectFox does not have is
+        // left out and named, so the setup never cleans less than the result says.
         if (data.customPatterns && !Array.isArray(data)) {
-            // Template format
             if (data.preset) {
-                settings.selectedPreset = data.preset;
+                if (isKnownPresetId(data.preset)) {
+                    settings.selectedPreset = data.preset;
+                } else {
+                    const keptPresetId = settings.selectedPreset || CUSTOM_PRESET_ID;
+                    const keptPreset = cleaningPresetChoices().find(preset => preset.id === keptPresetId)?.name ?? `"${keptPresetId}"`;
+                    warnings.push(`Preset "${data.preset}" is not in this VectFox, so the preset stays ${keptPreset}`);
+                }
             }
             if (Array.isArray(data.enabledBuiltins)) {
-                settings.enabledBuiltins = data.enabledBuiltins;
+                const unknownBuiltins = data.enabledBuiltins.filter(patternId => !isBuiltinId(patternId));
+                settings.enabledBuiltins = data.enabledBuiltins.filter(isBuiltinId);
+                if (unknownBuiltins.length) {
+                    warnings.push(`${unknownBuiltins.length} built-in ${unknownBuiltins.length === 1 ? 'pattern is' : 'patterns are'} not in this VectFox, so ${unknownBuiltins.length === 1 ? 'it was' : 'they were'} left out: ${unknownBuiltins.join(', ')}`);
+                }
             }
 
             let count = 0;

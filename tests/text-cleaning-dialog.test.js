@@ -5,7 +5,9 @@
  * control applies as it changes, with no Save; the built-ins stay locked unless the preset is Custom; a pattern that
  * does not compile stays as typed, flagged on its record, and cleaning skips it; deleting a pattern asks; one Export
  * writes the whole setup under the name typed, where the old dialog had Save Template and Export and asked the name
- * with prompt(); Import reads a setup or a list of patterns and says what it added, in the dialog.
+ * with prompt(); Import reads a setup or a list of patterns and says what it added, in the dialog, and leaves out and
+ * names a preset or built-in this VectFox does not have. A saved preset it does not have cleans nothing, and the dialog
+ * and the console say so; a saved built-in it does not have is reported once, and the rest still clean.
  */
 /* global document -- this file runs under the jsdom environment */
 
@@ -38,6 +40,7 @@ const { getActivePatterns, BUILTIN_PATTERNS } = await import('../src/features/te
 const { patternFromText, patternText, setupFileName } = await import('../src/features/text-cleaning/text-cleaning-dialog-core.js');
 const { saveSettingsDebounced } = await import('../src/sillytavern/settings.js');
 const { confirmPopup } = await import('../src/sillytavern/popup.js');
+const { log } = await import('../src/sillytavern/log.js');
 const { download } = await import('../src/sillytavern/extension-runtime.js');
 
 const $id = id => document.getElementById(id);
@@ -197,6 +200,44 @@ describe('the Text Cleaning dialog', () => {
         host.files = [{ name: 'broken.json', text: async () => 'not json' }];
         click('import');
         await vi.waitFor(() => expect(part('import-result').textContent).toContain('This file could not be read'));
+    });
+
+    it('leaves out and names a preset and built-ins this VectFox does not have, so the setup never cleans less than it says', async () => {
+        host.root.vectfox.cleaning = { selectedPreset: 'none', enabledBuiltins: [], customPatterns: [] };
+        void openTextCleaningDialog();
+        const setup = { name: 'Campaign', preset: 'campaign_dice', enabledBuiltins: ['strip_font_tags', 'strip_campaign_dice', 'strip_campaign_footer'], customPatterns: [] };
+        host.files = [{ name: 'campaign.json', text: async () => JSON.stringify(setup) }];
+        click('import');
+        await vi.waitFor(() => expect(part('import-result').textContent).toContain('Campaign'));
+        expect(part('import-result').textContent).toContain('Preset "campaign_dice" is not in this VectFox, so the preset stays None');
+        expect(part('import-result').textContent).toContain('2 built-in patterns are not in this VectFox, so they were left out: strip_campaign_dice, strip_campaign_footer');
+        expect(cleaning().selectedPreset).toBe('none');
+        expect(cleaning().enabledBuiltins).toEqual(['strip_font_tags']);
+
+        change($id('vectfox_tc_preset'), 'custom');
+        expect(getActivePatterns().map(pattern => pattern.id)).toEqual(['strip_font_tags']);
+        expect(log.warn).not.toHaveBeenCalled();
+    });
+
+    it('says when the saved preset is not in this VectFox, which then cleans nothing, and reports it once', () => {
+        host.root.vectfox.cleaning = { selectedPreset: 'saved_elsewhere', enabledBuiltins: [], customPatterns: [] };
+        void openTextCleaningDialog();
+        expect(part('preset-description').textContent).toBe('The saved preset "saved_elsewhere" is not in this VectFox, so nothing is cleaned. Pick a preset.');
+        expect(getActivePatterns()).toEqual([]);
+        expect(getActivePatterns()).toEqual([]);
+        expect(log.warn).toHaveBeenCalledTimes(1);
+        expect(log.warn.mock.calls[0][0]).toContain('the saved preset "saved_elsewhere" is not in this VectFox, so nothing is cleaned');
+
+        change($id('vectfox_tc_preset'), 'html_formatting');
+        expect(part('preset-description').textContent).toBe('Removes font, color, bold/italic tags but keeps the text');
+    });
+
+    it('cleans with the saved built-ins it has and reports each it does not have once', () => {
+        host.root.vectfox.cleaning = { selectedPreset: 'custom', enabledBuiltins: ['strip_bold_italic', 'strip_saved_elsewhere'], customPatterns: [] };
+        expect(getActivePatterns().map(pattern => pattern.id)).toEqual(['strip_bold_italic']);
+        getActivePatterns();
+        expect(log.warn).toHaveBeenCalledTimes(1);
+        expect(log.warn.mock.calls[0][0]).toContain('the saved built-in pattern "strip_saved_elsewhere" is not in this VectFox');
     });
 
     it('tests a pattern on sample text without saving it', () => {

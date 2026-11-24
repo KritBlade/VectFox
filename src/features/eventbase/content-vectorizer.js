@@ -21,7 +21,7 @@ import { getSavedHashes } from '../vector-backend/index.js';
 import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
 import { getOpenRouterApiKey } from '../../shared/api-keys.js';
 import { buildArchiveEventCollectionId, buildRegistryKey, getChatUUID, parseRegistryKey } from '../../shared/collection-ids.js';
-import { chooseCleaningPreset, cleaningPresetChoices, getCleaningSettings, openTextCleaningDialog } from '../text-cleaning/index.js';
+import { chooseCleaningPreset, cleaningPresetChoices, getCleaningSettings, openTextCleaningDialog, presetDescription } from '../text-cleaning/index.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
 import { isInvalidModelConfigError, notifyInvalidModel } from '../../shared/model-config-notifier.js';
 import { pickFiles } from '../../shared/pick-files.js';
@@ -82,7 +82,8 @@ export function openContentVectorizer({ isOnNewCollection = false } = {}) {
     }
     const cleaningPreset = getCleaningSettings().selectedPreset || 'custom';
     const template = document.createElement('template');
-    template.innerHTML = contentVectorizerMarkup({ view: { chat: currentChatView(), cleaningPresets: cleaningPresetChoices(), cleaningPreset } });
+    const cleaningPresets = cleaningPresetChoices();
+    template.innerHTML = contentVectorizerMarkup({ view: { chat: currentChatView(), cleaningPresets, cleaningPreset, cleaningNote: presetDescription(cleaningPresets, cleaningPreset) } });
     const root = template.content.firstElementChild;
     session = { root, sourceData: null, isDialogOpen: true, isOnNewCollection: false };
     setStartingValues();
@@ -764,7 +765,7 @@ function showCleaningPreset(presetId) {
     const select = controlOf('cleaning_preset');
     if (select) select.value = presetId;
     const note = hintOf('cleaning-note');
-    if (note) note.textContent = cleaningPresetChoices().find(preset => preset.id === presetId)?.description || '';
+    if (note) note.textContent = presetDescription(cleaningPresetChoices(), presetId);
 }
 
 /** Each control writes what it sets; the window size and overlap are VectFox's saved settings. */

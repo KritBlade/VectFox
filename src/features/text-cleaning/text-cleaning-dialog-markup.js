@@ -27,7 +27,7 @@ import {
 } from '../../shared/gui-dna/gui-dna-core.js';
 import { cardHeader, navBrand, pageHeader } from '../../shared/gui-dna/panel-page-genes.js';
 import { escapeHtml } from '../../shared/html-escape.js';
-import { patternText } from './text-cleaning-dialog-core.js';
+import { patternText, presetDescription } from './text-cleaning-dialog-core.js';
 
 export const CLEANING_IDS = Object.freeze({
     root: 'vectfox_text_cleaning',
@@ -51,7 +51,6 @@ function card({ icon, title, description, actions = '', body }) {
 }
 
 function presetCard({ presets, selectedPreset }) {
-    const chosen = presets.find(preset => preset.id === selectedPreset);
     return card({
         icon: 'fa-list-check',
         title: 'Preset',
@@ -59,7 +58,7 @@ function presetCard({ presets, selectedPreset }) {
         body: field([
             fieldLabel({ text: 'Preset', forId: CLEANING_IDS.preset }),
             select({ id: CLEANING_IDS.preset, options: presets.map(preset => selectOption({ value: preset.id, name: preset.name, isSelected: preset.id === selectedPreset })) }),
-            `<p class="vfx-hint" data-tc-part="preset-description">${escapeHtml(chosen?.description ?? '')}</p>`,
+            `<p class="vfx-hint" data-tc-part="preset-description">${escapeHtml(presetDescription(presets, selectedPreset))}</p>`,
         ]),
     });
 }

@@ -115,7 +115,8 @@ vi.mock('../src/shared/collection-ids.js', () => ({
     buildRegistryKey: collectionId => `qdrant:${collectionId}`,
     parseRegistryKey: registryKey => ({ backend: 'qdrant', collectionId: registryKey.replace(/^qdrant:/, '') }),
 }));
-vi.mock('../src/features/text-cleaning/index.js', () => ({
+vi.mock('../src/features/text-cleaning/index.js', async () => ({
+    presetDescription: (await vi.importActual('../src/features/text-cleaning/text-cleaning-dialog-core.js')).presetDescription,
     cleaningPresetChoices: () => [
         { id: 'light', name: 'Light', description: 'Strips markup.' },
         { id: 'custom', name: 'Custom', description: 'Your own built-ins and custom patterns.' },
@@ -311,7 +312,7 @@ describe('the page\'s settings', () => {
         expect(saveSettingsDebounced).toHaveBeenCalledTimes(2);
     });
 
-    it('sets VectFox\'s one cleaning preset, and shows the one Patterns leaves chosen in Text Cleaning', async () => {
+    it('sets VectFox\'s one cleaning preset, and shows the one Patterns leaves chosen in Text Cleaning, or that it is not in this VectFox', async () => {
         openContentVectorizer();
         const select = $id('vectfox_cv_chat_cleaning_preset');
         const note = () => page().querySelector('[data-cv-hint="cleaning-note"]').textContent;
@@ -326,6 +327,10 @@ describe('the page\'s settings', () => {
         await vi.waitFor(() => expect(select.value).toBe('light'));
         expect(openTextCleaningDialog).toHaveBeenCalledTimes(1);
         expect(note()).toBe('Strips markup.');
+
+        host.cleaningPreset = 'saved_elsewhere';
+        actionOn('manage-cleaning').click();
+        await vi.waitFor(() => expect(note()).toBe('The saved preset "saved_elsewhere" is not in this VectFox, so nothing is cleaned. Pick a preset.'));
     });
 });
 

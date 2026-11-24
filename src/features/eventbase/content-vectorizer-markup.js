@@ -76,7 +76,8 @@ const card = (id, header, body) => `<section class="vfx-card" id="${id}">${heade
 /**
  * The dialog: the rail with the Chat row, then the Chat page.
  *
- * @param {{view: object}} options - view: what the page draws (the open chat, the cleaning presets)
+ * @param {{view: object}} options - view: what the page draws (the open chat, the cleaning presets, the chosen one and
+ *   its note, presetDescription's text)
  * @returns {string}
  */
 export function contentVectorizerMarkup({ view }) {
@@ -177,7 +178,7 @@ function optionsCard(view) {
             select({ id: cvId(CHAT_TYPE_ID, 'cleaning_preset'), options: view.cleaningPresets.map(preset => selectOption({ value: preset.id, name: preset.name, isSelected: preset.id === view.cleaningPreset })) }),
             button({ text: 'Patterns', icon: 'fa-gear', data: action('manage-cleaning') }),
         ]),
-        dynamicHint(view.cleaningPresets.find(preset => preset.id === view.cleaningPreset)?.description || '', 'cleaning-note'),
+        dynamicHint(view.cleaningNote, 'cleaning-note'),
     ])]);
     const header = cardHeader({ icon: 'fa-sliders', title: 'Options', description: 'How the text is cleaned before EventBase reads it.' });
     return card(cvId(CHAT_TYPE_ID, 'options_card'), header, body);

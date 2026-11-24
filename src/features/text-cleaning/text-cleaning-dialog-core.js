@@ -31,6 +31,20 @@ export function patternText({ pattern = '', flags = '' } = {}) {
 }
 
 /**
+ * What the preset field says under its select: the chosen preset's description, or, for a saved preset this VectFox
+ * does not have, that nothing is cleaned.
+ *
+ * @param {{id: string, description?: string}[]} presets - The presets the select offers (cleaningPresetChoices)
+ * @param {string} selectedPreset - The saved preset's ID
+ * @returns {string}
+ */
+export function presetDescription(presets, selectedPreset) {
+    const chosen = presets.find(preset => preset.id === selectedPreset);
+    if (chosen) return chosen.description ?? '';
+    return `The saved preset "${selectedPreset}" is not in this VectFox, so nothing is cleaned. Pick a preset.`;
+}
+
+/**
  * A file name for an exported setup: its name, lowercase, spaces as dashes, and what a file name cannot hold left out.
  *
  * @param {string} name
