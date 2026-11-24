@@ -11,6 +11,7 @@ import { eventSource, event_types } from '../../sillytavern/events.js';
 import { log } from '../../sillytavern/log.js';
 import { noticePopup } from '../../sillytavern/popup.js';
 import { activationOf, startReadingActivations, stopReadingActivations } from '../../sillytavern/world-info-activations.js';
+import { generationPastCommands } from '../../shared/last-generation-core.js';
 import { entryTitle, isReplyGeneration, loreBasePicksCarriedBy } from '../lorebase/index.js';
 import { replyLoreBooks } from './reply-lore-core.js';
 import { replyLoreLines, replyLoreMarkup } from './reply-lore-markup.js';
@@ -41,7 +42,7 @@ function endReplyScan() {
 export function initializeReplyLore() {
     eventSource.on(event_types.GENERATION_AFTER_COMMANDS, (type, options, isDryRun) => {
         if (isDryRun) return;
-        isReplyScanDue = isReplyGeneration(type, { type, isQuietToLoud: Boolean(options?.quietToLoud) });
+        isReplyScanDue = isReplyGeneration(type, generationPastCommands(type, options));
         if (!isReplyScanDue) {
             stopReadingActivations();
             return;

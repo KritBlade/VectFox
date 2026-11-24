@@ -6,6 +6,7 @@
  * that have no keys (D17). Pure: no SillyTavern, no network.
  */
 import { counted } from '../../shared/counted.js';
+import { isQuietToLoud } from '../../shared/last-generation-core.js';
 import { ACTIVATE_DECORATOR, DONT_ACTIVATE_DECORATOR, activationDecoratorOf } from './lorebase-decorators-core.js';
 import { pickMessages, readPicks, tableOfContents } from './lorebase-pick-core.js';
 import { hasTemplateCode, partsToSend, readReview, reviewMessages } from './lorebase-review-core.js';
@@ -14,7 +15,6 @@ import { entryPassages } from './lorebase-splitter.js';
 // Replies (D8): normal sends, swipes, regenerates and continues, and a quiet generation only when it is quiet-to-loud.
 // Never impersonate: the pick's prompt (the reply answers the user's last message) was never tested on it.
 const REPLY_GENERATION_TYPES = new Set(['normal', 'swipe', 'regenerate', 'continue']);
-const QUIET_GENERATION_TYPE = 'quiet';
 
 // The trials' requests (route_trials.py): room for each answer, and room for a thinking model to reason before it.
 export const THINKING_TOKEN_ALLOWANCE = 8000;
@@ -39,13 +39,12 @@ const DETAIL_CHARACTERS = 320;
 /**
  * Whether a generation is a reply LoreBase picks lore for (D8).
  * @param {string} type - The generation's type, as SillyTavern passes the generation interceptor
- * @param {{type: string, isQuietToLoud: boolean}|null} lastGeneration - The last generation past its slash commands, as
- *   GENERATION_AFTER_COMMANDS reported it, the one place SillyTavern says whether a quiet generation is quiet-to-loud
+ * @param {import('../../shared/last-generation-core.js').GenerationPastCommands|null} lastGeneration - The last
+ *   generation past its slash commands, the one place SillyTavern says whether a quiet generation is quiet-to-loud
  * @returns {boolean}
  */
 export function isReplyGeneration(type, lastGeneration) {
-    if (REPLY_GENERATION_TYPES.has(type)) return true;
-    return type === QUIET_GENERATION_TYPE && lastGeneration?.type === QUIET_GENERATION_TYPE && lastGeneration.isQuietToLoud === true;
+    return REPLY_GENERATION_TYPES.has(type) || isQuietToLoud(type, lastGeneration);
 }
 
 /**

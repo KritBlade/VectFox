@@ -151,6 +151,14 @@ describe('Live code remains intact (regression guard)', () => {
 // ============================================================================
 
 describe('Dead code is removed (cleanup contract)', () => {
+    describe('H1 — one route to a quiet generation\'s kind (D4 of vectfox-public-api.md)', () => {
+        it('reads SillyTavern\'s quiet-to-loud flag and decides a quiet prompt in last-generation-core.js alone', () => {
+            const readers = grepSourcesWithLines(/\.quietToLoud\b|type\s*===\s*'quiet'/)
+                .filter(line => !line.startsWith('src/shared/last-generation-core.js:'));
+            expect(readers, readers.join('\n')).toEqual([]);
+        });
+    });
+
     describe('E6 — one route to the collection a chat uses (D18 of vectfox-multi-collection-per-chat.md)', () => {
         it('the helpers that each answered which collection a chat uses, by a rule of their own, are gone', () => {
             const offenders = grepSourcesWithLines(/\b(?:resolveActiveEventBaseCollection|resolveEventBaseWriteTarget|_gatherLockedEventBaseCollections|_gatherArchiveEventCollections|isLockedTo|buildChatSearchPatterns|matchesPatterns)\b/);

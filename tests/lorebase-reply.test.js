@@ -17,6 +17,8 @@ import { oneSelectionRecord } from './lorebase-book-record.js';
 
 const host = vi.hoisted(() => ({
     handlers: {},
+    // Every listener of each event, in the order they were added: two follow GENERATION_AFTER_COMMANDS.
+    listeners: {},
     context: null,
     chatId: 'chat-harbor',
     globalBooks: [],
@@ -44,7 +46,10 @@ vi.mock('../src/sillytavern/chat.js', () => ({
 }));
 vi.mock('../src/sillytavern/events.js', () => ({
     eventSource: {
-        on: (event, handler) => { host.handlers[event] = handler; },
+        on: (event, handler) => {
+            host.handlers[event] = handler;
+            (host.listeners[event] ??= []).push(handler);
+        },
         once: (event, handler) => { host.handlers[event] = handler; },
         makeLast: (event, handler) => { host.handlers[event] = handler; },
         emit: vi.fn(async () => {}),
@@ -144,12 +149,15 @@ const { initializeLoreBaseTester, keepReplyScan, recordReplyReport } = await imp
 const { askJev } = await import('../src/features/lorebase/lorebase-jev.js');
 const { searchReplyPool } = await import('../src/features/lorebase/lorebase-vectors.js');
 const { initializeLoreBase, prepareLoreBesideRetrieval, prepareLoreForReply, tryLoreBasePick } = await import('../src/features/lorebase/lorebase-reply.js');
+const { followGenerations } = await import('../src/shared/last-generation.js');
 
+// As src/index.js starts them: the follower of each generation first, then LoreBase.
+followGenerations();
 initializeLoreBase();
 host.handlers.app_ready();
 // beforeEach clears the mocks, so start-up is counted here.
 const testerStartUps = initializeLoreBaseTester.mock.calls.length;
-const afterCommands = (type, options, isDryRun = false) => host.handlers.generation_after_commands(type, options, isDryRun);
+const afterCommands = (type, options, isDryRun = false) => Promise.all(host.listeners.generation_after_commands.map(listener => listener(type, options, isDryRun)));
 
 const LIGHTHOUSE = { uid: 0, comment: 'Lighthouse of Vell', content: '[Cliff]\nThe lighthouse stands on the north cliff of Vell.\n[Lamp]\nIts lamp burns through every storm.' };
 const TIDEWARDENS = { uid: 1, comment: 'Tidewardens', content: '[Duties]\nThe tidewardens read the harbor bells.\n[Ranks]\nA warden rises by the bells they read.' };

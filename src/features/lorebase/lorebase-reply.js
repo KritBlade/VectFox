@@ -16,6 +16,8 @@
  */
 import { eventSource, event_types } from '../../sillytavern/events.js';
 import { log } from '../../sillytavern/log.js';
+import { lastGenerationPastCommands } from '../../shared/last-generation.js';
+import { generationPastCommands } from '../../shared/last-generation-core.js';
 import { notifyInvalidModel, notifySetupIncomplete } from '../../shared/model-config-notifier.js';
 import { renamedChatIds } from '../../shared/renamed-chat.js';
 import { loadDecidedEntries, renameLoreBookCharacter, renameLoreBookChat } from './lorebase-books.js';
@@ -42,10 +44,6 @@ const TRY_TYPE = 'try';
 const NO_READY_SELECTION = 'No lorebook locked to this chat or its character has selected entries with their keys and vectors.';
 const NO_USER_MESSAGE = 'The chat holds no user message for a reply to answer.';
 
-// The last generation past its slash commands. SillyTavern passes the interceptor a generation's type but not whether
-// a quiet one is quiet-to-loud; GENERATION_AFTER_COMMANDS, which fires just before the interceptors run, carries it.
-let lastGeneration = null;
-
 // What the last reply said of the selected entries it left out for not being ready (unreadyEntriesNotice).
 let lastUnreadyNotice = null;
 
@@ -65,9 +63,10 @@ async function followChatRename(renamed) {
 }
 
 /**
- * Follow generations, so a quiet-to-loud one counts as a reply and a reply first settles Vector Storage's World Info
- * search with the user, and renamed characters and chats, so a book locked to one stays locked to it; arm every World
- * Info scan; let the tester follow each reply; and keep the vectors of edited books current. Called once at start-up.
+ * Follow generations, so a reply first settles Vector Storage's World Info search with the user, and renamed
+ * characters and chats, so a book locked to one stays locked to it; arm every World Info scan; let the tester follow
+ * each reply; and keep the vectors of edited books current. Called once at start-up, after followGenerations
+ * (src/shared/last-generation.js), which keeps whether a quiet generation is quiet-to-loud for the pick.
  */
 export function initializeLoreBase() {
     initializeLoreBaseDelivery();
@@ -76,9 +75,8 @@ export function initializeLoreBase() {
     eventSource.on(event_types.GENERATION_AFTER_COMMANDS, async (type, options, isDryRun) => {
         // A dry run reaches no interceptor, so it must not stand in for the generation that does.
         if (isDryRun) return;
-        lastGeneration = { type, isQuietToLoud: Boolean(options?.quietToLoud) };
         // SillyTavern waits for this listener, and runs the interceptors after it, Vector Storage's among them.
-        if (isReplyGeneration(type, lastGeneration)) await settleVectorStorageConflict();
+        if (isReplyGeneration(type, generationPastCommands(type, options))) await settleVectorStorageConflict();
     });
     eventSource.on(event_types.CHARACTER_RENAMED, renameLoreBookCharacter);
     eventSource.on(event_types.CHAT_RENAMED, followChatRename);
@@ -227,7 +225,7 @@ async function pickForTurn(settings, turn, { type, isReply }) {
  * @returns {Promise<import('./lorebase-reply-core.js').ReplyLore|null>}
  */
 export async function prepareLoreForReply(type, settings) {
-    if (!isLoreBaseActive(settings) || !isReplyGeneration(type, lastGeneration)) return null;
+    if (!isLoreBaseActive(settings) || !isReplyGeneration(type, lastGenerationPastCommands())) return null;
     try {
         const turn = await openChatTurn(settings);
         noticeUnreadyEntries(turn.unreadyBooks);

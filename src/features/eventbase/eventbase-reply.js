@@ -1,8 +1,8 @@
 /**
- * EventBase's reply step, which the manifest's generation interceptor runs before each reply (src/index.js,
- * vectfox_rearrangeChat). It empties the last turn's blocks first, so a turn that injects nothing never sends the last
- * turn's memory; then, while VectFox is on and the chat is long enough, it runs EventBase retrieval, the Summarizer
- * injection and ghosting. Each search is bounded: one that is slow or fails sends the reply without that memory and
+ * EventBase's reply step, which the manifest's generation interceptor runs before each generation (src/index.js,
+ * vectfox_rearrangeChat). It empties the last turn's blocks first, so a turn that injects nothing, a quiet prompt
+ * among them, never sends the last turn's memory; then, on any generation but a quiet prompt, while VectFox is on and
+ * the chat is long enough, it runs EventBase retrieval, the Summarizer injection and ghosting. Each search is bounded: one that is slow or fails sends the reply without that memory and
  * says why, and one that settles past its bound publishes nothing (src/features/vector-backend/bounded-retrieval.js).
  * All three read the chat's collection in use, which the step asks the one route for once (collectionInUse); with none
  * in use they read none of the chat's events, and one red toast per reply says so, naming those switched on (D18 of
@@ -14,6 +14,8 @@ import { setExtensionPrompt } from '../../sillytavern/prompt-injection.js';
 import { getChatUUID } from '../../shared/collection-ids.js';
 import { EVENTBASE_PROMPT_TAG, SUMMARIZER_PROMPT_TAG } from '../../shared/constants.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
+import { lastGenerationPastCommands } from '../../shared/last-generation.js';
+import { isQuietPrompt } from '../../shared/last-generation-core.js';
 import { resolveEventBaseRetrievalTimeoutMs } from '../../shared/retrieval-budget.js';
 import { runBoundedRetrieval } from '../vector-backend/index.js';
 import { collectionInUse, showNoCollectionInUse } from './eventbase-chat-collections.js';
@@ -67,7 +69,9 @@ export function clearInterceptorPrompts(settings) {
 }
 
 /**
- * The reply step: EventBase retrieval, the Summarizer injection and ghosting, on a reply that is not a quiet prompt.
+ * The reply step: EventBase retrieval, the Summarizer injection and ghosting. It empties both blocks first on every
+ * generation, then runs on any but a quiet prompt (D4 of vectfox-public-api.md): a quiet generation that is not
+ * quiet-to-loud brings its own prompt, so it gets no search and none of the last reply's memory.
  * @param {object[]} chat - The chat SillyTavern is about to send
  * @param {object} settings - VectFox settings
  * @param {string} type - SillyTavern's generation type
@@ -75,11 +79,11 @@ export function clearInterceptorPrompts(settings) {
  */
 export async function runEventBaseReplyStep(chat, settings, type) {
     try {
-        if (type === 'quiet') {
-            log.trace('VectFox: Skipping quiet prompt');
+        clearInterceptorPrompts(settings);
+        if (isQuietPrompt(type, lastGenerationPastCommands())) {
+            log.trace('VectFox: a quiet prompt gets no memory');
             return;
         }
-        clearInterceptorPrompts(settings);
 
         if (!isVectFoxEnabled(settings)) {
             log.trace('VectFox: master switch OFF — skipping retrieval/injection');

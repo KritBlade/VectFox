@@ -3,9 +3,11 @@
  * interceptor runs: prompt clearing, the master switch and a live turn.
  *
  * SillyTavern keeps every extension prompt until it is overwritten, so a VectFox block the reply step does not clear
- * keeps reaching the model on later generations. These tests lock in that each live generation first empties the
+ * keeps reaching the model on later generations. These tests lock in that each generation first empties the
  * EventBase and Summarizer blocks, and nothing else; that with the master switch OFF it stops right after, with no
- * retrieval and no lifecycle logging; that a quiet generation is left alone; that a live turn searches EventBase
+ * retrieval and no lifecycle logging; that a quiet prompt stops there too, so it searches nothing and sends none of the
+ * last reply's memory, while a quiet-to-loud generation and an impersonation run the step (D4 of
+ * vectfox-public-api.md); that a live turn searches EventBase
  * with the last messages, then runs the Summarizer and ghosting, each search bounded, all three on the one route's
  * answer asked once (collectionInUse); and that a reply with none in use says so once, naming what was switched on
  * to read the chat's events (D18 of vectfox-multi-collection-per-chat.md).
@@ -32,6 +34,7 @@ const mocks = vi.hoisted(() => {
         applyGhosting: vi.fn(),
         collectionInUse: vi.fn(),
         showNoCollectionInUse: vi.fn(),
+        lastGeneration: null,
         log: {
             error: vi.fn(), warn: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn(),
             domain: vi.fn(), enabled: () => false, domainEnabled: () => false,
@@ -45,6 +48,8 @@ vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: { vectfox
 vi.mock('../src/sillytavern/log.js', () => ({ log: mocks.log }));
 vi.mock('../src/shared/collection-ids.js', () => ({ getChatUUID: vi.fn(() => 'uuid-1') }));
 vi.mock('../src/shared/retrieval-budget.js', () => ({ resolveEventBaseRetrievalTimeoutMs: vi.fn(() => 15000) }));
+// What GENERATION_AFTER_COMMANDS carried for the generation under test.
+vi.mock('../src/shared/last-generation.js', () => ({ lastGenerationPastCommands: () => mocks.lastGeneration }));
 vi.mock('../src/features/vector-backend/index.js', () => ({ runBoundedRetrieval: mocks.runBoundedRetrieval }));
 vi.mock('../src/features/eventbase/eventbase-workflow.js', () => ({ runEventBaseRetrieval: mocks.runEventBaseRetrieval }));
 vi.mock('../src/features/eventbase/summarizer-injection.js', () => ({
@@ -73,6 +78,7 @@ const CHAT = [{ mes: 'Where did we leave the map?', is_user: true }];
 beforeEach(() => {
     for (const key of Object.keys(mocks.extensionPrompts)) delete mocks.extensionPrompts[key];
     vi.clearAllMocks();
+    mocks.lastGeneration = null;
     seedPreviousGeneration();
 });
 
@@ -108,12 +114,30 @@ describe('runEventBaseReplyStep with the master switch ON', () => {
         expect(mocks.runBoundedRetrieval).not.toHaveBeenCalled();
     });
 
-    it('leaves a quiet generation alone: it clears and retrieves nothing', async () => {
-        await runEventBaseReplyStep(CHAT, { enabled: true, position: 1, depth: 2 }, 'quiet');
+    it('sends a quiet prompt none of the last reply\'s memory, and searches nothing for it', async () => {
+        mocks.lastGeneration = { type: 'quiet', isQuietToLoud: false };
+        mocks.collectionInUse.mockReturnValue(IN_USE);
+        await runEventBaseReplyStep(CHAT, { enabled: true, query: 2, position: 1, depth: 2, summarizer_injection_enabled: true }, 'quiet');
 
-        expect(mocks.setExtensionPrompt).not.toHaveBeenCalled();
-        expect(valueOf('3_vectfox_eventbase')).toBe('<VectFoxMemory>events</VectFoxMemory>');
+        for (const tag of REPLY_STEP_TAGS) expect(valueOf(tag)).toBe('');
+        expect(valueOf('1_memory')).toBe('another extension');
         expect(mocks.runBoundedRetrieval).not.toHaveBeenCalled();
+        expect(mocks.applyGhosting).not.toHaveBeenCalled();
+        expect(mocks.collectionInUse).not.toHaveBeenCalled();
+    });
+
+    it('runs the step on a quiet-to-loud generation, shown as a reply, and on an impersonation', async () => {
+        mocks.collectionInUse.mockReturnValue(IN_USE);
+        const settings = { enabled: true, query: 2, position: 1, depth: 2 };
+
+        mocks.lastGeneration = { type: 'quiet', isQuietToLoud: true };
+        await runEventBaseReplyStep(CHAT, settings, 'quiet');
+        expect(mocks.runEventBaseRetrieval).toHaveBeenCalledTimes(1);
+        expect(mocks.applyGhosting).toHaveBeenCalledTimes(1);
+
+        mocks.lastGeneration = { type: 'impersonate', isQuietToLoud: false };
+        await runEventBaseReplyStep(CHAT, settings, 'impersonate');
+        expect(mocks.runEventBaseRetrieval).toHaveBeenCalledTimes(2);
     });
 
     it('searches EventBase with the last messages, then runs the Summarizer and ghosting, each search bounded', async () => {

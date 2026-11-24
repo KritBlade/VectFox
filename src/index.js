@@ -40,6 +40,7 @@ import {
     AGENTIC_MAX_TOKENS_DEFAULT,
 } from './shared/constants.js';
 import { isVectFoxEnabled } from './shared/feature-gate.js';
+import { followGenerations } from './shared/last-generation.js';
 import { runNetworkStartup } from './app/network-startup.js';
 
 // VectFox modules - UI
@@ -586,7 +587,10 @@ jQuery(async () => {
     // Initialize database browser
     initializeDatabaseBrowser(settings);
 
-    // LoreBase follows generations, so its pick knows a quiet-to-loud one as a reply, and arms each World Info scan
+    // The last generation past its slash commands, so LoreBase's pick and EventBase's reply step know a quiet-to-loud one
+    followGenerations();
+
+    // LoreBase settles Vector Storage's World Info search before a reply, and arms each World Info scan
     initializeLoreBase();
 
     // The latest reply's lorebook entries, for the wand menu's Last reply's lore
