@@ -8,7 +8,8 @@
 // followCollectionInUse); the Database Browser tells them of the events it deletes (announceEventsRemoved); src/app/
 // runs ensureEventBaseIndexes at startup. The settings panel opens
 // Vectorize Content and runs Sync chat and the auto-sync catch-up. The Database Browser runs a collection's StoryArc
-// link actions and Compact collection here.
+// link actions and Compact collection here. The public API answers which chat is open and the collection it uses from
+// openChatCollectionInUse.
 //
 // Re-exports only. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
 export { testAgentModeConnection, testStoryArcConnection } from './agentic-retrieval.js';
@@ -16,7 +17,7 @@ export { backfillCurrentChatWithProgress, openContentVectorizer, syncOpenChat } 
 export { announceEventsRemoved, setEventBaseListeners } from './eventbase-announcements.js';
 export {
     askWhichChatCollection, chatOwnCollections, collectionInUse, followCollectionInUse, lockCollectionToOpenChat,
-    showNoCollectionInUse, useChatCollection,
+    openChatCollectionInUse, showNoCollectionInUse, useChatCollection,
 } from './eventbase-chat-collections.js';
 export { describeCompaction } from './eventbase-compaction-core.js';
 export { compactCollection, planCollectionCompaction } from './eventbase-compaction.js';

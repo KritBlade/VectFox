@@ -667,8 +667,8 @@ jQuery(async () => {
     eventSource.on(event_types.WORLDINFO_UPDATED, refreshWiDepthDebounced);
     eventSource.on(event_types.WORLDINFO_SETTINGS_UPDATED, refreshWiDepthDebounced);
 
-    // Last: VectFox.isReady() turns true and vectfox_ready goes out once
-    announcePublicApiReady();
+    // Last: VectFox.isReady() turns true, the public calls answer from the settings, and vectfox_ready goes out once
+    announcePublicApiReady(settings);
 
     log.lifecycle('VectFox: ✅ Initialized successfully');
 });

@@ -1,24 +1,59 @@
 /**
- * Publishes the `VectFox` object other extensions call (§4 of InternalProject/Vectfox/plans/vectfox-public-api.md) and
- * emits its events on SillyTavern's eventSource. src/index.js publishes the object when it is evaluated, so it exists
- * before VectFox's initialization ends, and announces readiness when that ends. It also hands the other features'
- * listeners the announcements below, which send EventBase's runs, removals and collection in use, and each LLM call,
- * on as `vectfox_*` events. VectFox never awaits its own events: SillyTavern's emit awaits each listener in turn, so a
- * listener that never resolves would hold VectFox up.
+ * Publishes the `VectFox` object other extensions call (§4 of InternalProject/Vectfox/plans/vectfox-public-api.md),
+ * answers its calls and emits its events on SillyTavern's eventSource. src/index.js publishes the object when it is
+ * evaluated, so it exists before VectFox's initialization ends, and announces readiness when that ends, handing over
+ * the settings store the calls answer from (§5.2): until then every call answers `not-ready`. It also hands the other
+ * features' listeners the announcements below, which send EventBase's runs, removals and collection in use, and each
+ * LLM call, on as `vectfox_*` events. VectFox never awaits its own events: SillyTavern's emit awaits each listener in
+ * turn, so a listener that never resolves would hold VectFox up.
  */
 import { eventSource } from '../../sillytavern/events.js';
 import { log } from '../../sillytavern/log.js';
-import { COLLECTION_TYPES, parseCollectionId } from '../../shared/collection-ids.js';
+import { COLLECTION_TYPES, getChatUUID, parseCollectionId } from '../../shared/collection-ids.js';
 import { loadExtensionManifest } from '../../shared/extension-manifest.js';
+import { isVectFoxEnabled } from '../../shared/feature-gate.js';
+import { openChatCollectionInUse } from '../eventbase/index.js';
 import {
-    PUBLIC_EVENTS, buildPublicApi, createReadiness, eventBaseCollectionChangedPayload, eventBaseEventsDeletedPayload,
-    eventBaseSyncedPayload, isPublicEventName, llmCallFinishedPayload, readyPayload,
+    PUBLIC_API_REASONS, PUBLIC_EVENTS, buildPublicApi, chatIdAnswer, collectionInUseAnswer, createReadiness,
+    eventBaseCollectionChangedPayload, eventBaseEventsDeletedPayload, eventBaseSyncedPayload, isPublicEventName,
+    llmCallFinishedPayload, readyPayload, refusal, settingsSnapshotAnswer,
 } from './public-api-core.js';
 
 const readiness = createReadiness();
 
 /** The manifest's version, once start-up has read it. */
 let extensionVersion = null;
+
+/** VectFox's settings, the store itself, handed over as start-up ends, before VectFox turns ready. */
+let settingsStore = null;
+
+/**
+ * `chat.getChatId()`: the ID VectFox keys the open chat's EventBase collections by.
+ * @returns {Readonly<object>} `{ ok: true, chatId }`, or a refusal with `not-ready` or `no-chat`
+ */
+function getChatId() {
+    if (!readiness.isReady()) return refusal(PUBLIC_API_REASONS.notReady);
+    return chatIdAnswer(getChatUUID() ?? null);
+}
+
+/**
+ * `chat.getCollectionInUse()`: the collection the open chat uses, from the route VectFox's own readers ask.
+ * @returns {Readonly<object>} `{ ok: true, collectionId }`, or a refusal with `not-ready`, `no-chat` or `no-collection`
+ */
+function getCollectionInUse() {
+    if (!readiness.isReady()) return refusal(PUBLIC_API_REASONS.notReady);
+    return collectionInUseAnswer(openChatCollectionInUse(settingsStore));
+}
+
+/**
+ * `getSettingsSnapshot()`: whether VectFox is switched on, by the gate every runtime check reads, and the listed
+ * settings as they are now.
+ * @returns {Readonly<object>} `{ ok: true, settings }`, or a refusal with `not-ready`
+ */
+function getSettingsSnapshot() {
+    if (!readiness.isReady()) return refusal(PUBLIC_API_REASONS.notReady);
+    return settingsSnapshotAnswer(settingsStore, { isEnabled: isVectFoxEnabled(settingsStore) });
+}
 
 /**
  * Stops calling a handler for an event.
@@ -61,16 +96,20 @@ function emitWithoutWaiting(name, payload) {
  */
 export function publishPublicApi() {
     if (globalThis.VectFox) log.warn('VectFox public API: globalThis.VectFox was already set, by another copy of VectFox loaded in this page; this copy replaces it');
-    globalThis.VectFox = buildPublicApi({ readiness, readExtensionVersion: () => extensionVersion, on, off });
+    globalThis.VectFox = buildPublicApi({
+        readiness, readExtensionVersion: () => extensionVersion, on, off, chat: { getChatId, getCollectionInUse }, getSettingsSnapshot,
+    });
 }
 
 /**
- * Marks VectFox ready once its initialization has ended, and emits `vectfox_ready` once. Reads the manifest's version
- * first, so `extensionVersion` is set when a consumer hears of readiness; a manifest that cannot be read leaves it
- * null.
+ * Marks VectFox ready once its initialization has ended, and emits `vectfox_ready` once. Keeps the settings store the
+ * calls answer from, and reads the manifest's version first, so both are set when a consumer hears of readiness; a
+ * manifest that cannot be read leaves `extensionVersion` null.
+ * @param {object} settings - VectFox settings, the store itself
  * @returns {Promise<void>}
  */
-export async function announcePublicApiReady() {
+export async function announcePublicApiReady(settings) {
+    settingsStore = settings;
     try {
         extensionVersion = (await loadExtensionManifest()).version ?? null;
     } catch (error) {

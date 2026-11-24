@@ -1,7 +1,8 @@
 /**
  * The `VectFox` object (A1 of InternalProject/Vectfox/plans/vectfox-public-api.md, §4.1): there as soon as
  * src/index.js is evaluated, frozen, ready once initialization ends, and `vectfox_ready` emitted once, without
- * waiting for its listeners. The emitter here behaves as SillyTavern's does: it awaits each listener in turn.
+ * waiting for its listeners; its events (A2, §4.3); and its chat group and settings snapshot (R1, §5.2), which answer
+ * `not-ready` until then. The emitter here behaves as SillyTavern's does: it awaits each listener in turn.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -9,6 +10,10 @@ const host = vi.hoisted(() => ({
     listeners: {},
     manifest: { version: '3.6.300' },
     manifestError: null,
+    // The open chat's metadata, as SillyTavern keeps it: one object, its integrity the chat's UUID.
+    chatMetadata: {},
+    inUse: { chatId: null, collectionId: null },
+    inUseAskedWith: [],
 }));
 
 vi.mock('../src/sillytavern/events.js', () => ({
@@ -34,8 +39,17 @@ vi.mock('../src/shared/extension-manifest.js', () => ({
         return host.manifest;
     },
 }));
-// The real collection IDs read a chat's UUID from an ID alone; the open chat is not asked.
-vi.mock('../src/sillytavern/chat.js', () => ({ getContext: () => ({}), getCurrentChatId: () => null, chat_metadata: {} }));
+// The real collection IDs read a chat's UUID from an ID, and the open chat's from its metadata.
+vi.mock('../src/sillytavern/chat.js', () => ({ getContext: () => ({}), getCurrentChatId: () => null, chat_metadata: host.chatMetadata }));
+// VectFox's switch is read from the settings the public calls are handed, never from SillyTavern's store.
+vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: {} }));
+// The route VectFox's own readers ask for the open chat and the collection it uses.
+vi.mock('../src/features/eventbase/index.js', () => ({
+    openChatCollectionInUse: (settings) => {
+        host.inUseAskedWith.push(settings);
+        return host.inUse;
+    },
+}));
 
 const HARBOR_UUID = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
 const HARBOR_EVENTS = `vf_eventbase_qdrant_wren_harbor_${HARBOR_UUID}`;
@@ -49,7 +63,8 @@ async function loadPublicApi() {
     vi.resetModules();
     const { log } = await import('../src/sillytavern/log.js');
     const publicApi = await import('../src/features/public-api/index.js');
-    return { log, ...publicApi };
+    const { PUBLIC_API_CAPABILITIES, PUBLIC_API_VERSION } = await import('../src/features/public-api/public-api-core.js');
+    return { log, PUBLIC_API_CAPABILITIES, PUBLIC_API_VERSION, ...publicApi };
 }
 
 /** Whether a promise has settled after pending work runs. */
@@ -64,6 +79,9 @@ beforeEach(() => {
     host.listeners = {};
     host.manifest = { version: '3.6.300' };
     host.manifestError = null;
+    delete host.chatMetadata.integrity;
+    host.inUse = { chatId: null, collectionId: null };
+    host.inUseAskedWith = [];
     delete globalThis.VectFox;
 });
 
@@ -73,15 +91,16 @@ afterEach(() => {
 });
 
 describe('the VectFox object', () => {
-    it('is there once published, frozen, at API 1.0.0, and not ready until initialization ends', async () => {
-        const { publishPublicApi } = await loadPublicApi();
+    it('is there once published, frozen, at the API\'s version, and not ready until initialization ends', async () => {
+        const { publishPublicApi, PUBLIC_API_CAPABILITIES, PUBLIC_API_VERSION } = await loadPublicApi();
         publishPublicApi();
         const api = globalThis.VectFox;
 
         expect(Object.isFrozen(api)).toBe(true);
-        expect(api.apiVersion).toBe('1.0.0');
-        expect(api.capabilities).toEqual(['events']);
+        expect(api.apiVersion).toBe(PUBLIC_API_VERSION);
+        expect(api.capabilities).toBe(PUBLIC_API_CAPABILITIES);
         expect(Object.isFrozen(api.capabilities)).toBe(true);
+        expect(Object.isFrozen(api.chat)).toBe(true);
         expect(api.isReady()).toBe(false);
         expect(api.extensionVersion).toBeNull();
         expect(() => { api.apiVersion = '2.0.0'; }).toThrow(TypeError);
@@ -90,7 +109,7 @@ describe('the VectFox object', () => {
     });
 
     it('turns ready once, and a consumer loaded before VectFox hears vectfox_ready once, frozen', async () => {
-        const { publishPublicApi, announcePublicApiReady } = await loadPublicApi();
+        const { publishPublicApi, announcePublicApiReady, PUBLIC_API_VERSION } = await loadPublicApi();
         const heard = [];
         // A consumer loaded before VectFox listens on SillyTavern's eventSource, as no VectFox object exists yet.
         host.listeners.vectfox_ready = [payload => heard.push(payload)];
@@ -104,7 +123,7 @@ describe('the VectFox object', () => {
         expect(api.isReady()).toBe(true);
         expect(await hasSettled(waiting)).toBe(true);
         expect(api.whenReady()).toBe(waiting);
-        expect(heard).toEqual([{ apiVersion: '1.0.0' }]);
+        expect(heard).toEqual([{ apiVersion: PUBLIC_API_VERSION }]);
         expect(Object.isFrozen(heard[0])).toBe(true);
         expect(api.extensionVersion).toBe('3.6.300');
     });
@@ -147,7 +166,7 @@ describe('the VectFox object', () => {
 
 describe('VectFox.on and VectFox.off', () => {
     it('on subscribes and returns its own unsubscribe, and off unsubscribes', async () => {
-        const { publishPublicApi, announcePublicApiReady } = await loadPublicApi();
+        const { publishPublicApi, announcePublicApiReady, PUBLIC_API_VERSION } = await loadPublicApi();
         publishPublicApi();
         const api = globalThis.VectFox;
         const kept = vi.fn();
@@ -162,7 +181,7 @@ describe('VectFox.on and VectFox.off', () => {
         await announcePublicApiReady();
 
         expect(kept).toHaveBeenCalledTimes(1);
-        expect(kept).toHaveBeenCalledWith({ apiVersion: '1.0.0' });
+        expect(kept).toHaveBeenCalledWith({ apiVersion: PUBLIC_API_VERSION });
         expect(unsubscribed).not.toHaveBeenCalled();
         expect(offed).not.toHaveBeenCalled();
     });
@@ -302,5 +321,132 @@ describe('vectfox_llm_call_finished', () => {
 
         // SillyTavern's emit waits for each listener in turn, so the next one waits too, but VectFox goes on.
         expect(didNextListenerRun).toBe(false);
+    });
+});
+
+/** VectFox's settings store as start-up leaves it, with keys beside the listed settings, as a real store holds them. */
+function settingsStore() {
+    return {
+        enabled: true,
+        eventbase_ghost_enabled: true,
+        eventbase_ghost_keep_recent: 4,
+        eventbase_ghost_batch_size: 6,
+        summarizer_injection_enabled: true,
+        summarizer_injection_count: 15,
+        summarizer_injection_full_detail: false,
+        summarizer_injection_max_chars: 10000,
+        eventbase_autosync_window_turns: 1,
+        eventbase_autosync_settle_lag: true,
+        openrouter_api_key: 'sk-or-made-up-lantern',
+        chat_connection_profile_id: 'profile-lantern',
+        qdrant_api_key: 'made-up-qdrant-key',
+    };
+}
+
+describe('the chat group and the settings snapshot (R1, §5.2)', () => {
+    it('answers not-ready from every call until VectFox is ready, frozen, and throws for none', async () => {
+        const { publishPublicApi } = await loadPublicApi();
+        publishPublicApi();
+        host.chatMetadata.integrity = HARBOR_UUID;
+        host.inUse = { chatId: HARBOR_UUID, collectionId: HARBOR_EVENTS };
+        const api = globalThis.VectFox;
+
+        const answers = [api.chat.getChatId(), api.chat.getCollectionInUse(), api.getSettingsSnapshot()];
+
+        expect(answers).toEqual([{ ok: false, reason: 'not-ready' }, { ok: false, reason: 'not-ready' }, { ok: false, reason: 'not-ready' }]);
+        expect(answers.every(Object.isFrozen)).toBe(true);
+        expect(host.inUseAskedWith).toEqual([]);
+    });
+
+    it('chat.getChatId: the open chat\'s UUID, or no-chat with none open', async () => {
+        const { publishPublicApi, announcePublicApiReady } = await loadPublicApi();
+        publishPublicApi();
+        await announcePublicApiReady(settingsStore());
+        const api = globalThis.VectFox;
+
+        host.chatMetadata.integrity = HARBOR_UUID;
+        const open = api.chat.getChatId();
+        delete host.chatMetadata.integrity;
+        const none = api.chat.getChatId();
+
+        expect(open).toEqual({ ok: true, chatId: HARBOR_UUID });
+        expect(none).toEqual({ ok: false, reason: 'no-chat' });
+        expect([open, none].every(Object.isFrozen)).toBe(true);
+    });
+
+    it('chat.getCollectionInUse: the collection the open chat uses, from the route VectFox reads by, or why there is none', async () => {
+        const { publishPublicApi, announcePublicApiReady } = await loadPublicApi();
+        publishPublicApi();
+        const store = settingsStore();
+        await announcePublicApiReady(store);
+        const api = globalThis.VectFox;
+
+        host.inUse = { chatId: HARBOR_UUID, collectionId: HARBOR_LATER_EVENTS };
+        const inUse = api.chat.getCollectionInUse();
+        host.inUse = { chatId: HARBOR_UUID, collectionId: null };
+        const noCollection = api.chat.getCollectionInUse();
+        host.inUse = { chatId: null, collectionId: null };
+        const noChat = api.chat.getCollectionInUse();
+
+        expect(inUse).toEqual({ ok: true, collectionId: HARBOR_LATER_EVENTS });
+        expect(noCollection).toEqual({ ok: false, reason: 'no-collection' });
+        expect(noChat).toEqual({ ok: false, reason: 'no-chat' });
+        expect([inUse, noCollection, noChat].every(Object.isFrozen)).toBe(true);
+        expect(host.inUseAskedWith.every(settings => settings === store)).toBe(true);
+    });
+
+    it('getSettingsSnapshot: the listed settings by their public names, as they are when asked, frozen', async () => {
+        const { publishPublicApi, announcePublicApiReady } = await loadPublicApi();
+        publishPublicApi();
+        const store = settingsStore();
+        await announcePublicApiReady(store);
+        const api = globalThis.VectFox;
+
+        const before = api.getSettingsSnapshot();
+        store.eventbase_ghost_batch_size = 10;
+        delete store.summarizer_injection_max_chars;
+        const after = api.getSettingsSnapshot();
+
+        expect(before).toEqual({
+            ok: true,
+            settings: {
+                enabled: true, ghostingEnabled: true, ghostingKeepRecent: 4, ghostingBatchSize: 6, summarizerInjectionEnabled: true,
+                summarizerInjectionCount: 15, summarizerInjectionFullDetail: false, summarizerInjectionMaxChars: 10000,
+                autoSyncWindowTurns: 1, autoSyncSettleLag: true,
+            },
+        });
+        expect(after.settings).toMatchObject({ ghostingBatchSize: 10, summarizerInjectionMaxChars: null });
+        expect(before.settings.ghostingBatchSize).toBe(6);
+        expect(Object.isFrozen(before) && Object.isFrozen(before.settings)).toBe(true);
+        expect(() => { before.settings.ghostingEnabled = false; }).toThrow(TypeError);
+    });
+
+    it('getSettingsSnapshot reads VectFox\'s switch as its gate does: on unless set to false', async () => {
+        const { publishPublicApi, announcePublicApiReady } = await loadPublicApi();
+        publishPublicApi();
+        const store = settingsStore();
+        await announcePublicApiReady(store);
+        const api = globalThis.VectFox;
+
+        delete store.enabled;
+        const unset = api.getSettingsSnapshot().settings.enabled;
+        store.enabled = false;
+        const off = api.getSettingsSnapshot().settings.enabled;
+
+        expect([unset, off]).toEqual([true, false]);
+    });
+
+    it('the snapshot holds no key or key ID, and only plain values', async () => {
+        const { publishPublicApi, announcePublicApiReady } = await loadPublicApi();
+        const { PUBLIC_SETTINGS } = await import('../src/features/public-api/public-api-core.js');
+        publishPublicApi();
+        await announcePublicApiReady(settingsStore());
+
+        const { settings } = globalThis.VectFox.getSettingsSnapshot();
+        const written = JSON.stringify(settings);
+
+        expect(Object.entries(PUBLIC_SETTINGS).filter(([name, key]) => /key|secret|token|password|profile/i.test(`${name} ${key}`))).toEqual([]);
+        expect(written).not.toMatch(/made-up|sk-or|profile-lantern/);
+        expect(Object.values(settings).every(value => value === null || ['boolean', 'number'].includes(typeof value))).toBe(true);
     });
 });

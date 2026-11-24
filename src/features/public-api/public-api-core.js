@@ -1,14 +1,15 @@
 /**
- * The public API's pure parts: its version, the events it emits, the groups it serves, readiness and the shape of the
- * `VectFox` object (§4 of InternalProject/Vectfox/plans/vectfox-public-api.md). No host imports: public-api.js
- * publishes the object and emits the events.
+ * The public API's pure parts: its version, the events it emits, the groups it serves, the reasons and settings its
+ * calls answer with, readiness and the shape of the `VectFox` object (§4 and §5.2 of
+ * InternalProject/Vectfox/plans/vectfox-public-api.md). No host imports: public-api.js publishes the object, answers
+ * its calls and emits the events.
  */
 
 /**
  * The API's version, semver. A minor version only adds a method, event, field or reason; a removed, renamed or changed
  * name raises the major version at once, and no code keeps the old name working. A reader compares the major only.
  */
-export const PUBLIC_API_VERSION = '1.0.0';
+export const PUBLIC_API_VERSION = '1.1.0';
 
 /** The events VectFox emits on SillyTavern's eventSource, by name. */
 export const PUBLIC_EVENTS = Object.freeze({
@@ -20,7 +21,31 @@ export const PUBLIC_EVENTS = Object.freeze({
 });
 
 /** The groups this build serves, so a consumer checks once instead of probing each method. */
-export const PUBLIC_API_CAPABILITIES = Object.freeze(['events']);
+export const PUBLIC_API_CAPABILITIES = Object.freeze(['events', 'chat', 'settings']);
+
+/** Why a call answered no (§4.2): VectFox has not finished starting up, no chat is open, or the chat uses no collection. */
+export const PUBLIC_API_REASONS = Object.freeze({
+    notReady: 'not-ready',
+    noChat: 'no-chat',
+    noCollection: 'no-collection',
+});
+
+/**
+ * The settings getSettingsSnapshot() reads by key, each public name with the setting it reads: ghosting, Summarizer
+ * Injection and auto-sync's window. Beside them the snapshot gives `enabled`, VectFox's own switch, which is read
+ * through its gate. A public name stays when its setting is renamed inside VectFox, and none of them is a key or key ID.
+ */
+export const PUBLIC_SETTINGS = Object.freeze({
+    ghostingEnabled: 'eventbase_ghost_enabled',
+    ghostingKeepRecent: 'eventbase_ghost_keep_recent',
+    ghostingBatchSize: 'eventbase_ghost_batch_size',
+    summarizerInjectionEnabled: 'summarizer_injection_enabled',
+    summarizerInjectionCount: 'summarizer_injection_count',
+    summarizerInjectionFullDetail: 'summarizer_injection_full_detail',
+    summarizerInjectionMaxChars: 'summarizer_injection_max_chars',
+    autoSyncWindowTurns: 'eventbase_autosync_window_turns',
+    autoSyncSettleLag: 'eventbase_autosync_settle_lag',
+});
 
 /**
  * Whether VectFox emits an event of this name.
@@ -107,6 +132,47 @@ export function llmCallFinishedPayload({ feature, connection, profileName, provi
 }
 
 /**
+ * A call's answer of no, frozen. A call never throws for a state it expects (§4.2).
+ * @param {string} reason - One of PUBLIC_API_REASONS
+ * @returns {Readonly<{ok: false, reason: string}>}
+ */
+export function refusal(reason) {
+    return Object.freeze({ ok: false, reason });
+}
+
+/**
+ * The answer of `chat.getChatId()`.
+ * @param {string|null} chatId - The open chat's UUID, null with none open
+ * @returns {Readonly<object>} `{ ok: true, chatId }`, or a refusal with `no-chat`
+ */
+export function chatIdAnswer(chatId) {
+    return chatId ? Object.freeze({ ok: true, chatId }) : refusal(PUBLIC_API_REASONS.noChat);
+}
+
+/**
+ * The answer of `chat.getCollectionInUse()`.
+ * @param {{chatId: string|null, collectionId: string|null}} inUse - The open chat and the collection it uses
+ * @returns {Readonly<object>} `{ ok: true, collectionId }`, or a refusal with `no-chat` or `no-collection`
+ */
+export function collectionInUseAnswer({ chatId, collectionId }) {
+    if (!chatId) return refusal(PUBLIC_API_REASONS.noChat);
+    if (!collectionId) return refusal(PUBLIC_API_REASONS.noCollection);
+    return Object.freeze({ ok: true, collectionId });
+}
+
+/**
+ * The answer of `getSettingsSnapshot()`: whether VectFox is switched on, and the settings PUBLIC_SETTINGS lists, as they
+ * are when asked, by their public names, frozen. A setting VectFox does not hold reads as null.
+ * @param {object} settings - VectFox settings
+ * @param {{isEnabled: boolean}} gate - isEnabled: VectFox's switch, as its gate reads it
+ * @returns {Readonly<{ok: true, settings: Readonly<object>}>}
+ */
+export function settingsSnapshotAnswer(settings, { isEnabled }) {
+    const listed = Object.fromEntries(Object.entries(PUBLIC_SETTINGS).map(([name, key]) => [name, settings[key] ?? null]));
+    return Object.freeze({ ok: true, settings: Object.freeze({ enabled: isEnabled, ...listed }) });
+}
+
+/**
  * Readiness: false until VectFox's initialization ends, then true for good. `whenReady()` gives one promise, which
  * resolves then; `markReady()` says whether this call made VectFox ready, so it is announced once.
  * @returns {{isReady: () => boolean, whenReady: () => Promise<void>, markReady: () => boolean}}
@@ -128,16 +194,18 @@ export function createReadiness() {
 }
 
 /**
- * The frozen `VectFox` object (§4.1). `extensionVersion` is read when asked: the manifest's version once start-up has
- * read it, null before then or when it could not be read.
+ * The frozen `VectFox` object (§4.1, §5.2). `extensionVersion` is read when asked: the manifest's version once start-up
+ * has read it, null before then or when it could not be read.
  * @param {object} parts
  * @param {ReturnType<typeof createReadiness>} parts.readiness
  * @param {() => (string|null)} parts.readExtensionVersion
  * @param {(name: string, handler: Function) => (() => void)} parts.on - Subscribes; returns its own unsubscribe
  * @param {(name: string, handler: Function) => void} parts.off
+ * @param {{getChatId: () => object, getCollectionInUse: () => object}} parts.chat - The `chat` group's calls
+ * @param {() => object} parts.getSettingsSnapshot
  * @returns {Readonly<object>}
  */
-export function buildPublicApi({ readiness, readExtensionVersion, on, off }) {
+export function buildPublicApi({ readiness, readExtensionVersion, on, off, chat, getSettingsSnapshot }) {
     return Object.freeze({
         apiVersion: PUBLIC_API_VERSION,
         get extensionVersion() {
@@ -148,5 +216,7 @@ export function buildPublicApi({ readiness, readExtensionVersion, on, off }) {
         whenReady: readiness.whenReady,
         on,
         off,
+        chat: Object.freeze({ getChatId: chat.getChatId, getCollectionInUse: chat.getCollectionInUse }),
+        getSettingsSnapshot,
     });
 }

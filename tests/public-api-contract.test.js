@@ -1,17 +1,18 @@
 /**
  * The public API's contract (A3 of InternalProject/Vectfox/plans/vectfox-public-api.md): every name another extension
- * reads, pinned in CONTRACT. The test goes red when a member of the `VectFox` object, an event, a payload field, a
- * capability or a value an LLM call's report names is renamed, removed or added, when `apiVersion` differs from the
- * contract's, and when the developer page (Doc/public-api.md) leaves a name out or names an event VectFox does not emit.
- * A change to CONTRACT follows the version rule (§4.4, D3): an added name raises apiVersion's minor version; a removed,
- * renamed or changed one raises its major version.
+ * reads, pinned in CONTRACT. The test goes red when a member of the `VectFox` object or of one of its groups, an event, a
+ * payload field, a capability, a reason, a field of a call's answer, a setting of the snapshot or a value an LLM call's
+ * report names is renamed, removed or added, when `apiVersion` differs from the contract's, and when the developer page
+ * (Doc/public-api.md) leaves a name out or names an event VectFox does not emit. A change to CONTRACT follows the version
+ * rule (§4.4, D3): an added name raises apiVersion's minor version; a removed, renamed or changed one raises its major
+ * version.
  */
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const CONTRACT = Object.freeze({
-    apiVersion: '1.0.0',
+    apiVersion: '1.1.0',
     // Each member of globalThis.VectFox and what it is.
     members: {
         apiVersion: 'string',
@@ -21,8 +22,29 @@ const CONTRACT = Object.freeze({
         whenReady: 'method',
         on: 'method',
         off: 'method',
+        chat: 'group',
+        getSettingsSnapshot: 'method',
     },
-    capabilities: ['events'],
+    // Each group's members.
+    groups: {
+        chat: { getChatId: 'method', getCollectionInUse: 'method' },
+    },
+    capabilities: ['events', 'chat', 'settings'],
+    // Why a call answers no (§4.2).
+    reasons: ['not-ready', 'no-chat', 'no-collection'],
+    // The fields of each answer: a refusal, and each call's answer of yes.
+    answers: {
+        refusal: ['ok', 'reason'],
+        getChatId: ['ok', 'chatId'],
+        getCollectionInUse: ['ok', 'collectionId'],
+        getSettingsSnapshot: ['ok', 'settings'],
+    },
+    // The settings getSettingsSnapshot() gives, by their public names.
+    settings: [
+        'enabled', 'ghostingEnabled', 'ghostingKeepRecent', 'ghostingBatchSize', 'summarizerInjectionEnabled',
+        'summarizerInjectionCount', 'summarizerInjectionFullDetail', 'summarizerInjectionMaxChars', 'autoSyncWindowTurns',
+        'autoSyncSettleLag',
+    ],
     // Each event and the fields of its payload.
     events: {
         vectfox_ready: ['apiVersion'],
@@ -40,7 +62,7 @@ const CONTRACT = Object.freeze({
     },
 });
 
-const host = vi.hoisted(() => ({ listeners: {} }));
+const host = vi.hoisted(() => ({ listeners: {}, chatMetadata: {}, inUse: { chatId: null, collectionId: null } }));
 
 vi.mock('../src/sillytavern/events.js', () => ({
     eventSource: {
@@ -58,8 +80,10 @@ vi.mock('../src/sillytavern/events.js', () => ({
 }));
 vi.mock('../src/sillytavern/log.js', () => ({ log: { warn: vi.fn(), error: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn() } }));
 vi.mock('../src/shared/extension-manifest.js', () => ({ loadExtensionManifest: async () => ({ version: '3.6.300' }) }));
-// The real collection IDs read a chat's UUID from an ID alone; the open chat is not asked.
-vi.mock('../src/sillytavern/chat.js', () => ({ getContext: () => ({}), getCurrentChatId: () => null, chat_metadata: {} }));
+// The real collection IDs read a chat's UUID from an ID, and the open chat's from its metadata.
+vi.mock('../src/sillytavern/chat.js', () => ({ getContext: () => ({}), getCurrentChatId: () => null, chat_metadata: host.chatMetadata }));
+vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: {} }));
+vi.mock('../src/features/eventbase/index.js', () => ({ openChatCollectionInUse: () => host.inUse }));
 
 const LANTERN_UUID = 'cccccccc-3333-4333-8333-cccccccccccc';
 const LANTERN_EVENTS = `vf_eventbase_qdrant_wren_lantern_${LANTERN_UUID}`;
@@ -74,20 +98,24 @@ async function loadPublishedApi() {
     return { api: globalThis.VectFox, publicApi, core, llmCallReport };
 }
 
-/** What a member of the object is, in CONTRACT's words. */
-function kindOf(api, name) {
-    const descriptor = Object.getOwnPropertyDescriptor(api, name);
+/** What a member of the object or of a group is, in CONTRACT's words. */
+function kindOf(owner, name) {
+    const descriptor = Object.getOwnPropertyDescriptor(owner, name);
     if (descriptor.get) return 'getter';
     if (typeof descriptor.value === 'function') return 'method';
     if (Array.isArray(descriptor.value)) return 'list';
+    if (descriptor.value && typeof descriptor.value === 'object') return 'group';
     return typeof descriptor.value;
 }
+
+/** Each member of an object and what it is. */
+const kindsOf = owner => Object.fromEntries(Object.getOwnPropertyNames(owner).map(name => [name, kindOf(owner, name)]));
 
 /** The payload each event's listener hears through VectFox.on, as another extension hears it. */
 async function heardPayloads(api, publicApi) {
     const heard = {};
     for (const name of Object.keys(CONTRACT.events)) api.on(name, payload => { (heard[name] ??= []).push(payload); });
-    await publicApi.announcePublicApiReady();
+    await publicApi.announcePublicApiReady({});
     publicApi.announceEventBaseRunEnded({ collectionId: LANTERN_EVENTS, eventsAdded: 3, windowsProcessed: 1 });
     publicApi.announceEventBaseEventsRemoved(LANTERN_EVENTS, ['evt-lamp']);
     publicApi.announceCollectionInUseChanged({ chatId: LANTERN_UUID, collectionId: LANTERN_EVENTS });
@@ -103,6 +131,8 @@ const sorted = names => [...names].sort();
 
 beforeEach(() => {
     host.listeners = {};
+    delete host.chatMetadata.integrity;
+    host.inUse = { chatId: null, collectionId: null };
     delete globalThis.VectFox;
 });
 
@@ -120,9 +150,16 @@ describe('the contract of the VectFox object', () => {
 
     it('has exactly the contract\'s members, each of its kind, and is frozen', async () => {
         const { api } = await loadPublishedApi();
-        expect(sorted(Object.getOwnPropertyNames(api))).toEqual(sorted(Object.keys(CONTRACT.members)));
-        expect(Object.fromEntries(Object.keys(CONTRACT.members).map(name => [name, kindOf(api, name)]))).toEqual(CONTRACT.members);
+        expect(kindsOf(api)).toEqual(CONTRACT.members);
         expect(Object.isFrozen(api)).toBe(true);
+    });
+
+    it('has exactly the contract\'s groups, each with the contract\'s members, frozen', async () => {
+        const { api } = await loadPublishedApi();
+        for (const [group, members] of Object.entries(CONTRACT.groups)) {
+            expect(kindsOf(api[group]), group).toEqual(members);
+            expect(Object.isFrozen(api[group]), group).toBe(true);
+        }
     });
 
     it('answers as the contract says: isReady a boolean, whenReady a promise, on its own unsubscribe, off nothing', async () => {
@@ -139,6 +176,43 @@ describe('the contract of the VectFox object', () => {
         const { api } = await loadPublishedApi();
         expect(api.capabilities).toEqual(CONTRACT.capabilities);
         expect(Object.isFrozen(api.capabilities)).toBe(true);
+    });
+});
+
+describe('the contract of the calls', () => {
+    it('answers no with exactly the contract\'s reasons', async () => {
+        const { core } = await loadPublishedApi();
+        expect(sorted(Object.values(core.PUBLIC_API_REASONS))).toEqual(sorted(CONTRACT.reasons));
+    });
+
+    it('answers each call with exactly the contract\'s fields, frozen, and the snapshot with exactly its settings', async () => {
+        const { api, publicApi } = await loadPublishedApi();
+        const calls = {
+            getChatId: () => api.chat.getChatId(),
+            getCollectionInUse: () => api.chat.getCollectionInUse(),
+            getSettingsSnapshot: () => api.getSettingsSnapshot(),
+        };
+        const refusals = Object.values(calls).map(call => call());
+        await publicApi.announcePublicApiReady({ enabled: true });
+        const refusedWithNoChat = [calls.getChatId(), calls.getCollectionInUse()];
+        host.chatMetadata.integrity = LANTERN_UUID;
+        host.inUse = { chatId: LANTERN_UUID, collectionId: null };
+        refusals.push(calls.getCollectionInUse(), ...refusedWithNoChat);
+        host.inUse = { chatId: LANTERN_UUID, collectionId: LANTERN_EVENTS };
+
+        for (const refusal of refusals) {
+            expect(sorted(Object.keys(refusal))).toEqual(sorted(CONTRACT.answers.refusal));
+            expect(CONTRACT.reasons).toContain(refusal.reason);
+            expect(Object.isFrozen(refusal)).toBe(true);
+        }
+        expect(sorted(new Set(refusals.map(refusal => refusal.reason)))).toEqual(sorted(CONTRACT.reasons));
+        for (const [name, call] of Object.entries(calls)) {
+            const answer = call();
+            expect(answer.ok, name).toBe(true);
+            expect(sorted(Object.keys(answer)), name).toEqual(sorted(CONTRACT.answers[name]));
+            expect(Object.isFrozen(answer), name).toBe(true);
+        }
+        expect(sorted(Object.keys(calls.getSettingsSnapshot().settings))).toEqual(sorted(CONTRACT.settings));
     });
 });
 
@@ -178,16 +252,20 @@ describe('the developer page', () => {
     const escaped = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const isNamed = name => inlineCode.some(code => new RegExp(`(^|[^A-Za-z0-9_])${escaped(name)}($|[^A-Za-z0-9_])`).test(code));
 
-    it('names every member, capability, event, payload field and value of the contract', () => {
+    it('names every member, group member, capability, reason, answer field, setting, event, payload field and value of the contract', () => {
         const quoted = value => `'${value}'`;
         const names = [
             ...Object.keys(CONTRACT.members),
+            ...Object.values(CONTRACT.groups).flatMap(members => Object.keys(members)),
             ...CONTRACT.capabilities.map(quoted),
+            ...CONTRACT.reasons.map(quoted),
+            ...Object.values(CONTRACT.answers).flat(),
+            ...CONTRACT.settings,
             ...Object.entries(CONTRACT.events).flatMap(([name, fields]) => [name, ...fields]),
             ...CONTRACT.llmCallUsage,
             ...Object.values(CONTRACT.llmCallValues).flat().map(quoted),
         ];
-        expect(names.filter(name => !isNamed(name))).toEqual([]);
+        expect([...new Set(names)].filter(name => !isNamed(name))).toEqual([]);
     });
 
     it('names no event VectFox does not emit', () => {

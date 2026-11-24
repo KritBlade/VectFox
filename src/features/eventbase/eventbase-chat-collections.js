@@ -7,8 +7,8 @@
  * (useChatCollection), on the rule LoreBase's selections follow too (oneInUseLockChanges), so a reply never reads two
  * versions of the same story. A run with none in use asks which one to use (askWhichChatCollection). New collection makes
  * another collection of the chat (startNewChatCollection, §2.5). Collections of other chats and chat files locked in to
- * be read beside the chat's own are found by sharedCollectionsLockedHere. followCollectionInUse tells EventBase's
- * listener when the collection the open chat uses changes.
+ * be read beside the chat's own are found by sharedCollectionsLockedHere. openChatCollectionInUse gives the open chat
+ * and the collection it uses, and followCollectionInUse tells EventBase's listener when that pair changes.
  */
 import { getCurrentChatId } from '../../sillytavern/chat.js';
 import { eventSource, event_types } from '../../sillytavern/events.js';
@@ -146,11 +146,12 @@ export function collectionInUse(settings, { chatUUID = getChatUUID(), chatId } =
 }
 
 /**
- * The open chat and the collection it uses, each null with none.
+ * The open chat and the collection it uses, each null with none: the chat's UUID (getChatUUID) and the collection
+ * collectionInUse picks for it.
  * @param {object} settings - VectFox settings
  * @returns {{chatId: string|null, collectionId: string|null}}
  */
-function openChatCollectionInUse(settings) {
+export function openChatCollectionInUse(settings) {
     const chatId = getChatUUID() ?? null;
     if (!chatId) return { chatId: null, collectionId: null };
     return { chatId, collectionId: collectionInUse(settings, { chatUUID: chatId }).collection?.collectionId ?? null };

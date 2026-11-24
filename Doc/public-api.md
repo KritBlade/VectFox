@@ -34,13 +34,15 @@ Once you have the object, `await VectFox.whenReady()` does the same wait as a pr
 
 | Name | What it gives you |
 |---|---|
-| `apiVersion` | The API's version, like `'1.0.0'`. See Versions below |
-| `extensionVersion` | VectFox's own version from its manifest, like `'3.6.243'`, once VectFox is ready. `null` before that, or when VectFox could not read its manifest (the console says why) |
+| `apiVersion` | The API's version, like `'1.1.0'`. See Versions below |
+| `extensionVersion` | VectFox's own version from its manifest, like `'3.6.245'`, once VectFox is ready. `null` before that, or when VectFox could not read its manifest (the console says why) |
 | `isReady()` | `true` once VectFox has finished starting up |
 | `whenReady()` | A promise that resolves when VectFox has finished starting up. It's the same promise every time you ask |
-| `capabilities` | The groups of the API this VectFox serves, like `['events']` |
+| `capabilities` | The groups of the API this VectFox serves, like `['events', 'chat', 'settings']` |
 | `on(name, handler)` | Calls your handler every time VectFox sends that event. Returns a function that stops it |
 | `off(name, handler)` | Stops calling your handler for that event |
+| `chat` | The open chat: `chat.getChatId()` and `chat.getCollectionInUse()`. See The chat, its collection and the settings below |
+| `getSettingsSnapshot()` | A frozen copy of the settings that decide what VectFox does to the prompt. Also below |
 
 The object is frozen, so you can't change it or add to it.
 
@@ -72,6 +74,29 @@ if (major !== 1) {
 ```
 
 When a release raises the major version, VectFox's release notes say so.
+
+## When a call says no
+
+A call to VectFox never throws for something that can just happen, like no chat being open. It answers you. `{ ok: true, ... }` when it has what you asked for, `{ ok: false, reason }` when it doesn't, and `reason` says why.
+
+Think of calling a shop. "Sold out" and "we're closed" are normal answers, not a fire alarm. You hear which one it is, and you carry on.
+
+| `reason` | What it means |
+|---|---|
+| `'not-ready'` | VectFox hasn't finished starting up. Every call says this until `vectfox_ready`, so wait for it and ask again |
+| `'no-chat'` | No chat is open |
+| `'no-collection'` | A chat is open, but it uses no EventBase collection |
+
+```js
+const answer = VectFox.chat.getChatId();
+if (answer.ok) {
+    console.log(`The open chat is ${answer.chatId}`);
+} else if (answer.reason === 'no-chat') {
+    console.log('No chat is open');
+}
+```
+
+Every answer is frozen, same as the events. A new minor version can add a reason, so treat one you don't know as a plain no.
 
 ## Events
 
@@ -135,5 +160,54 @@ VectFox never waits for your handler. It sends the event and moves on, so a slow
 Every payload is frozen, so your handler sees exactly what VectFox sent, whatever another handler does.
 
 If you call `on()` with an event this VectFox doesn't send, maybe a newer one, it subscribes nothing, says so in the console, and still gives you a stop function, which does nothing. A handler that isn't a function throws a `TypeError`, as that's a bug in the calling code.
+
+## The chat, its collection and the settings
+
+These calls tell you what VectFox sees right now. `capabilities` has `'chat'` and `'settings'` when this VectFox has them.
+
+### Which chat, and which collection
+
+`chat.getChatId()` answers `{ ok: true, chatId }`. That's the ID VectFox keys the open chat's EventBase collections by, the chat's `chat_metadata.integrity`, and the same `chatId` the events carry. With no chat open, the answer is `'no-chat'`.
+
+`chat.getCollectionInUse()` answers `{ ok: true, collectionId }`, the EventBase collection the open chat uses. A chat can have several, but it uses ONE at a time, and VectFox's own reads ask the exact same question. So your answer is always the collection VectFox itself reads and writes. With no chat open it says `'no-chat'`, and with a chat that uses no collection, `'no-collection'`.
+
+Both answer for the moment you ask. You don't have to ask in a loop: `vectfox_eventbase_collection_changed` tells you when the answer changes.
+
+```js
+VectFox.on('vectfox_eventbase_collection_changed', () => {
+    const answer = VectFox.chat.getCollectionInUse();
+    console.log(answer.ok ? `Now reading ${answer.collectionId}` : `No collection: ${answer.reason}`);
+});
+```
+
+### The settings snapshot
+
+`getSettingsSnapshot()` answers `{ ok: true, settings }`. It's a frozen copy of the settings that decide what VectFox does to the prompt, and how often it reads the chat.
+
+It's a copy of the moment you ask, and the user can change a setting any time. So ask again for every request instead of keeping one. It's like checking the weather in the morning instead of trusting last week's forecast.
+
+| Setting | What it is |
+|---|---|
+| `enabled` | VectFox's own on/off switch. Off, VectFox adds nothing to the prompt, blanks nothing and doesn't auto-sync |
+| `ghostingEnabled` | Ghosting: VectFox blanks old messages it has already read into events from the prompt it sends, as the events stand in for them. It only acts while `summarizerInjectionEnabled` is on too |
+| `ghostingKeepRecent` | How many of the latest messages ghosting always keeps |
+| `ghostingBatchSize` | How many messages the blanking moves by at a time. Above 1, the start of the prompt stays the same for a while, which keeps a provider's prompt cache working |
+| `summarizerInjectionEnabled` | Summarizer Injection: VectFox sends the most recent events every turn |
+| `summarizerInjectionCount` | How many of the most recent events it sends |
+| `summarizerInjectionFullDetail` | `true` sends each event with its details, `false` its summary only |
+| `summarizerInjectionMaxChars` | The most characters that block may take, `0` for no limit |
+| `autoSyncWindowTurns` | How many turns auto-sync reads at a time. While Summarizer Injection is on, it's held at 1 |
+| `autoSyncSettleLag` | `true` when auto-sync waits for a turn to stop being swipeable before it reads it |
+
+```js
+const answer = VectFox.getSettingsSnapshot();
+if (answer.ok && answer.settings.enabled && answer.settings.ghostingEnabled && answer.settings.summarizerInjectionEnabled) {
+    console.log(`VectFox keeps the latest ${answer.settings.ghostingKeepRecent} messages and blanks the rest it has read`);
+}
+```
+
+A setting keeps its name here even when I rename it inside VectFox, so you never have to read `extension_settings.vectfox` yourself. There's no key and no key ID in it, ever.
+
+Auto-sync itself is switched on and off per collection, so it's not in the snapshot.
 
 Basically, check `isReady()`, wait for `vectfox_ready` if you have to, and from there everything goes through the one object.
