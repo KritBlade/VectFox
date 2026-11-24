@@ -36,6 +36,7 @@ export {
     purgeVectorIndex,
     queryCollection,
     queryMultipleCollections,
+    readCollectionChanges,
     searchCollectionsTogether,
     setPurgedCollectionListener,
     updateChunkMetadata,

@@ -67,6 +67,13 @@ vi.mock('../src/shared/similharity-plugin.js', () => ({
     resetPluginAvailableCache: vi.fn(),
     // The installed plugin meets the floor unless a test says otherwise.
     similharityStanding: vi.fn(() => ({ isFound: true, version: '3.4.8', requiredVersion: '3.4.8', isCurrent: true })),
+    // No probe has read the plugin's version unless a test says otherwise.
+    getPluginProbe: vi.fn(() => ({ isFound: true, status: 'ok', version: null, backends: ['vectra', 'qdrant'], failure: '' })),
+    isSimilharityVersionBehind: vi.fn((version, minimum) => {
+        const [installed, required] = [version, minimum].map(text => text.split('.').map(Number));
+        const place = installed.findIndex((part, index) => part !== required[index]);
+        return place >= 0 && installed[place] < required[place];
+    }),
     PLUGIN_UPDATE_INSTRUCTIONS: 'Restart SillyTavern so it can auto-update the server plugin.',
 }));
 
@@ -108,7 +115,7 @@ vi.mock('../src/shared/constants.js', () => ({
 import { StandardBackend } from '../src/features/vector-backend/standard.js';
 import { QdrantBackend, setInsertedCollectionRegistrar } from '../src/features/vector-backend/qdrant.js';
 import { qdrantTarget } from '../src/features/vector-backend/qdrant-target.js';
-import { similharityStanding } from '../src/shared/similharity-plugin.js';
+import { getPluginProbe, similharityStanding } from '../src/shared/similharity-plugin.js';
 import { buildRegistryKey } from '../src/shared/collection-ids.js';
 import { VectorBackend } from '../src/features/vector-backend/backend-interface.js';
 
@@ -190,6 +197,16 @@ describe('VectorBackend Interface', () => {
         const backend = new VectorBackend();
         // hybridQuery calls queryCollection which throws
         await expect(backend.hybridQuery('col', 'text', 5, {})).rejects.toThrow('Backend must implement queryCollection()');
+    });
+
+    it('answers that it keeps no change numbers, as Standard does, without a request', async () => {
+        const fetchMock = vi.fn();
+        global.fetch = fetchMock;
+
+        const answer = await new StandardBackend().readChanges('vf_eventbase_standard_wren_harbor_x', {}, { after: null, limit: 100 });
+
+        expect(answer).toEqual({ supported: false, reason: 'Change numbers are kept on Qdrant only, and StandardBackend keeps none.' });
+        expect(fetchMock).not.toHaveBeenCalled();
     });
 });
 
@@ -780,6 +797,51 @@ describe('QdrantBackend', () => {
 
             expect(bodyOf(0).collectionId).toBe('vf_chat_abc123');
             expect(bodyOf(0).filters).toBeUndefined();
+        });
+    });
+
+    describe('readChanges: the EventBase feed\'s read of Similharity\'s change numbers (R2 of vectfox-public-api.md)', () => {
+        const bodyOf = call => JSON.parse(fetchMock.mock.calls[call][1].body);
+        const page = { success: true, supported: true, points: [], removed: [], emptied: false, cursor: 4, hasMore: false };
+
+        it('asks the change route for the changes after a number, in the collection\'s own Qdrant collection or by its tenant', async () => {
+            fetchMock.mockImplementation(async () => mockFetchResponse(page));
+
+            const answer = await backend.readChanges('vf_chat_abc123', defaultSettings, { after: 4, limit: 100 });
+            await backend.readChanges('qdrant:vf_chat_abc123', { ...defaultSettings, qdrant_multitenancy: true }, { after: null, limit: 100 });
+
+            expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['/api/plugins/similharity/chunks/changes', '/api/plugins/similharity/chunks/changes']);
+            expect(bodyOf(0)).toEqual({ backend: 'qdrant', collectionId: 'vf_chat_abc123', filters: {}, after: 4, limit: 100 });
+            expect(bodyOf(1)).toEqual({ backend: 'qdrant', collectionId: 'vectfox_main', filters: { content_type: 'vf_chat_abc123' }, after: null, limit: 100 });
+            expect(answer).toEqual(page);
+        });
+
+        it('answers unsupported for a plugin older than the route: by the probe\'s version without a request, else by the route\'s 404', async () => {
+            getPluginProbe.mockReturnValueOnce({ isFound: true, status: 'ok', version: '3.4.18', backends: ['qdrant'], failure: '' });
+            const byVersion = await backend.readChanges('vf_chat_abc123', defaultSettings, { after: null, limit: 100 });
+            expect(fetchMock).not.toHaveBeenCalled();
+
+            fetchMock.mockImplementationOnce(() => mockFetchError(404, 'Not Found'));
+            const byRoute = await backend.readChanges('vf_chat_abc123', defaultSettings, { after: null, limit: 100 });
+
+            expect(byVersion).toEqual({ supported: false, reason: expect.stringContaining('Similharity 3.4.19 or later, and 3.4.18 is installed') });
+            expect(byRoute).toEqual({ supported: false, reason: expect.stringContaining('Similharity 3.4.19 or later') });
+        });
+
+        it('reads from a plugin the probe found current, and passes on Similharity\'s own answer for an old Qdrant', async () => {
+            getPluginProbe.mockReturnValueOnce({ isFound: true, status: 'ok', version: '3.4.19', backends: ['qdrant'], failure: '' });
+            const oldQdrant = { success: true, supported: false, collectionId: 'vf_chat_abc123', reason: 'Change numbers need Qdrant 1.8 or newer.' };
+            fetchMock.mockImplementationOnce(() => mockFetchResponse(oldQdrant));
+
+            expect(await backend.readChanges('vf_chat_abc123', defaultSettings, { after: 2, limit: 100 })).toEqual(oldQdrant);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+        });
+
+        it('throws with the status and Similharity\'s error for a read that fails', async () => {
+            fetchMock.mockImplementationOnce(() => mockFetchError(500, 'Qdrant not initialized'));
+
+            await expect(backend.readChanges('vf_chat_abc123', defaultSettings, { after: 2, limit: 100 }))
+                .rejects.toThrow(/Failed to read the changes of vf_chat_abc123: 500 .*Qdrant not initialized/);
         });
     });
 

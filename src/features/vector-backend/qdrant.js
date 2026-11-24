@@ -44,7 +44,7 @@ import { invalidateCollectionMetadata, settleTokenizerMismatch } from './tokeniz
 import { buildRegistryKey } from '../../shared/collection-ids.js';
 import { chunkPayload, textWithKeywordSuffix } from './stored-chunk.js';
 import { readErrorBody } from '../../shared/server-error-text.js';
-import { PLUGIN_UPDATE_INSTRUCTIONS, similharityStanding } from '../../shared/similharity-plugin.js';
+import { PLUGIN_UPDATE_INSTRUCTIONS, getPluginProbe, isSimilharityVersionBehind, similharityStanding } from '../../shared/similharity-plugin.js';
 import { TENANTS_ANY_FILTER, TENANT_FIELD, qdrantTarget, stripRegistryPrefix } from './qdrant-target.js';
 
 // What a successful insert calls with the collection's registry key, so the collection
@@ -60,6 +60,9 @@ export function setInsertedCollectionRegistrar(registrar) {
 }
 
 const BACKEND_TYPE = 'qdrant';
+
+// The first Similharity that numbers every point it writes and serves its change route (POST /chunks/changes).
+const CHANGE_NUMBERS_PLUGIN_VERSION = '3.4.19';
 
 function _isDimensionMismatch(errorBody) {
     return typeof errorBody === 'string' && errorBody.includes('Vector dimension error');
@@ -669,6 +672,45 @@ export class QdrantBackend extends VectorBackend {
             throw new Error(`[Qdrant] Failed to list chunks in ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
+        return await response.json();
+    }
+
+    /**
+     * What changed in a collection after a change number, from Similharity's change route: the points written and the
+     * events removed since, a page at a time in number order, or with no number every point and the highest number the
+     * collection holds. A plugin older than the route answers that change numbers are not supported, without a request
+     * when the plugin probe has read its version, and so does Similharity itself on a Qdrant older than 1.8.
+     * @param {string} collectionId
+     * @param {object} settings
+     * @param {{after?: number|null, limit?: number}} [page] - after: the last number read, null for a full read
+     * @returns {Promise<object>} Similharity's answer: `{ supported: true, points, removed, emptied, cursor, hasMore }`
+     *   or `{ supported: false, reason }`
+     * @throws {Error} When the route answers with an error
+     */
+    async readChanges(collectionId, settings, { after = null, limit } = {}) {
+        const pluginVersion = getPluginProbe().version;
+        if (pluginVersion && isSimilharityVersionBehind(pluginVersion, CHANGE_NUMBERS_PLUGIN_VERSION)) {
+            return { supported: false, reason: `Change numbers need Similharity ${CHANGE_NUMBERS_PLUGIN_VERSION} or later, and ${pluginVersion} is installed.` };
+        }
+        const target = qdrantTarget(collectionId, settings);
+        const response = await fetch('/api/plugins/similharity/chunks/changes', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify({
+                backend: BACKEND_TYPE,
+                collectionId: target.collectionId,
+                filters: target.filters,
+                after,
+                ...(limit === undefined ? {} : { limit }),
+            }),
+        });
+        if (response.status === 404) {
+            return { supported: false, reason: `Similharity has no change route: change numbers need Similharity ${CHANGE_NUMBERS_PLUGIN_VERSION} or later.` };
+        }
+        if (!response.ok) {
+            const errorBody = await readErrorBody(response, 'No response body');
+            throw new Error(`[Qdrant] Failed to read the changes of ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
+        }
         return await response.json();
     }
 

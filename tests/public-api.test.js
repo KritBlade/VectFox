@@ -1,8 +1,9 @@
 /**
  * The `VectFox` object (A1 of InternalProject/Vectfox/plans/vectfox-public-api.md, §4.1): there as soon as
  * src/index.js is evaluated, frozen, ready once initialization ends, and `vectfox_ready` emitted once, without
- * waiting for its listeners; its events (A2, §4.3); and its chat group and settings snapshot (R1, §5.2), which answer
- * `not-ready` until then. The emitter here behaves as SillyTavern's does: it awaits each listener in turn.
+ * waiting for its listeners; its events (A2, §4.3); its chat group and settings snapshot (R1, §5.2); and its eventBase
+ * group, the feed of a collection's events and removals (R2, §5.3), which answer `not-ready` until then. The emitter
+ * here behaves as SillyTavern's does: it awaits each listener in turn. EventBase's feed is a stand-in.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -14,6 +15,10 @@ const host = vi.hoisted(() => ({
     chatMetadata: {},
     inUse: { chatId: null, collectionId: null },
     inUseAskedWith: [],
+    // EventBase's feed: what it answers, or the error it throws, and what it was asked.
+    feed: null,
+    feedError: null,
+    feedAskedWith: [],
 }));
 
 vi.mock('../src/sillytavern/events.js', () => ({
@@ -43,11 +48,16 @@ vi.mock('../src/shared/extension-manifest.js', () => ({
 vi.mock('../src/sillytavern/chat.js', () => ({ getContext: () => ({}), getCurrentChatId: () => null, chat_metadata: host.chatMetadata }));
 // VectFox's switch is read from the settings the public calls are handed, never from SillyTavern's store.
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: {} }));
-// The route VectFox's own readers ask for the open chat and the collection it uses.
+// The route VectFox's own readers ask for the open chat and the collection it uses, and EventBase's feed.
 vi.mock('../src/features/eventbase/index.js', () => ({
     openChatCollectionInUse: (settings) => {
         host.inUseAskedWith.push(settings);
         return host.inUse;
+    },
+    readEventFeed: async (settings, read) => {
+        host.feedAskedWith.push({ settings, read });
+        if (host.feedError) throw host.feedError;
+        return host.feed;
     },
 }));
 
@@ -82,6 +92,9 @@ beforeEach(() => {
     delete host.chatMetadata.integrity;
     host.inUse = { chatId: null, collectionId: null };
     host.inUseAskedWith = [];
+    host.feed = null;
+    host.feedError = null;
+    host.feedAskedWith = [];
     delete globalThis.VectFox;
 });
 
@@ -101,6 +114,7 @@ describe('the VectFox object', () => {
         expect(api.capabilities).toBe(PUBLIC_API_CAPABILITIES);
         expect(Object.isFrozen(api.capabilities)).toBe(true);
         expect(Object.isFrozen(api.chat)).toBe(true);
+        expect(Object.isFrozen(api.eventBase)).toBe(true);
         expect(api.isReady()).toBe(false);
         expect(api.extensionVersion).toBeNull();
         expect(() => { api.apiVersion = '2.0.0'; }).toThrow(TypeError);
@@ -448,5 +462,191 @@ describe('the chat group and the settings snapshot (R1, §5.2)', () => {
         expect(Object.entries(PUBLIC_SETTINGS).filter(([name, key]) => /key|secret|token|password|profile/i.test(`${name} ${key}`))).toEqual([]);
         expect(written).not.toMatch(/made-up|sk-or|profile-lantern/);
         expect(Object.values(settings).every(value => value === null || ['boolean', 'number'].includes(typeof value))).toBe(true);
+    });
+});
+
+/** An event as EventBase's feed gives one, made up. */
+function feedEvent(eventId, changeNumber, windowStart = 4) {
+    return {
+        event_id: eventId,
+        summary: `Mara finds a brass key under the pier (${eventId})`,
+        cause: 'A storm broke the pier lamps',
+        result: 'Tobin keeps the key',
+        characters: ['Mara', 'Tobin'],
+        locations: ['Saltmarsh harbor'],
+        importance: 6,
+        DateTime: '1802-04-11T21:00:00.000Z',
+        scene_time: 'the night the lighthouse went dark',
+        source_window_start: windowStart,
+        source_window_end: windowStart + 1,
+        change_number: changeNumber,
+    };
+}
+
+/** That event by the public names listEvents gives it. */
+function publicEvent(event) {
+    return {
+        eventId: event.event_id,
+        summary: event.summary,
+        cause: event.cause,
+        result: event.result,
+        characters: event.characters,
+        locations: event.locations,
+        importance: event.importance,
+        storyTime: event.DateTime,
+        sceneTime: event.scene_time,
+        windowStart: event.source_window_start,
+        windowEnd: event.source_window_end,
+        cursor: event.change_number,
+    };
+}
+
+/** What the feed answers for a read. */
+const feedPage = parts => ({ supported: true, schemaVersion: 1.3, events: [], removedEventIds: [], emptied: false, cursor: 0, hasMore: false, ...parts });
+
+/** The object published and ready, with the settings store it answers from. */
+async function readyPublicApi() {
+    const loaded = await loadPublicApi();
+    loaded.publishPublicApi();
+    const store = settingsStore();
+    await loaded.announcePublicApiReady(store);
+    return { ...loaded, api: globalThis.VectFox, store };
+}
+
+describe('the eventBase group: EventBase\'s feed (R2, §5.3)', () => {
+    it('answers not-ready until VectFox is ready, frozen, and reads nothing', async () => {
+        const { publishPublicApi } = await loadPublicApi();
+        publishPublicApi();
+        host.inUse = { chatId: HARBOR_UUID, collectionId: HARBOR_EVENTS };
+
+        const answer = await globalThis.VectFox.eventBase.listEvents();
+
+        expect(answer).toEqual({ ok: false, reason: 'not-ready' });
+        expect(Object.isFrozen(answer)).toBe(true);
+        expect(host.feedAskedWith).toEqual([]);
+    });
+
+    it('rejects with a TypeError a request that cannot be right, ready or not, and reads nothing', async () => {
+        const { publishPublicApi, announcePublicApiReady } = await loadPublicApi();
+        publishPublicApi();
+        const { listEvents } = globalThis.VectFox.eventBase;
+        const wrong = [
+            'harbor', null, [], { after: -1 }, { after: 1.5 }, { after: '3' }, { collectionId: HARBOR_LORE }, { collectionId: 42 },
+            { chatId: '' }, { chatId: 7 },
+        ];
+
+        for (const request of wrong) await expect(listEvents(request), JSON.stringify(request)).rejects.toThrow(TypeError);
+        await announcePublicApiReady(settingsStore());
+        for (const request of wrong) await expect(listEvents(request), JSON.stringify(request)).rejects.toThrow(TypeError);
+        expect(host.feedAskedWith).toEqual([]);
+    });
+
+    it('reads the collection the open chat uses, every event with no after, by public names, frozen throughout', async () => {
+        const { api, store } = await readyPublicApi();
+        host.inUse = { chatId: HARBOR_UUID, collectionId: HARBOR_EVENTS };
+        const pier = feedEvent('eb-pier', 0, 0);
+        const ferry = feedEvent('eb-ferry', 5);
+        host.feed = feedPage({ events: [pier, ferry], cursor: 7 });
+
+        const answer = await api.eventBase.listEvents();
+
+        expect(host.feedAskedWith).toEqual([{ settings: store, read: { collectionId: HARBOR_EVENTS, after: null } }]);
+        expect(answer).toEqual({
+            ok: true, schemaVersion: '1.3', collectionId: HARBOR_EVENTS, events: [publicEvent(pier), publicEvent(ferry)],
+            removedEventIds: [], emptied: false, cursor: 7, hasMore: false,
+        });
+        expect([answer, answer.events, answer.removedEventIds, ...answer.events].every(Object.isFrozen)).toBe(true);
+        expect(answer.events.every(event => Object.isFrozen(event.characters) && Object.isFrozen(event.locations))).toBe(true);
+        expect(answer.events[0].characters).not.toBe(pier.characters);
+    });
+
+    it('reads after a number: the events written since, the removals and the cursor to read on from', async () => {
+        const { api } = await readyPublicApi();
+        host.inUse = { chatId: HARBOR_UUID, collectionId: HARBOR_EVENTS };
+        const storm = feedEvent('eb-storm', 9);
+        host.feed = feedPage({ events: [storm], removedEventIds: ['eb-pier'], cursor: 10, hasMore: true });
+
+        const answer = await api.eventBase.listEvents({ after: 7 });
+
+        expect(host.feedAskedWith[0].read).toEqual({ collectionId: HARBOR_EVENTS, after: 7 });
+        expect(answer).toMatchObject({ ok: true, events: [publicEvent(storm)], removedEventIds: ['eb-pier'], emptied: false, cursor: 10, hasMore: true });
+    });
+
+    it('says a collection emptied since was emptied, with only what was written after', async () => {
+        const { api } = await readyPublicApi();
+        host.inUse = { chatId: HARBOR_UUID, collectionId: HARBOR_EVENTS };
+        const restored = feedEvent('eb-restored', 12);
+        host.feed = feedPage({ events: [restored], emptied: true, cursor: 12 });
+
+        const answer = await api.eventBase.listEvents({ after: 9 });
+
+        expect(answer).toMatchObject({ ok: true, emptied: true, events: [publicEvent(restored)], cursor: 12 });
+    });
+
+    it('reads a collection named, with no chat open, and refuses one that is not the chat named', async () => {
+        const { api } = await readyPublicApi();
+        host.feed = feedPage({ cursor: 3 });
+
+        const named = await api.eventBase.listEvents({ collectionId: HARBOR_ARCHIVE, after: 0 });
+        const ofItsChat = await api.eventBase.listEvents({ chatId: ARCHIVE_UUID, collectionId: HARBOR_ARCHIVE });
+        const ofAnotherChat = await api.eventBase.listEvents({ chatId: HARBOR_UUID, collectionId: HARBOR_ARCHIVE });
+
+        expect(named).toMatchObject({ ok: true, collectionId: HARBOR_ARCHIVE, cursor: 3 });
+        expect(ofItsChat).toMatchObject({ ok: true, collectionId: HARBOR_ARCHIVE });
+        expect(ofAnotherChat).toEqual({ ok: false, reason: 'no-collection' });
+        expect(host.feedAskedWith.map(({ read }) => read)).toEqual([
+            { collectionId: HARBOR_ARCHIVE, after: 0 },
+            { collectionId: HARBOR_ARCHIVE, after: null },
+        ]);
+        expect(host.inUseAskedWith).toEqual([]);
+    });
+
+    it('with no collection named: no-chat with none open or another open than the chat named, no-collection with none in use', async () => {
+        const { api } = await readyPublicApi();
+        host.feed = feedPage({ cursor: 4 });
+
+        const noneOpen = await api.eventBase.listEvents();
+        host.inUse = { chatId: HARBOR_UUID, collectionId: HARBOR_EVENTS };
+        const anotherOpen = await api.eventBase.listEvents({ chatId: ARCHIVE_UUID });
+        const thisOneOpen = await api.eventBase.listEvents({ chatId: HARBOR_UUID });
+        host.inUse = { chatId: HARBOR_UUID, collectionId: null };
+        const noneInUse = await api.eventBase.listEvents({ chatId: HARBOR_UUID });
+
+        expect([noneOpen, anotherOpen, noneInUse]).toEqual([
+            { ok: false, reason: 'no-chat' }, { ok: false, reason: 'no-chat' }, { ok: false, reason: 'no-collection' },
+        ]);
+        expect(thisOneOpen).toMatchObject({ ok: true, collectionId: HARBOR_EVENTS });
+        expect(host.feedAskedWith).toHaveLength(1);
+    });
+
+    it('answers backend-unsupported for a backend without change numbers and read-failed for a read that failed, each said in the console', async () => {
+        const { api, log } = await readyPublicApi();
+        host.inUse = { chatId: HARBOR_UUID, collectionId: HARBOR_EVENTS };
+
+        host.feed = { supported: false, reason: 'Change numbers are kept on Qdrant only, and StandardBackend keeps none.' };
+        const unsupported = await api.eventBase.listEvents();
+        host.feedError = new Error('Qdrant not initialized');
+        const failed = await api.eventBase.listEvents({ after: 3 });
+
+        expect(unsupported).toEqual({ ok: false, reason: 'backend-unsupported' });
+        expect(failed).toEqual({ ok: false, reason: 'read-failed' });
+        expect([unsupported, failed].every(Object.isFrozen)).toBe(true);
+        expect(log.verbose).toHaveBeenCalledWith(expect.stringContaining('StandardBackend keeps none'));
+        expect(log.warn).toHaveBeenCalledWith(expect.stringContaining(HARBOR_EVENTS), host.feedError);
+    });
+
+    it('reads the chat\'s other collection once a lock moves it there, which vectfox_eventbase_collection_changed announces', async () => {
+        const { api, announceCollectionInUseChanged } = await readyPublicApi();
+        host.inUse = { chatId: HARBOR_UUID, collectionId: HARBOR_EVENTS };
+        host.feed = feedPage({ cursor: 2 });
+        const reads = [];
+        api.on('vectfox_eventbase_collection_changed', () => { reads.push(api.eventBase.listEvents()); });
+
+        host.inUse = { chatId: HARBOR_UUID, collectionId: HARBOR_LATER_EVENTS };
+        announceCollectionInUseChanged(host.inUse);
+        const [answer] = await Promise.all(reads);
+
+        expect(answer).toMatchObject({ ok: true, collectionId: HARBOR_LATER_EVENTS });
+        expect(host.feedAskedWith.map(({ read }) => read.collectionId)).toEqual([HARBOR_LATER_EVENTS]);
     });
 });

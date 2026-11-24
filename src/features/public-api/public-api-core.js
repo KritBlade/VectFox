@@ -1,6 +1,6 @@
 /**
- * The public API's pure parts: its version, the events it emits, the groups it serves, the reasons and settings its
- * calls answer with, readiness and the shape of the `VectFox` object (§4 and §5.2 of
+ * The public API's pure parts: its version, the events it emits, the groups it serves, the reasons, settings and
+ * EventBase events its calls answer with, readiness and the shape of the `VectFox` object (§4, §5.2 and §5.3 of
  * InternalProject/Vectfox/plans/vectfox-public-api.md). No host imports: public-api.js publishes the object, answers
  * its calls and emits the events.
  */
@@ -9,7 +9,7 @@
  * The API's version, semver. A minor version only adds a method, event, field or reason; a removed, renamed or changed
  * name raises the major version at once, and no code keeps the old name working. A reader compares the major only.
  */
-export const PUBLIC_API_VERSION = '1.1.0';
+export const PUBLIC_API_VERSION = '1.2.0';
 
 /** The events VectFox emits on SillyTavern's eventSource, by name. */
 export const PUBLIC_EVENTS = Object.freeze({
@@ -21,13 +21,38 @@ export const PUBLIC_EVENTS = Object.freeze({
 });
 
 /** The groups this build serves, so a consumer checks once instead of probing each method. */
-export const PUBLIC_API_CAPABILITIES = Object.freeze(['events', 'chat', 'settings']);
+export const PUBLIC_API_CAPABILITIES = Object.freeze(['events', 'chat', 'settings', 'eventbase.read']);
 
-/** Why a call answered no (§4.2): VectFox has not finished starting up, no chat is open, or the chat uses no collection. */
+/**
+ * Why a call answered no (§4.2): VectFox has not finished starting up; no chat is open, or not the one named; the chat
+ * uses no collection, or the one named is not the chat's; the backend keeps no change numbers to read EventBase's feed
+ * by; or the read did not reach the events.
+ */
 export const PUBLIC_API_REASONS = Object.freeze({
     notReady: 'not-ready',
     noChat: 'no-chat',
     noCollection: 'no-collection',
+    backendUnsupported: 'backend-unsupported',
+    readFailed: 'read-failed',
+});
+
+/**
+ * The fields of each event `eventBase.listEvents()` gives, each public name with the feed's field it reads
+ * (features/eventbase/eventbase-feed.js). A public name stays when its field is renamed inside VectFox.
+ */
+export const PUBLIC_EVENT_FIELDS = Object.freeze({
+    eventId: 'event_id',
+    summary: 'summary',
+    cause: 'cause',
+    result: 'result',
+    characters: 'characters',
+    locations: 'locations',
+    importance: 'importance',
+    storyTime: 'DateTime',
+    sceneTime: 'scene_time',
+    windowStart: 'source_window_start',
+    windowEnd: 'source_window_end',
+    cursor: 'change_number',
 });
 
 /**
@@ -173,6 +198,44 @@ export function settingsSnapshotAnswer(settings, { isEnabled }) {
 }
 
 /**
+ * One event of the feed by its public names, frozen, its lists copied and frozen too.
+ * @param {object} event - As the feed gives it (features/eventbase/eventbase-feed.js)
+ * @returns {Readonly<object>}
+ */
+function publicEventOf(event) {
+    return Object.freeze(Object.fromEntries(Object.entries(PUBLIC_EVENT_FIELDS).map(([name, field]) => {
+        const value = event[field];
+        return [name, Array.isArray(value) ? Object.freeze([...value]) : value];
+    })));
+}
+
+/**
+ * The answer of `eventBase.listEvents()`: what changed in one EventBase collection after a change number, or every
+ * event it holds with no number, frozen throughout.
+ * @param {object} feed - As the feed gives it, with the collection it read
+ * @param {string} feed.collectionId
+ * @param {number|string} feed.schemaVersion - EventBase's schema version
+ * @param {object[]} feed.events
+ * @param {string[]} feed.removedEventIds
+ * @param {boolean} feed.emptied
+ * @param {number} feed.cursor
+ * @param {boolean} feed.hasMore
+ * @returns {Readonly<object>} `{ ok: true, schemaVersion, collectionId, events, removedEventIds, emptied, cursor, hasMore }`
+ */
+export function eventFeedAnswer({ collectionId, schemaVersion, events, removedEventIds, emptied, cursor, hasMore }) {
+    return Object.freeze({
+        ok: true,
+        schemaVersion: String(schemaVersion),
+        collectionId,
+        events: Object.freeze(events.map(publicEventOf)),
+        removedEventIds: Object.freeze([...removedEventIds]),
+        emptied,
+        cursor,
+        hasMore,
+    });
+}
+
+/**
  * Readiness: false until VectFox's initialization ends, then true for good. `whenReady()` gives one promise, which
  * resolves then; `markReady()` says whether this call made VectFox ready, so it is announced once.
  * @returns {{isReady: () => boolean, whenReady: () => Promise<void>, markReady: () => boolean}}
@@ -194,8 +257,8 @@ export function createReadiness() {
 }
 
 /**
- * The frozen `VectFox` object (§4.1, §5.2). `extensionVersion` is read when asked: the manifest's version once start-up
- * has read it, null before then or when it could not be read.
+ * The frozen `VectFox` object (§4.1, §5.2, §5.3). `extensionVersion` is read when asked: the manifest's version once
+ * start-up has read it, null before then or when it could not be read.
  * @param {object} parts
  * @param {ReturnType<typeof createReadiness>} parts.readiness
  * @param {() => (string|null)} parts.readExtensionVersion
@@ -203,9 +266,10 @@ export function createReadiness() {
  * @param {(name: string, handler: Function) => void} parts.off
  * @param {{getChatId: () => object, getCollectionInUse: () => object}} parts.chat - The `chat` group's calls
  * @param {() => object} parts.getSettingsSnapshot
+ * @param {{listEvents: (request?: object) => Promise<object>}} parts.eventBase - The `eventBase` group's calls
  * @returns {Readonly<object>}
  */
-export function buildPublicApi({ readiness, readExtensionVersion, on, off, chat, getSettingsSnapshot }) {
+export function buildPublicApi({ readiness, readExtensionVersion, on, off, chat, getSettingsSnapshot, eventBase }) {
     return Object.freeze({
         apiVersion: PUBLIC_API_VERSION,
         get extensionVersion() {
@@ -218,5 +282,6 @@ export function buildPublicApi({ readiness, readExtensionVersion, on, off, chat,
         off,
         chat: Object.freeze({ getChatId: chat.getChatId, getCollectionInUse: chat.getCollectionInUse }),
         getSettingsSnapshot,
+        eventBase: Object.freeze({ listEvents: eventBase.listEvents }),
     });
 }

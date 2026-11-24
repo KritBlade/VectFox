@@ -2,7 +2,8 @@
  * Publishes the `VectFox` object other extensions call (§4 of InternalProject/Vectfox/plans/vectfox-public-api.md),
  * answers its calls and emits its events on SillyTavern's eventSource. src/index.js publishes the object when it is
  * evaluated, so it exists before VectFox's initialization ends, and announces readiness when that ends, handing over
- * the settings store the calls answer from (§5.2): until then every call answers `not-ready`. It also hands the other
+ * the settings store the calls answer from (§5.2): until then every call answers `not-ready`. `eventBase.listEvents`
+ * reads EventBase's feed, the events written and removed after a change number (§5.3). It also hands the other
  * features' listeners the announcements below, which send EventBase's runs, removals and collection in use, and each
  * LLM call, on as `vectfox_*` events. VectFox never awaits its own events: SillyTavern's emit awaits each listener in
  * turn, so a listener that never resolves would hold VectFox up.
@@ -12,11 +13,11 @@ import { log } from '../../sillytavern/log.js';
 import { COLLECTION_TYPES, getChatUUID, parseCollectionId } from '../../shared/collection-ids.js';
 import { loadExtensionManifest } from '../../shared/extension-manifest.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
-import { openChatCollectionInUse } from '../eventbase/index.js';
+import { openChatCollectionInUse, readEventFeed } from '../eventbase/index.js';
 import {
     PUBLIC_API_REASONS, PUBLIC_EVENTS, buildPublicApi, chatIdAnswer, collectionInUseAnswer, createReadiness,
-    eventBaseCollectionChangedPayload, eventBaseEventsDeletedPayload, eventBaseSyncedPayload, isPublicEventName,
-    llmCallFinishedPayload, readyPayload, refusal, settingsSnapshotAnswer,
+    eventBaseCollectionChangedPayload, eventBaseEventsDeletedPayload, eventBaseSyncedPayload, eventFeedAnswer,
+    isPublicEventName, llmCallFinishedPayload, readyPayload, refusal, settingsSnapshotAnswer,
 } from './public-api-core.js';
 
 const readiness = createReadiness();
@@ -53,6 +54,65 @@ function getCollectionInUse() {
 function getSettingsSnapshot() {
     if (!readiness.isReady()) return refusal(PUBLIC_API_REASONS.notReady);
     return settingsSnapshotAnswer(settingsStore, { isEnabled: isVectFoxEnabled(settingsStore) });
+}
+
+/**
+ * What `eventBase.listEvents()` was asked: each part optional, null when left out.
+ * @param {unknown} request
+ * @returns {{chatId: string|null, collectionId: string|null, after: number|null}}
+ * @throws {TypeError} When the call cannot be right, a bug in the calling code
+ */
+function listEventsRequestOf(request) {
+    if (request === undefined) return { chatId: null, collectionId: null, after: null };
+    if (!request || typeof request !== 'object' || Array.isArray(request)) {
+        throw new TypeError('VectFox.eventBase.listEvents(): pass an object, { chatId, collectionId, after }, each part optional');
+    }
+    const { chatId = null, collectionId = null, after = null } = request;
+    if (chatId !== null && (typeof chatId !== 'string' || !chatId)) {
+        throw new TypeError('VectFox.eventBase.listEvents(): chatId must be a chat\'s ID, as chat.getChatId() gives it');
+    }
+    if (collectionId !== null && !isEventBaseCollection(collectionId)) {
+        throw new TypeError(`VectFox.eventBase.listEvents(): '${String(collectionId)}' is not the ID of an EventBase collection`);
+    }
+    if (after !== null && !(Number.isSafeInteger(after) && after >= 0)) {
+        throw new TypeError('VectFox.eventBase.listEvents(): after must be a cursor a read gave, a whole number of 0 or more, or left out for a full read');
+    }
+    return { chatId, collectionId, after };
+}
+
+/**
+ * `eventBase.listEvents()`: what changed in one EventBase collection after a change number, or with none every event it
+ * holds (§5.3). It reads the collection named, or the one the open chat uses; a `chatId` given is the chat the read
+ * must be about: the named collection's, or the open one.
+ * @param {{chatId?: string, collectionId?: string, after?: number}} [request]
+ * @returns {Promise<Readonly<object>>} The feed's answer (eventFeedAnswer), or a refusal with `not-ready`, `no-chat`,
+ *   `no-collection`, `backend-unsupported` or `read-failed`
+ * @throws {TypeError} When the request cannot be right, as a rejection
+ */
+async function listEvents(request) {
+    const { chatId, collectionId, after } = listEventsRequestOf(request);
+    if (!readiness.isReady()) return refusal(PUBLIC_API_REASONS.notReady);
+    let target = collectionId;
+    if (target) {
+        if (chatId && chatIdOfCollection(target) !== chatId) return refusal(PUBLIC_API_REASONS.noCollection);
+    } else {
+        const inUse = openChatCollectionInUse(settingsStore);
+        if (!inUse.chatId || (chatId && chatId !== inUse.chatId)) return refusal(PUBLIC_API_REASONS.noChat);
+        if (!inUse.collectionId) return refusal(PUBLIC_API_REASONS.noCollection);
+        target = inUse.collectionId;
+    }
+    let feed;
+    try {
+        feed = await readEventFeed(settingsStore, { collectionId: target, after });
+    } catch (error) {
+        log.warn(`VectFox public API: listEvents could not read ${target}, so it answers read-failed:`, error);
+        return refusal(PUBLIC_API_REASONS.readFailed);
+    }
+    if (!feed.supported) {
+        log.verbose(`VectFox public API: listEvents answers backend-unsupported for ${target}: ${feed.reason}`);
+        return refusal(PUBLIC_API_REASONS.backendUnsupported);
+    }
+    return eventFeedAnswer({ collectionId: target, ...feed });
 }
 
 /**
@@ -98,6 +158,7 @@ export function publishPublicApi() {
     if (globalThis.VectFox) log.warn('VectFox public API: globalThis.VectFox was already set, by another copy of VectFox loaded in this page; this copy replaces it');
     globalThis.VectFox = buildPublicApi({
         readiness, readExtensionVersion: () => extensionVersion, on, off, chat: { getChatId, getCollectionInUse }, getSettingsSnapshot,
+        eventBase: { listEvents },
     });
 }
 

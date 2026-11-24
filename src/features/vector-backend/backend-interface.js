@@ -138,6 +138,20 @@ export class VectorBackend {
     }
 
     /**
+     * What changed in a collection after a change number, which the EventBase feed reads (§5.3 of
+     * InternalProject/Vectfox/plans/vectfox-public-api.md). Only Qdrant keeps change numbers, through Similharity, so
+     * every other backend answers that it does not support them.
+     * @param {string} collectionId
+     * @param {object} settings
+     * @param {{after?: number|null, limit?: number}} [page] - after: the last number read, null for a full read
+     * @returns {Promise<{supported: false, reason: string}|{supported: true, points: object[], removed: object[],
+     *   emptied: boolean, cursor: number, hasMore: boolean}>}
+     */
+    async readChanges(collectionId, settings, page = {}) {
+        return { supported: false, reason: `Change numbers are kept on Qdrant only, and ${this.constructor.name} keeps none.` };
+    }
+
+    /**
      * Check if backend supports a backend-native/server-side hybrid search path.
      * This means the backend can combine dense vector retrieval with an additional
      * lexical/full-text style signal on the backend side, rather than requiring

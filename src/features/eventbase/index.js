@@ -9,7 +9,7 @@
 // runs ensureEventBaseIndexes at startup. The settings panel opens
 // Vectorize Content and runs Sync chat and the auto-sync catch-up. The Database Browser runs a collection's StoryArc
 // link actions and Compact collection here. The public API answers which chat is open and the collection it uses from
-// openChatCollectionInUse.
+// openChatCollectionInUse, and reads a collection's events and removals after a change number from readEventFeed.
 //
 // Re-exports only. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
 export { testAgentModeConnection, testStoryArcConnection } from './agentic-retrieval.js';
@@ -23,6 +23,7 @@ export { describeCompaction } from './eventbase-compaction-core.js';
 export { compactCollection, planCollectionCompaction } from './eventbase-compaction.js';
 export { synchronizeChat } from './eventbase-chat-sync.js';
 export { testEventBaseConnection } from './eventbase-extractor.js';
+export { readEventFeed } from './eventbase-feed.js';
 export { findEventBaseForkSource, forkEventBaseFromSource } from './eventbase-fork.js';
 export { clearInterceptorPrompts, runEventBaseReplyStep } from './eventbase-reply.js';
 export { packTimelineSortKey } from './eventbase-schema.js';

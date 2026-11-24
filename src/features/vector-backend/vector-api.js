@@ -1068,6 +1068,20 @@ export async function listChunks(collectionId, settings, options = {}) {
 }
 
 /**
+ * What changed in a collection after a change number, through the backend in use: Qdrant reads Similharity's change
+ * numbers, which the EventBase feed follows, and a backend that keeps none answers `{ supported: false, reason }`. A
+ * failed read drops the backend's health cache, so the next request sets the backend up again.
+ * @param {string} collectionId - Collection ID
+ * @param {object} settings - VectFox settings
+ * @param {{after?: number|null, limit?: number}} [page] - after: the last number read, null for a full read
+ * @returns {Promise<object>} As the backend's readChanges answers
+ */
+export async function readCollectionChanges(collectionId, settings, page = {}) {
+    const backend = await getBackend(settings);
+    return await withHealthInvalidation(() => backend.readChanges(collectionId, settings, page), settings);
+}
+
+/**
  * Update chunk metadata (no re-embedding)
  * @param {string} collectionId - Collection ID
  * @param {number} hash - Chunk hash

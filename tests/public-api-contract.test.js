@@ -1,8 +1,9 @@
 /**
  * The public API's contract (A3 of InternalProject/Vectfox/plans/vectfox-public-api.md): every name another extension
  * reads, pinned in CONTRACT. The test goes red when a member of the `VectFox` object or of one of its groups, an event, a
- * payload field, a capability, a reason, a field of a call's answer, a setting of the snapshot or a value an LLM call's
- * report names is renamed, removed or added, when `apiVersion` differs from the contract's, and when the developer page
+ * payload field, a capability, a reason, a field of a call's answer, a setting of the snapshot, a field of an EventBase
+ * event listEvents gives or a value an LLM call's report names is renamed, removed or added, when `apiVersion` differs
+ * from the contract's, and when the developer page
  * (Doc/public-api.md) leaves a name out or names an event VectFox does not emit. A change to CONTRACT follows the version
  * rule (§4.4, D3): an added name raises apiVersion's minor version; a removed, renamed or changed one raises its major
  * version.
@@ -12,7 +13,7 @@ import { fileURLToPath } from 'url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const CONTRACT = Object.freeze({
-    apiVersion: '1.1.0',
+    apiVersion: '1.2.0',
     // Each member of globalThis.VectFox and what it is.
     members: {
         apiVersion: 'string',
@@ -24,26 +25,34 @@ const CONTRACT = Object.freeze({
         off: 'method',
         chat: 'group',
         getSettingsSnapshot: 'method',
+        eventBase: 'group',
     },
     // Each group's members.
     groups: {
         chat: { getChatId: 'method', getCollectionInUse: 'method' },
+        eventBase: { listEvents: 'method' },
     },
-    capabilities: ['events', 'chat', 'settings'],
+    capabilities: ['events', 'chat', 'settings', 'eventbase.read'],
     // Why a call answers no (§4.2).
-    reasons: ['not-ready', 'no-chat', 'no-collection'],
+    reasons: ['not-ready', 'no-chat', 'no-collection', 'backend-unsupported', 'read-failed'],
     // The fields of each answer: a refusal, and each call's answer of yes.
     answers: {
         refusal: ['ok', 'reason'],
         getChatId: ['ok', 'chatId'],
         getCollectionInUse: ['ok', 'collectionId'],
         getSettingsSnapshot: ['ok', 'settings'],
+        listEvents: ['ok', 'schemaVersion', 'collectionId', 'events', 'removedEventIds', 'emptied', 'cursor', 'hasMore'],
     },
     // The settings getSettingsSnapshot() gives, by their public names.
     settings: [
         'enabled', 'ghostingEnabled', 'ghostingKeepRecent', 'ghostingBatchSize', 'summarizerInjectionEnabled',
         'summarizerInjectionCount', 'summarizerInjectionFullDetail', 'summarizerInjectionMaxChars', 'autoSyncWindowTurns',
         'autoSyncSettleLag',
+    ],
+    // The fields of each EventBase event listEvents() gives.
+    eventFields: [
+        'eventId', 'summary', 'cause', 'result', 'characters', 'locations', 'importance', 'storyTime', 'sceneTime',
+        'windowStart', 'windowEnd', 'cursor',
     ],
     // Each event and the fields of its payload.
     events: {
@@ -62,7 +71,7 @@ const CONTRACT = Object.freeze({
     },
 });
 
-const host = vi.hoisted(() => ({ listeners: {}, chatMetadata: {}, inUse: { chatId: null, collectionId: null } }));
+const host = vi.hoisted(() => ({ listeners: {}, chatMetadata: {}, inUse: { chatId: null, collectionId: null }, feed: null, feedError: null }));
 
 vi.mock('../src/sillytavern/events.js', () => ({
     eventSource: {
@@ -83,10 +92,22 @@ vi.mock('../src/shared/extension-manifest.js', () => ({ loadExtensionManifest: a
 // The real collection IDs read a chat's UUID from an ID, and the open chat's from its metadata.
 vi.mock('../src/sillytavern/chat.js', () => ({ getContext: () => ({}), getCurrentChatId: () => null, chat_metadata: host.chatMetadata }));
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: {} }));
-vi.mock('../src/features/eventbase/index.js', () => ({ openChatCollectionInUse: () => host.inUse }));
+vi.mock('../src/features/eventbase/index.js', () => ({
+    openChatCollectionInUse: () => host.inUse,
+    readEventFeed: async () => {
+        if (host.feedError) throw host.feedError;
+        return host.feed;
+    },
+}));
 
 const LANTERN_UUID = 'cccccccc-3333-4333-8333-cccccccccccc';
 const LANTERN_EVENTS = `vf_eventbase_qdrant_wren_lantern_${LANTERN_UUID}`;
+
+/** A made-up event as EventBase's feed gives one. */
+const LANTERN_EVENT = Object.freeze({
+    event_id: 'evt-lamp', summary: 'Wren trims the lantern wick', cause: '', result: '', characters: ['Wren'], locations: ['the lighthouse'],
+    importance: 4, DateTime: null, scene_time: '', source_window_start: 2, source_window_end: 3, change_number: 8,
+});
 
 /** The modules fresh, as a page load gives them, and the object published. */
 async function loadPublishedApi() {
@@ -133,6 +154,8 @@ beforeEach(() => {
     host.listeners = {};
     delete host.chatMetadata.integrity;
     host.inUse = { chatId: null, collectionId: null };
+    host.feed = null;
+    host.feedError = null;
     delete globalThis.VectFox;
 });
 
@@ -185,20 +208,27 @@ describe('the contract of the calls', () => {
         expect(sorted(Object.values(core.PUBLIC_API_REASONS))).toEqual(sorted(CONTRACT.reasons));
     });
 
-    it('answers each call with exactly the contract\'s fields, frozen, and the snapshot with exactly its settings', async () => {
+    it('answers each call with exactly the contract\'s fields, frozen, the snapshot with exactly its settings and an event with exactly its fields', async () => {
         const { api, publicApi } = await loadPublishedApi();
         const calls = {
             getChatId: () => api.chat.getChatId(),
             getCollectionInUse: () => api.chat.getCollectionInUse(),
             getSettingsSnapshot: () => api.getSettingsSnapshot(),
+            listEvents: () => api.eventBase.listEvents(),
         };
-        const refusals = Object.values(calls).map(call => call());
+        const refusals = await Promise.all(Object.values(calls).map(call => call()));
         await publicApi.announcePublicApiReady({ enabled: true });
-        const refusedWithNoChat = [calls.getChatId(), calls.getCollectionInUse()];
+        const refusedWithNoChat = [calls.getChatId(), calls.getCollectionInUse(), await calls.listEvents()];
         host.chatMetadata.integrity = LANTERN_UUID;
         host.inUse = { chatId: LANTERN_UUID, collectionId: null };
         refusals.push(calls.getCollectionInUse(), ...refusedWithNoChat);
         host.inUse = { chatId: LANTERN_UUID, collectionId: LANTERN_EVENTS };
+        host.feed = { supported: false, reason: 'Change numbers are kept on Qdrant only.' };
+        refusals.push(await calls.listEvents());
+        host.feedError = new Error('Qdrant not initialized');
+        refusals.push(await calls.listEvents());
+        host.feedError = null;
+        host.feed = { supported: true, schemaVersion: 1.3, events: [LANTERN_EVENT], removedEventIds: ['evt-wick'], emptied: false, cursor: 8, hasMore: false };
 
         for (const refusal of refusals) {
             expect(sorted(Object.keys(refusal))).toEqual(sorted(CONTRACT.answers.refusal));
@@ -207,12 +237,15 @@ describe('the contract of the calls', () => {
         }
         expect(sorted(new Set(refusals.map(refusal => refusal.reason)))).toEqual(sorted(CONTRACT.reasons));
         for (const [name, call] of Object.entries(calls)) {
-            const answer = call();
+            const answer = await call();
             expect(answer.ok, name).toBe(true);
             expect(sorted(Object.keys(answer)), name).toEqual(sorted(CONTRACT.answers[name]));
             expect(Object.isFrozen(answer), name).toBe(true);
         }
         expect(sorted(Object.keys(calls.getSettingsSnapshot().settings))).toEqual(sorted(CONTRACT.settings));
+        const [event] = (await calls.listEvents()).events;
+        expect(sorted(Object.keys(event))).toEqual(sorted(CONTRACT.eventFields));
+        expect(Object.isFrozen(event)).toBe(true);
     });
 });
 
@@ -252,7 +285,7 @@ describe('the developer page', () => {
     const escaped = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const isNamed = name => inlineCode.some(code => new RegExp(`(^|[^A-Za-z0-9_])${escaped(name)}($|[^A-Za-z0-9_])`).test(code));
 
-    it('names every member, group member, capability, reason, answer field, setting, event, payload field and value of the contract', () => {
+    it('names every member, group member, capability, reason, answer field, setting, event field, event, payload field and value of the contract', () => {
         const quoted = value => `'${value}'`;
         const names = [
             ...Object.keys(CONTRACT.members),
@@ -261,6 +294,7 @@ describe('the developer page', () => {
             ...CONTRACT.reasons.map(quoted),
             ...Object.values(CONTRACT.answers).flat(),
             ...CONTRACT.settings,
+            ...CONTRACT.eventFields,
             ...Object.entries(CONTRACT.events).flatMap(([name, fields]) => [name, ...fields]),
             ...CONTRACT.llmCallUsage,
             ...Object.values(CONTRACT.llmCallValues).flat().map(quoted),

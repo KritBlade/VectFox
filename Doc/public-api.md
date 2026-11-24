@@ -34,15 +34,16 @@ Once you have the object, `await VectFox.whenReady()` does the same wait as a pr
 
 | Name | What it gives you |
 |---|---|
-| `apiVersion` | The API's version, like `'1.1.0'`. See Versions below |
+| `apiVersion` | The API's version, like `'1.2.0'`. See Versions below |
 | `extensionVersion` | VectFox's own version from its manifest, like `'3.6.245'`, once VectFox is ready. `null` before that, or when VectFox could not read its manifest (the console says why) |
 | `isReady()` | `true` once VectFox has finished starting up |
 | `whenReady()` | A promise that resolves when VectFox has finished starting up. It's the same promise every time you ask |
-| `capabilities` | The groups of the API this VectFox serves, like `['events', 'chat', 'settings']` |
+| `capabilities` | The groups of the API this VectFox serves, like `['events', 'chat', 'settings', 'eventbase.read']` |
 | `on(name, handler)` | Calls your handler every time VectFox sends that event. Returns a function that stops it |
 | `off(name, handler)` | Stops calling your handler for that event |
 | `chat` | The open chat: `chat.getChatId()` and `chat.getCollectionInUse()`. See The chat, its collection and the settings below |
 | `getSettingsSnapshot()` | A frozen copy of the settings that decide what VectFox does to the prompt. Also below |
+| `eventBase` | The events VectFox reads out of a chat: `eventBase.listEvents()`. See Reading EventBase below |
 
 The object is frozen, so you can't change it or add to it.
 
@@ -73,6 +74,8 @@ if (major !== 1) {
 }
 ```
 
+EventBase's events have a version of their own, `schemaVersion`, which every `listEvents` answer carries, like `'1.3'`. It follows the exact same rule, so you compare its major only too. A new field on an event is a new minor version, and nothing you read changes.
+
 When a release raises the major version, VectFox's release notes say so.
 
 ## When a call says no
@@ -84,8 +87,10 @@ Think of calling a shop. "Sold out" and "we're closed" are normal answers, not a
 | `reason` | What it means |
 |---|---|
 | `'not-ready'` | VectFox hasn't finished starting up. Every call says this until `vectfox_ready`, so wait for it and ask again |
-| `'no-chat'` | No chat is open |
-| `'no-collection'` | A chat is open, but it uses no EventBase collection |
+| `'no-chat'` | No chat is open. From `listEvents`, it can also mean the chat you named isn't the open one |
+| `'no-collection'` | A chat is open, but it uses no EventBase collection. From `listEvents`, it can also mean the collection you named isn't the chat's you named |
+| `'backend-unsupported'` | The chat's events live somewhere with no change numbers, so there's no feed to read. See Reading EventBase |
+| `'read-failed'` | The read didn't get through, like Qdrant being down or SillyTavern having just restarted. The console says why. Ask again in a bit |
 
 ```js
 const answer = VectFox.chat.getChatId();
@@ -125,6 +130,8 @@ EventBase is where VectFox keeps a chat's events, and a chat can have several Ev
 `chatId` is the ID VectFox keys a chat's collections by, the chat's `chat_metadata.integrity`. In `vectfox_eventbase_synced` and `vectfox_eventbase_events_deleted` it's the chat the collection belongs to, which isn't always the open one: a run started on one chat can end after you opened another. For an archived chat's collection it's the archive's own ID. In `vectfox_eventbase_collection_changed` it's the open chat, and `null` when no chat is open.
 
 `vectfox_eventbase_synced` comes at the end of EVERY run, not just the ones that finish. Say I stop a run after 10 windows: those 10 windows' events are stored, so you hear about them. `eventsAdded` is how many events the run stored, and `windowsProcessed` how many windows it read. A run that read windows but stored nothing still says so, with `eventsAdded: 0`. Auto-sync checking a chat and finding nothing new to read isn't a run, so that says nothing.
+
+When you hear it, read the feed from your cursor (Reading EventBase below). That gives you exactly what the run changed, and a read with nothing new answers fast with an empty page.
 
 `vectfox_eventbase_events_deleted` comes when events go: a window read again replacing its old events, Compact collection, Start over, a delete in the Database Browser, a deleted collection, or an import over one. `eventIds` lists the events removed, or is `null` when the whole collection was emptied. You only hear it in the tab that removed them. A removal that fails part way says nothing, so treat this event as "read again", not as the full list of what's gone.
 
@@ -209,5 +216,134 @@ if (answer.ok && answer.settings.enabled && answer.settings.ghostingEnabled && a
 A setting keeps its name here even when I rename it inside VectFox, so you never have to read `extension_settings.vectfox` yourself. There's no key and no key ID in it, ever.
 
 Auto-sync itself is switched on and off per collection, so it's not in the snapshot.
+
+## Reading EventBase
+
+`eventBase.listEvents()` gives you the events VectFox read out of a chat. The first time you ask, you get all of them. After that, you only ask for what changed since your last read: the events stored or edited, and the ones removed. `capabilities` has `'eventbase.read'` when this VectFox has it.
+
+### Change numbers, not chat positions
+
+Every time VectFox stores, edits or removes an event, the server gives that change the next number. That number is the `cursor`. You keep the last `cursor` you read, and next time you ask for everything after it.
+
+Think of your bank. It doesn't send you your whole history every morning. Every payment gets the next number, and your next statement starts right after the last one. So nothing slips between two statements, no matter how many payments came in.
+
+So why not just ask for "everything after message 500"? Because chat positions move. A summarizer swaps 50 messages for one summary, and message 500 is now message 451. A reader that follows positions sees the next events at 451, thinks it already has them... and skips them for good. A change number never moves, whatever happens to the chat.
+
+```js
+const kept = new Map();   // eventId -> event
+let cursor;               // undefined until the first read
+
+async function catchUp() {
+    let answer;
+    do {
+        answer = await VectFox.eventBase.listEvents({ after: cursor });
+        if (!answer.ok) return console.log(`Nothing read: ${answer.reason}`);
+        if (answer.emptied) kept.clear();
+        for (const eventId of answer.removedEventIds) kept.delete(eventId);
+        for (const event of answer.events) kept.set(event.eventId, event);
+        cursor = answer.cursor;
+    } while (answer.hasMore);
+    console.log(`${kept.size} events, read up to ${cursor}`);
+}
+```
+
+That's the whole loop: drop what was emptied or removed, keep what came in, and remember where you stopped. With no `after`, it reads the collection the open chat uses.
+
+### What you get back
+
+`listEvents` is async, so `await` it. It answers `{ ok: true, ... }` with these, or `{ ok: false, reason }` like every other call.
+
+| Field | What it is |
+|---|---|
+| `schemaVersion` | The version of EventBase's events, like `'1.3'`. See Versions above |
+| `collectionId` | The collection this answer read |
+| `events` | The events stored or edited since `after`, oldest change first. With no `after`, every event the collection holds |
+| `removedEventIds` | The `eventId` of each event removed since `after` |
+| `emptied` | `true` when the whole collection was emptied since `after`. Throw away what you kept from it first, then take `events` |
+| `cursor` | Where this answer stopped. Pass it as `after` next time |
+| `hasMore` | `true` when there's more to read. Ask again right away, from the new `cursor` |
+
+One answer holds up to 100 changes, which is what `hasMore` is for. A full read, with no `after`, always comes in one answer.
+
+### Each event
+
+| Field | What it is |
+|---|---|
+| `eventId` | The event's ID. It never changes, so keep events by it |
+| `summary` | One line on what happened |
+| `cause` | What led to it, `''` when the event has none |
+| `result` | What came out of it, `''` when none |
+| `characters` | Who was in it |
+| `locations` | Where it happened |
+| `importance` | How much it matters to the story, from 1 to 10 |
+| `storyTime` | When it happened in the story, as an ISO date and time, `null` when the story gave no date |
+| `sceneTime` | The same moment in the story's own words, like `'the third night of the harvest festival'`, `''` when none |
+| `windowStart` / `windowEnd` | The first and last chat message VectFox read it from, by message number, as the chat was then |
+| `cursor` | The change number it was stored or last edited under, `0` when it was stored before change numbers existed |
+
+Everything in an answer is frozen.
+
+### An event can come again
+
+An edit gives an event a new number. So an event you already have can show up again with a higher `cursor`: StoryArc linking it to another event, or the user fixing it in the Database Browser. Some edits change a field you don't get, so it can look exactly the same. That's why you keep events by `eventId` and just replace your copy.
+
+### Start with a full read
+
+Events VectFox stored before change numbers existed have `cursor` `0`. Only a full read, with no `after`, gives you those. `after: 0` skips them. So your first read of a collection is always without `after`.
+
+### Removed and emptied
+
+`removedEventIds` comes from a window read again replacing its old events, Compact collection merging events, or a delete in the Database Browser. Drop each of them.
+
+`emptied` comes from Start over, a deleted collection, or an import over one. You throw away everything you kept from that collection, then take `events`, which is only what came after.
+
+### One cursor per collection
+
+A chat can have several EventBase collections, and uses one at a time. The numbers belong to a collection, so keep one cursor per collection. When `vectfox_eventbase_collection_changed` says the chat moved to another collection, read that one from ITS cursor, or with a full read when you never read it.
+
+```js
+const collections = {};   // collectionId -> { cursor, events }
+
+async function catchUpWith(collectionId) {
+    const kept = (collections[collectionId] ??= { cursor: undefined, events: new Map() });
+    let answer;
+    do {
+        answer = await VectFox.eventBase.listEvents({ collectionId, after: kept.cursor });
+        if (!answer.ok) return console.log(`Nothing read from ${collectionId}: ${answer.reason}`);
+        if (answer.emptied) kept.events.clear();
+        for (const eventId of answer.removedEventIds) kept.events.delete(eventId);
+        for (const event of answer.events) kept.events.set(event.eventId, event);
+        kept.cursor = answer.cursor;
+    } while (answer.hasMore);
+}
+
+const inUse = VectFox.chat.getCollectionInUse();
+if (inUse.ok) catchUpWith(inUse.collectionId);
+VectFox.on('vectfox_eventbase_collection_changed', ({ collectionId }) => { if (collectionId) catchUpWith(collectionId); });
+VectFox.on('vectfox_eventbase_synced', ({ collectionId }) => { catchUpWith(collectionId); });
+VectFox.on('vectfox_eventbase_events_deleted', ({ collectionId }) => { catchUpWith(collectionId); });
+```
+
+The handlers start the read and don't return it, so they never hold up the other extensions listening.
+
+### Another tab, another device
+
+The numbers live on the server, in the Similharity plugin, not in your page. So a reader in another tab, or on your phone, catches up the exact same way: it remembers its cursor and asks for what came after.
+
+The events only come in the tab that did the work. So treat `vectfox_eventbase_synced` and `vectfox_eventbase_events_deleted` as a nudge to read now, and the feed as the full story.
+
+### Which collection it reads
+
+- No `collectionId`: the collection the open chat uses, the same one `chat.getCollectionInUse()` gives. With no chat open you get `'no-chat'`, and with none in use `'no-collection'`.
+- `collectionId`: that collection, from any chat, even with no chat open. Use the IDs VectFox gives you, from `chat.getCollectionInUse()` or an event's payload.
+- `chatId`: the chat the read is about, a safety check for when the user switches chats between your decision and your call. Without `collectionId`, that chat has to be the open one, or you get `'no-chat'`. With `collectionId`, the collection has to be that chat's, or you get `'no-collection'`.
+
+### When it says no
+
+`'backend-unsupported'` means the chat's events live where there are no change numbers. That's the Standard backend, SillyTavern's own vector store, or the Qdrant backend with a Similharity plugin older than 3.4.19, or a Qdrant older than 1.8. Nothing changes that until the user moves to Qdrant or updates.
+
+`'read-failed'` means the read didn't get through, like Qdrant being down, or SillyTavern having just restarted. The console says why, and asking again in a bit usually works.
+
+`listEvents` only rejects for a call that can't be right, with a `TypeError`: a request that isn't an object, a `collectionId` that isn't an EventBase collection's ID, a `chatId` that isn't a chat's ID, or an `after` that isn't a whole number of 0 or more.
 
 Basically, check `isReady()`, wait for `vectfox_ready` if you have to, and from there everything goes through the one object.
