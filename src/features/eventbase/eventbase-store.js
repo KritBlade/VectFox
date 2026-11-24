@@ -496,9 +496,9 @@ export function createWindowReplacement({ collectionId, settings, tipAtRunStart 
         },
 
         /**
-         * At the end of the run: points the StoryArc links that went to replaced events at the
-         * events that replaced them, and drops those to replaced events with no replacement. Reads
-         * the collection again, since links change while a run goes on.
+         * When the run ends, finished, stopped or failed: points the StoryArc links that went to
+         * replaced events at the events that replaced them, and drops those to replaced events with
+         * no replacement. Reads the collection again, since links change while a run goes on.
          *
          * @returns {Promise<string[]>} event_id of each event that held a link to a replaced event,
          *   whether or not its links were stored; none when the collection could not be read

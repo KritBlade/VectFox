@@ -138,6 +138,15 @@ describe('describeReadingAgain', () => {
         expect(plan.waitReason).toContain('no StoryArc link pass');
     });
 
+    it('links when the only undecided events are the ones its windows hold, as a read of the stretch that failed before linking leaves', async () => {
+        const isHeld = event => [2, 4].includes(event.source_window_start);
+        host.storedEvents = host.storedEvents.map(({ story_links: links, ...event }) => (isHeld(event) ? event : { ...event, story_links: links }));
+
+        const plan = await describeMessages4To7();
+
+        expect(plan).toMatchObject({ willLink: true, waitReason: '' });
+    });
+
     it('says why there is nothing to read: no collection in use, no whole window, or events it cannot read', async () => {
         host.inUse = null;
         expect((await describeMessages4To7()).problem).toContain('no EventBase collection yet');

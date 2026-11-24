@@ -101,7 +101,7 @@ export async function describeReadingAgain({ settings, startFromMessage, endAtMe
         log.warn(`[EventBase] Could not read ${collection.collectionId} to show what a stretch read again replaces:`, err);
         return { problem: 'Could not read the collection\'s events, so nothing was read again. See the console.' };
     }
-    const { heldEvents, eventsLinkingIn } = describeStretch(windows, storedEvents);
+    const { heldEvents, eventsLinkingIn, eventsShowingLinkPass } = describeStretch(windows, storedEvents);
 
     const firstMessage = windows[0].start;
     const lastMessage = windows[windows.length - 1].end;
@@ -121,7 +121,7 @@ export async function describeReadingAgain({ settings, startFromMessage, endAtMe
 
     const waitReason = linkWaitReasonOf({
         isStoryArcOn: isStoryArcActive(settings),
-        hasLinkPass: shouldLinkNewEvents(storedEvents),
+        hasLinkPass: shouldLinkNewEvents(eventsShowingLinkPass),
         isLinkModelReady: resolveStoryLinkLlmConfig(settings).ok,
     });
     const willLink = waitReason === '';

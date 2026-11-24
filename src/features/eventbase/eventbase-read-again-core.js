@@ -14,17 +14,20 @@
 
 import { counted } from '../../shared/counted.js';
 import { windowSpanOf } from './eventbase-window-replacement-core.js';
+import { isDecided } from './story-arc-links-core.js';
 import { linkEstimateText, tokenCountText } from './story-arc-page-markup.js';
 
 const formatCount = count => Number(count).toLocaleString('en-US');
 
 /**
- * What the stretch's windows hold now: their events, which the run replaces, and the events outside them whose
- * StoryArc links go to one of those, which it decides again.
+ * What the stretch's windows hold now: their events, which the run replaces; the events outside them whose StoryArc
+ * links go to one of those, which it decides again; and the events that show whether the collection has had a link
+ * pass: all but the undecided ones the windows hold, as a run of the stretch that stopped or failed before linking
+ * leaves, since the run replaces those.
  *
  * @param {{start: number, end: number}[]} windows - The stretch's windows (windowsInStretch)
  * @param {object[]} storedEvents - The collection's events, with their story_links
- * @returns {{heldEvents: object[], eventsLinkingIn: object[]}}
+ * @returns {{heldEvents: object[], eventsLinkingIn: object[], eventsShowingLinkPass: object[]}}
  */
 export function describeStretch(windows, storedEvents) {
     const spans = new Set(windows.map(window => windowSpanOf({ source_window_start: window.start, source_window_end: window.end })));
@@ -32,7 +35,8 @@ export function describeStretch(windows, storedEvents) {
     const heldIds = new Set(heldEvents.map(event => event.event_id));
     const eventsLinkingIn = storedEvents.filter(event => !heldIds.has(event.event_id)
         && (event.story_links ?? []).some(link => heldIds.has(link?.event_id)));
-    return { heldEvents, eventsLinkingIn };
+    const eventsShowingLinkPass = storedEvents.filter(event => !heldIds.has(event.event_id) || isDecided(event));
+    return { heldEvents, eventsLinkingIn, eventsShowingLinkPass };
 }
 
 /**

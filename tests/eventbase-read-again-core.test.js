@@ -35,6 +35,19 @@ describe('describeStretch', () => {
         expect(heldEvents.map(event => event.event_id)).toEqual(['held-a', 'held-b']);
         expect(eventsLinkingIn.map(event => event.event_id)).toEqual(['after-in']);
     });
+
+    it('shows the link pass by every event but the undecided ones its windows hold, which the run replaces', () => {
+        const stored = [
+            eventOf('before', 0, []),
+            eventOf('held-undecided', 2),
+            eventOf('held-decided', 4, []),
+            eventOf('after-undecided', 8),
+        ];
+
+        const { eventsShowingLinkPass } = describeStretch([{ start: 2, end: 3 }, { start: 4, end: 5 }], stored);
+
+        expect(eventsShowingLinkPass.map(event => event.event_id)).toEqual(['before', 'held-decided', 'after-undecided']);
+    });
 });
 
 describe('extractionInputTokensOf', () => {

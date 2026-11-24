@@ -116,7 +116,7 @@ export function inTimelineOrder(events) {
 }
 
 /** @param {object} event @returns {boolean} whether a link pass has decided this event */
-function isDecided(event) {
+export function isDecided(event) {
     return Array.isArray(event?.story_links);
 }
 

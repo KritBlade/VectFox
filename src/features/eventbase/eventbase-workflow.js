@@ -460,6 +460,11 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
 
     // A window this run extracts again replaces the events it holds from earlier extractions.
     const windowReplacement = createWindowReplacement({ collectionId, settings, tipAtRunStart: getVectorizationTip(registryKey) });
+    /** A run that fails, like one stopped, moves the links off the events it removed; returns the error to throw. */
+    const moveLinksBeforeFailing = async (error) => {
+        await windowReplacement.moveLinksOffReplacedEvents();
+        return error;
+    };
 
     // Auto-sync popup: shown once per ingestion call, and only when windows are left
     // to extract. Passing the quick-exit does not guarantee that — the start-marker
@@ -976,7 +981,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                     try { await pendingInsert; } catch (_) { /* secondary */ }
                 }
                 progressTracker.complete(false, `EventBase fatal error: ${winner.error.message}`);
-                throw winner.error;
+                throw await moveLinksBeforeFailing(winner.error);
             }
             queuedResult = winner.result;
         } else {
@@ -999,7 +1004,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                 // is caught at the UI layer and turned into a popup.
                 const errMsg = winner.error?.message || String(winner.error);
                 progressTracker.complete(false, `Stopped — ${errMsg}`);
-                throw winner.error;
+                throw await moveLinksBeforeFailing(winner.error);
             }
             // Insert succeeded — fold tally and update progress.
             const tally = winner.tally;
@@ -1010,7 +1015,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                     try { await pendingExtract; } catch (_) { /* swallow */ }
                 }
                 progressTracker.complete(false, `EventBase fatal error: ${tally.fatalError.message}`);
-                throw tally.fatalError;
+                throw await moveLinksBeforeFailing(tally.fatalError);
             }
             eventsExtracted  += tally.eventsAdded;
             windowsProcessed += tally.windowsProcessed;
@@ -1067,7 +1072,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
             // Only re-throw our own verification failure. Network errors on the
             // verification round-trip itself shouldn't kill an otherwise-successful
             // run — they're advisory only.
-            if (verifyErr?.code === 'insert_verification_failed') throw verifyErr;
+            if (verifyErr?.code === 'insert_verification_failed') throw await moveLinksBeforeFailing(verifyErr);
             log.warn('[EventBase] Verification probe failed (advisory, not fatal):', verifyErr?.message || verifyErr);
         }
     }
