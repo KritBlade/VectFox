@@ -21,6 +21,7 @@ vi.mock('../src/shared/model-config-notifier.js', async () => ({
 }));
 
 const { LlmCallError, postChatCompletion } = await import('../src/features/llm-provider/llm-provider-call.js');
+const { setLlmCallFinishedListener } = await import('../src/features/llm-provider/llm-call-report.js');
 
 function extractMessageFromData(data, activeApi) {
     const result = (() => {
@@ -75,6 +76,7 @@ beforeEach(() => {
 });
 
 const call = (profile, extra = {}) => postChatCompletion({
+    feature: 'eventbase',
     messages: [{ role: 'user', content: 'Read this window.' }],
     provider: 'connection_profile',
     connectionProfileId: profile.id,
@@ -218,5 +220,42 @@ describe('a profile call that cannot run', () => {
     it('rethrows a timeout as the manual path does', async () => {
         host.failure = failed('signal timed out', 'TimeoutError');
         await expect(call(PROFILES.custom)).rejects.toMatchObject({ name: 'TimeoutError' });
+    });
+});
+
+describe('the report of a call on a profile', () => {
+    const reports = [];
+    beforeEach(() => {
+        reports.length = 0;
+        setLlmCallFinishedListener(report => reports.push(report));
+    });
+
+    it("names the profile, its source and model, and the reply's tokens, and never its key ID", async () => {
+        await call(PROFILES.custom);
+        expect(reports).toEqual([{
+            feature: 'eventbase', connection: 'profile', profileName: 'Harbor custom', provider: 'custom', model: 'harbor-model',
+            durationMs: expect.any(Number), outcome: 'ok',
+            usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14, cached_tokens: null },
+        }]);
+        expect(JSON.stringify(reports)).not.toContain('secret-3');
+    });
+
+    it('names a Text Completion profile by its API, with no model when it names none', async () => {
+        host.reply = { content: 'gate', stop: true };
+        await call(PROFILES.llamacpp);
+        expect(reports).toEqual([expect.objectContaining({ connection: 'profile', profileName: 'Harbor llama', provider: 'llamacpp', model: null, usage: null })]);
+    });
+
+    it('says a failed request failed and a timeout timed out, and reports nothing a check stopped before sending', async () => {
+        host.failure = failed('Unauthorized');
+        await expect(call(PROFILES.custom)).rejects.toBeInstanceOf(LlmCallError);
+        host.failure = failed('The operation timed out.', 'TimeoutError');
+        await expect(call(PROFILES.custom)).rejects.toMatchObject({ name: 'TimeoutError' });
+        host.failure = null;
+        await expect(call({ id: 'p-deleted' })).rejects.toBeInstanceOf(LlmCallError);
+        expect(reports.map(({ outcome, usage }) => ({ outcome, usage }))).toEqual([
+            { outcome: 'failed', usage: null },
+            { outcome: 'timed-out', usage: null },
+        ]);
     });
 });

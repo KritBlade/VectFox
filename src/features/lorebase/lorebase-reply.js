@@ -173,7 +173,7 @@ async function askForReplyLore(settings, { books, scene, messages }) {
         return loreForReplyByJev({
             scene,
             books,
-            ask: (state, questions) => askJev(model.jev.fields, state, questions),
+            ask: (state, questions) => askJev(model.jev, state, questions),
             searchPool: contents => searchReplyPool(books, contents, messages, settings),
             loreBudget: loreBudgetOf(settings.lorebase_lore_budget_tokens),
         });

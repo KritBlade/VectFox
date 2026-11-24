@@ -28,7 +28,9 @@ vi.mock('../src/features/vector-backend/index.js', async () => ({
     describeEmbeddingFailure: (await import('../src/features/vector-backend/embedding-failure.js')).describeEmbeddingFailure,
     qdrantTarget: (await import('../src/features/vector-backend/qdrant-target.js')).qdrantTarget,
 }));
+const announceEventsRemoved = vi.hoisted(() => vi.fn());
 vi.mock('../src/features/eventbase/index.js', () => ({
+    announceEventsRemoved,
     packTimelineSortKey: (message, order) => message * 1000 + order,
     eventPointHash: id => 7_000_000 + [...String(id)].reduce((hash, character) => (hash * 31 + character.charCodeAt(0)) % 1000003, 3),
 }));
@@ -98,6 +100,7 @@ beforeEach(() => {
         mock.mockImplementation(async (collectionId, ...rest) => { host.calls.push([name, ...rest]); });
     }
     confirmPopup.mockClear();
+    announceEventsRemoved.mockClear();
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ items: host.items, total: 5 }) })));
 });
 
@@ -326,7 +329,27 @@ describe('the bulk bar', () => {
         actionButton('bulk-delete').click();
         await vi.waitFor(() => expect(confirmPopup).toHaveBeenCalledTimes(1));
         expect(backend.deleteVectorItems).not.toHaveBeenCalled();
+        expect(announceEventsRemoved).not.toHaveBeenCalled();
         expect(rowKeys()).toEqual(['0', '1', '2']);
+    });
+
+    it("tells EventBase's listener the IDs of the events it deleted, after the delete", async () => {
+        const events = { id: 'vf_eventbase_qdrant_wren_harbor_aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa', name: 'Harbor events', type: 'chat', backend: 'qdrant', chunkCount: 3 };
+        host.items = [
+            { hash: 2000, index: 0, text: 'Wren reached the gate.', metadata: { event_id: 'evt-gate' } },
+            { hash: 2001, index: 1, text: 'The tide came in.', metadata: { event_id: 'evt-tide' } },
+            { hash: 2002, index: 2, text: 'A note with no event.', metadata: {} },
+        ];
+        backend.deleteVectorItems.mockImplementation(async () => {
+            expect(announceEventsRemoved).not.toHaveBeenCalled();
+        });
+        await openHarbor(SETTINGS, events);
+        change(document.querySelector('[data-chunk-tick="1"]'), true);
+        change(document.querySelector('[data-chunk-tick="2"]'), true);
+        actionButton('bulk-delete').click();
+        await vi.waitFor(() => expect(rowKeys()).toEqual(['0']));
+        expect(announceEventsRemoved).toHaveBeenCalledTimes(1);
+        expect(announceEventsRemoved).toHaveBeenCalledWith(events.id, ['evt-tide']);
     });
 });
 

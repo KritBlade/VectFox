@@ -13,6 +13,10 @@ export const PUBLIC_API_VERSION = '1.0.0';
 /** The events VectFox emits on SillyTavern's eventSource, by name. */
 export const PUBLIC_EVENTS = Object.freeze({
     ready: 'vectfox_ready',
+    eventBaseSynced: 'vectfox_eventbase_synced',
+    eventBaseEventsDeleted: 'vectfox_eventbase_events_deleted',
+    eventBaseCollectionChanged: 'vectfox_eventbase_collection_changed',
+    llmCallFinished: 'vectfox_llm_call_finished',
 });
 
 /** The groups this build serves, so a consumer checks once instead of probing each method. */
@@ -33,6 +37,73 @@ export function isPublicEventName(name) {
  */
 export function readyPayload() {
     return Object.freeze({ apiVersion: PUBLIC_API_VERSION });
+}
+
+/**
+ * The payload of `vectfox_eventbase_synced`: an EventBase run ended, finished, stopped or failed. Every payload below
+ * takes its fields by name, so nothing else the caller holds reaches a listener, and is frozen.
+ * @param {{chatId: string|null, collectionId: string, eventsAdded: number, windowsProcessed: number}} run - chatId:
+ *   the chat the collection belongs to; eventsAdded: the events the run stored; windowsProcessed: the windows it read
+ * @returns {Readonly<object>}
+ */
+export function eventBaseSyncedPayload({ chatId, collectionId, eventsAdded, windowsProcessed }) {
+    return Object.freeze({ chatId: chatId ?? null, collectionId, eventsAdded, windowsProcessed });
+}
+
+/**
+ * The payload of `vectfox_eventbase_events_deleted`: events removed from a collection.
+ * @param {{chatId: string|null, collectionId: string, eventIds: string[]|null}} removal - eventIds: the removed
+ *   events' IDs, null when the whole collection was emptied
+ * @returns {Readonly<object>}
+ */
+export function eventBaseEventsDeletedPayload({ chatId, collectionId, eventIds }) {
+    return Object.freeze({ chatId: chatId ?? null, collectionId, eventIds: eventIds === null ? null : Object.freeze([...eventIds]) });
+}
+
+/**
+ * The payload of `vectfox_eventbase_collection_changed`: the collection the open chat uses changed, or another chat
+ * opened.
+ * @param {{chatId: string|null, collectionId: string|null}} inUse - chatId: the open chat, null with none open;
+ *   collectionId: the collection it uses, null with none
+ * @returns {Readonly<object>}
+ */
+export function eventBaseCollectionChangedPayload({ chatId, collectionId }) {
+    return Object.freeze({ chatId: chatId ?? null, collectionId: collectionId ?? null });
+}
+
+/**
+ * The payload of `vectfox_llm_call_finished`: one of VectFox's LLM calls ended. `usage` is there only when the reply
+ * reported its tokens. No key or key ID: only the fields below are taken.
+ * @param {object} call - As llm-provider reports it
+ * @param {string} call.feature - 'eventbase', 'lorebase', 'storyarc' or 'agent'
+ * @param {string} call.connection - 'profile' or 'manual'
+ * @param {string|null} call.profileName
+ * @param {string|null} call.provider
+ * @param {string|null} call.model
+ * @param {number} call.durationMs
+ * @param {string} call.outcome - 'ok', 'timed-out' or 'failed'
+ * @param {{prompt_tokens: number|null, completion_tokens: number|null, total_tokens: number|null,
+ *   cached_tokens: number|null}|null} call.usage
+ * @returns {Readonly<object>}
+ */
+export function llmCallFinishedPayload({ feature, connection, profileName, provider, model, durationMs, outcome, usage }) {
+    return Object.freeze({
+        feature,
+        connection,
+        profileName: profileName ?? null,
+        provider: provider ?? null,
+        model: model ?? null,
+        durationMs,
+        outcome,
+        ...(usage ? {
+            usage: Object.freeze({
+                promptTokens: usage.prompt_tokens ?? null,
+                completionTokens: usage.completion_tokens ?? null,
+                totalTokens: usage.total_tokens ?? null,
+                cachedTokens: usage.cached_tokens ?? null,
+            }),
+        } : {}),
+    });
 }
 
 /**

@@ -3,16 +3,20 @@
 // panel runs the Test connection of the EventBase model, Agent Mode's planner and StoryArc's link model here.
 //
 // src/index.js runs the reply step (runEventBaseReplyStep) from the manifest's generation interceptor and auto-sync
-// (synchronizeChat) on chat events, and hands clearCachesForDeletedOrImportedCollection to collection deletion and
-// import; src/app/ runs ensureEventBaseIndexes at startup. The settings panel opens
+// (synchronizeChat) on chat events, hands clearCachesForDeletedOrImportedCollection to collection deletion and
+// import, and sets the listeners told of runs, removals and the collection in use (setEventBaseListeners,
+// followCollectionInUse); the Database Browser tells them of the events it deletes (announceEventsRemoved); src/app/
+// runs ensureEventBaseIndexes at startup. The settings panel opens
 // Vectorize Content and runs Sync chat and the auto-sync catch-up. The Database Browser runs a collection's StoryArc
 // link actions and Compact collection here.
 //
 // Re-exports only. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
 export { testAgentModeConnection, testStoryArcConnection } from './agentic-retrieval.js';
 export { backfillCurrentChatWithProgress, openContentVectorizer, syncOpenChat } from './content-vectorizer.js';
+export { announceEventsRemoved, setEventBaseListeners } from './eventbase-announcements.js';
 export {
-    askWhichChatCollection, chatOwnCollections, collectionInUse, lockCollectionToOpenChat, showNoCollectionInUse, useChatCollection,
+    askWhichChatCollection, chatOwnCollections, collectionInUse, followCollectionInUse, lockCollectionToOpenChat,
+    showNoCollectionInUse, useChatCollection,
 } from './eventbase-chat-collections.js';
 export { describeCompaction } from './eventbase-compaction-core.js';
 export { compactCollection, planCollectionCompaction } from './eventbase-compaction.js';

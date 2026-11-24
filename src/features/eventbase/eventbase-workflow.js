@@ -31,6 +31,7 @@ import { formatEventsForInjectionDetailed, formatStoryArcForInjection } from './
 import { progressTracker } from '../../shared/progress-tracker.js';
 import { isInvalidModelConfigError, notifyInvalidModel, notifyMemoryNotInjected } from '../../shared/model-config-notifier.js';
 import { log } from '../../sillytavern/log.js';
+import { announceRunEnded } from './eventbase-announcements.js';
 
 // The wait before each extra pass over the windows that failed in a run, one entry
 // per pass. A window therefore gets three sends in the run where it first fails.
@@ -460,9 +461,19 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
 
     // A window this run extracts again replaces the events it holds from earlier extractions.
     const windowReplacement = createWindowReplacement({ collectionId, settings, tipAtRunStart: getVectorizationTip(registryKey) });
-    /** A run that fails, like one stopped, moves the links off the events it removed; returns the error to throw. */
-    const moveLinksBeforeFailing = async (error) => {
-        await windowReplacement.moveLinksOffReplacedEvents();
+    /**
+     * The run ended, finished, stopped or failed: the StoryArc links off the events it removed move to the events
+     * that replaced them, and EventBase's listener hears what the run stored. Returns the IDs of the events whose links
+     * moved.
+     */
+    const endRun = async () => {
+        const eventIdsWithMovedLinks = await windowReplacement.moveLinksOffReplacedEvents();
+        announceRunEnded({ collectionId, eventsAdded: insertedEventIds.length, windowsProcessed });
+        return eventIdsWithMovedLinks;
+    };
+    /** A run that fails ends as one stopped does (endRun); returns the error to throw. */
+    const endRunBeforeFailing = async (error) => {
+        await endRun();
         return error;
     };
 
@@ -879,8 +890,8 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                 try { await pendingExtract; } catch (_) { /* swallow */ }
             }
             progressTracker.complete(false, 'Stopped by user');
-            // The windows already replaced keep a walk through them.
-            const eventIdsWithMovedLinks = await windowReplacement.moveLinksOffReplacedEvents();
+            // The windows already replaced keep a walk through them, and the listener hears what the run stored.
+            const eventIdsWithMovedLinks = await endRun();
             return { eventsExtracted, windowsProcessed, windowsSkipped, windowsTimedOut, windowsFailed, insertedEventIds, eventIdsWithMovedLinks };
         }
 
@@ -982,7 +993,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                     try { await pendingInsert; } catch (_) { /* secondary */ }
                 }
                 progressTracker.complete(false, `EventBase fatal error: ${winner.error.message}`);
-                throw await moveLinksBeforeFailing(winner.error);
+                throw await endRunBeforeFailing(winner.error);
             }
             queuedResult = winner.result;
         } else {
@@ -998,14 +1009,14 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                 }
                 if (winner.error?.name === 'AbortError') {
                     progressTracker.complete(false, 'Stopped by user');
-                    const eventIdsWithMovedLinks = await windowReplacement.moveLinksOffReplacedEvents();
+                    const eventIdsWithMovedLinks = await endRun();
                     return { eventsExtracted, windowsProcessed, windowsSkipped, windowsTimedOut, windowsFailed, insertedEventIds, eventIdsWithMovedLinks };
                 }
                 // Surface the Qdrant error to the user. EventBaseFatalError
                 // is caught at the UI layer and turned into a popup.
                 const errMsg = winner.error?.message || String(winner.error);
                 progressTracker.complete(false, `Stopped — ${errMsg}`);
-                throw await moveLinksBeforeFailing(winner.error);
+                throw await endRunBeforeFailing(winner.error);
             }
             // Insert succeeded — fold tally and update progress.
             const tally = winner.tally;
@@ -1016,7 +1027,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                     try { await pendingExtract; } catch (_) { /* swallow */ }
                 }
                 progressTracker.complete(false, `EventBase fatal error: ${tally.fatalError.message}`);
-                throw await moveLinksBeforeFailing(tally.fatalError);
+                throw await endRunBeforeFailing(tally.fatalError);
             }
             eventsExtracted  += tally.eventsAdded;
             windowsProcessed += tally.windowsProcessed;
@@ -1073,7 +1084,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
             // Only re-throw our own verification failure. Network errors on the
             // verification round-trip itself shouldn't kill an otherwise-successful
             // run — they're advisory only.
-            if (verifyErr?.code === 'insert_verification_failed') throw await moveLinksBeforeFailing(verifyErr);
+            if (verifyErr?.code === 'insert_verification_failed') throw await endRunBeforeFailing(verifyErr);
             log.warn('[EventBase] Verification probe failed (advisory, not fatal):', verifyErr?.message || verifyErr);
         }
     }
@@ -1103,8 +1114,9 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
 
     log.lifecycle(`[EventBase] Ingestion complete: extracted=${eventsExtracted}, processed=${windowsProcessed}, skipped=${windowsSkipped}, timedOut=${windowsTimedOut}, failed=${windowsFailed}`);
 
-    // StoryArc links that went to events this run replaced now point at the events that replaced them.
-    const eventIdsWithMovedLinks = await windowReplacement.moveLinksOffReplacedEvents();
+    // StoryArc links that went to events this run replaced now point at the events that replaced them, and the listener
+    // hears what the run stored.
+    const eventIdsWithMovedLinks = await endRun();
 
     // New events get their StoryArc links in the background, so this run ends now. A run reading a stretch again
     // leaves them to its caller, which links them in the open (D3 of eventbase-read-range-again.md).

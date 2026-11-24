@@ -3,4 +3,12 @@
 // VectFox's data and follows what it does without forking it or importing its files by path.
 //
 // Re-exports only. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
-export { announcePublicApiReady, publishPublicApi } from './public-api.js';
+export {
+    announceCollectionInUseChanged,
+    announceEventBaseEventsRemoved,
+    announceEventBaseRunEnded,
+    announceLlmCallFinished,
+    announcePublicApiReady,
+    announcePurgedCollection,
+    publishPublicApi,
+} from './public-api.js';

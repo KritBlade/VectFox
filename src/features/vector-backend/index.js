@@ -4,7 +4,8 @@
 //
 // DynamicRateLimiter is exported because eventbase's generation rate limiter builds on it.
 // setInsertedCollectionRegistrar lets src/index.js register the collections Qdrant inserts into without this
-// feature importing collections. qdrantTarget is where every request about one collection's Qdrant points goes, for
+// feature importing collections, and setPurgedCollectionListener lets it tell the public API of each collection
+// purged without this feature importing it. qdrantTarget is where every request about one collection's Qdrant points goes, for
 // the features that call Similharity themselves (export, import, the Database Browser, the Chunk Visualizer).
 //
 // Re-exports only. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
@@ -36,5 +37,6 @@ export {
     queryCollection,
     queryMultipleCollections,
     searchCollectionsTogether,
+    setPurgedCollectionListener,
     updateChunkMetadata,
 } from './vector-api.js';

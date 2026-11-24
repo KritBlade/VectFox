@@ -19,6 +19,7 @@ vi.mock('../src/features/llm-provider/index.js', async () => {
     const connection = await import('../src/features/llm-provider/llm-connection.js');
     return {
         describeConnectionProblem: connection.describeConnectionProblem,
+        LLM_CALL_FEATURES: (await vi.importActual('../src/features/llm-provider/llm-call-report.js')).LLM_CALL_FEATURES,
         resolveLlmConnection: connection.resolveLlmConnection,
         shownVllmUrl: connection.shownVllmUrl,
         resolveConnectionProfileId: (await import('../src/features/llm-provider/connection-profile-core.js')).resolveConnectionProfileId,
@@ -100,7 +101,7 @@ describe("LoreBase's connection", () => {
         const settings = { lorebase_provider: 'openrouter', lorebase_model: 'openai/gpt-6-luna' };
         await expect(testLoreBaseConnection(settings)).resolves.toEqual({ content: 'OK', cutReason: null });
         const connection = resolveLoreBaseLlmConfig(settings);
-        expect(sendConnectionTestMock).toHaveBeenCalledWith(connection, { contextLabel: 'LoreBase', parameterStyle: connection.parameterStyle });
+        expect(sendConnectionTestMock).toHaveBeenCalledWith(connection, { contextLabel: 'LoreBase', feature: 'lorebase', parameterStyle: connection.parameterStyle });
 
         sendConnectionTestMock.mockClear();
         await expect(testLoreBaseConnection({ ...RUNNING_HIGH, lorebase_provider: 'vllm', lorebase_model: 'served-model' }))

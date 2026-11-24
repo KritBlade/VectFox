@@ -33,6 +33,7 @@ vi.mock('../src/shared/collection-ids.js', () => ({
 
 // The price from OpenRouter's model list, read through the stubbed fetch; the rest of the barrel reaches SillyTavern.
 vi.mock('../src/features/llm-provider/index.js', async () => ({
+    LLM_CALL_FEATURES: (await vi.importActual('../src/features/llm-provider/llm-call-report.js')).LLM_CALL_FEATURES,
     readOpenRouterModelPrice: (await vi.importActual('../src/features/llm-provider/openrouter-model-price.js')).readOpenRouterModelPrice,
 }));
 
@@ -140,6 +141,7 @@ describe('runStoryLinkPass', () => {
         // The first event has nothing earlier, so it needs no call.
         expect(callLlmForJsonMock).toHaveBeenCalledTimes(1);
         const [call] = callLlmForJsonMock.mock.calls[0];
+        expect(call.feature).toBe('storyarc');
         expect(call.userMessage).toContain('E1: (message 10)');
         expect(call.userMessage).toContain('NEW:\n(message 20)');
         expect(writtenLinks()).toEqual({ 1: [], 2: [{ event_id: 'id1', type: 'continues', thread: 'The blockade' }] });

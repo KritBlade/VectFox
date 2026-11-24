@@ -7,9 +7,11 @@
  * (useChatCollection), on the rule LoreBase's selections follow too (oneInUseLockChanges), so a reply never reads two
  * versions of the same story. A run with none in use asks which one to use (askWhichChatCollection). New collection makes
  * another collection of the chat (startNewChatCollection, §2.5). Collections of other chats and chat files locked in to
- * be read beside the chat's own are found by sharedCollectionsLockedHere.
+ * be read beside the chat's own are found by sharedCollectionsLockedHere. followCollectionInUse tells EventBase's
+ * listener when the collection the open chat uses changes.
  */
 import { getCurrentChatId } from '../../sillytavern/chat.js';
+import { eventSource, event_types } from '../../sillytavern/events.js';
 import { log } from '../../sillytavern/log.js';
 import {
     COLLECTION_PREFIXES, buildEventBaseCollectionId, buildRegistryKey, getChatUUID, getRegistryBackend, parseCollectionId,
@@ -22,6 +24,7 @@ import {
     collectionNameOf, getCollectionListing, getCollectionRegistry, isCollectionActiveForContextAnyKey, isCollectionAutoSyncEnabled,
     isCollectionEnabled, registerCollection, removeCollectionLock, setCollectionLock, setCollectionMeta,
 } from '../collections/index.js';
+import { announceCollectionInUseChanged } from './eventbase-announcements.js';
 import { findEventBaseCollectionsForChat, setCollectionWindowSize } from './eventbase-store.js';
 
 /** The question's dropdown, by its id. */
@@ -140,6 +143,43 @@ export function collectionInUse(settings, { chatUUID = getChatUUID(), chatId } =
     else if (lockedElsewhere.length) reason = NOT_IN_USE_REASON.OTHER_BACKEND;
     else if (collections.length) reason = NOT_IN_USE_REASON.NONE_IN_USE;
     return { collection: null, reason, collections, lockedElsewhere, backend };
+}
+
+/**
+ * The open chat and the collection it uses, each null with none.
+ * @param {object} settings - VectFox settings
+ * @returns {{chatId: string|null, collectionId: string|null}}
+ */
+function openChatCollectionInUse(settings) {
+    const chatId = getChatUUID() ?? null;
+    if (!chatId) return { chatId: null, collectionId: null };
+    return { chatId, collectionId: collectionInUse(settings, { chatUUID: chatId }).collection?.collectionId ?? null };
+}
+
+/**
+ * Follow the collection the open chat uses, and tell EventBase's listener when it changes: another chat opened, a lock
+ * moved, the collection deleted, or the backend switched. Checks after each chat change, each settings save and each
+ * change to VectFox's collections, once however many arrive together. Starts from the state now, which it tells nobody.
+ * @param {object} settings - VectFox settings, the store itself
+ */
+export function followCollectionInUse(settings) {
+    let told = openChatCollectionInUse(settings);
+    let isCheckDue = false;
+    const check = () => {
+        isCheckDue = false;
+        const inUse = openChatCollectionInUse(settings);
+        if (inUse.chatId === told.chatId && inUse.collectionId === told.collectionId) return;
+        told = inUse;
+        announceCollectionInUseChanged(inUse);
+    };
+    const checkSoon = () => {
+        if (isCheckDue) return;
+        isCheckDue = true;
+        setTimeout(check, 0);
+    };
+    eventSource.on(event_types.CHAT_CHANGED, checkSoon);
+    eventSource.on(event_types.SETTINGS_UPDATED, checkSoon);
+    globalThis.document?.addEventListener('vectfox:collections-updated', checkSoon);
 }
 
 const listNames = collections => new Intl.ListFormat('en', { type: 'conjunction' }).format(collections.map(collection => `"${collection.name}"`));

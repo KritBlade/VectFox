@@ -639,6 +639,8 @@ UI elements that mirror lock state are pulled in two ways. The distinction matte
 
 Plus ST's `CHAT_CHANGED` — the same refresh handler re-runs.
 
+These DOM events are VectFox's own signals between its pages. What other extensions hear is the public API's `vectfox_*` events on SillyTavern's `eventSource` ([public-api.md](public-api.md)): EventBase tells them through the listeners `src/index.js` sets (`eventbase-announcements.js`), each end of a run, finished, stopped or failed (`endRun` in `eventbase-workflow.js`), each removal with its event IDs, and the collection in use whenever `followCollectionInUse` sees it change.
+
 ## Key files
 
 | File | Role |

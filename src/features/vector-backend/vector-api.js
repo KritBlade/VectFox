@@ -1014,8 +1014,20 @@ export async function queryMultipleCollections(collectionIds, searchText, topK, 
     return processedResults;
 }
 
+// Told the ID of each collection purgeVectorIndex empties; src/index.js sets the public API's at startup.
+let purgedCollectionListener = null;
+
 /**
- * Purges the vector index for a collection.
+ * Sets the listener told the ID of each collection purgeVectorIndex empties.
+ * @param {(collectionId: string) => void} listener
+ */
+export function setPurgedCollectionListener(listener) {
+    purgedCollectionListener = listener;
+}
+
+/**
+ * Purges the vector index for a collection, and tells the listener once it is empty. A listener that throws is logged
+ * and never fails the purge.
  * @param {string} collectionId Collection ID to purge
  * @param {object} settings VectFox settings object
  * @returns {Promise<boolean>} True if deleted, false if not
@@ -1027,6 +1039,11 @@ export async function purgeVectorIndex(collectionId, settings) {
         log.lifecycle(`VectFox: Purged vector index for collection ${collectionId}`);
         // Stale-stats fix: entire collection is gone.
         _invalidateCorpusStats(collectionId, 'purge');
+        try {
+            purgedCollectionListener?.(collectionId);
+        } catch (listenerError) {
+            log.warn(`VectFox: the listener for purged collections failed on ${collectionId}:`, listenerError);
+        }
         return true;
     } catch (error) {
         // VEC-33: Invalidate health cache on operation error

@@ -49,13 +49,19 @@ vi.mock('../src/features/collections/index.js', () => ({
 }));
 vi.mock('../src/features/eventbase/index.js', () => ({
     clearCachesForDeletedOrImportedCollection: vi.fn(),
+    followCollectionInUse: vi.fn(),
     refreshWorldInfoEntryDepthCache: vi.fn(),
     runEventBaseReplyStep: vi.fn(),
+    setEventBaseListeners: vi.fn(),
     synchronizeChat: vi.fn(),
     showNoCollectionInUse: vi.fn(),
 }));
 vi.mock('../src/features/vector-backend/index.js', () => ({
     setInsertedCollectionRegistrar: vi.fn(),
+    setPurgedCollectionListener: vi.fn(),
+}));
+vi.mock('../src/features/llm-provider/index.js', () => ({
+    setLlmCallFinishedListener: vi.fn(),
 }));
 vi.mock('../src/shared/api-keys.js', () => ({
     migrateLegacyApiKeys: vi.fn(),
@@ -73,8 +79,13 @@ vi.mock('../src/features/reply-lore/index.js', () => ({
     initializeReplyLore: vi.fn(),
 }));
 vi.mock('../src/features/public-api/index.js', () => ({
-    publishPublicApi: vi.fn(),
+    announceCollectionInUseChanged: vi.fn(),
+    announceEventBaseEventsRemoved: vi.fn(),
+    announceEventBaseRunEnded: vi.fn(),
+    announceLlmCallFinished: vi.fn(),
     announcePublicApiReady: vi.fn(async () => {}),
+    announcePurgedCollection: vi.fn(),
+    publishPublicApi: vi.fn(),
 }));
 vi.mock('../src/features/database-browser/index.js', () => ({
     initializeDatabaseBrowser: vi.fn(),

@@ -17,6 +17,7 @@ import {
     CONNECTION_TEST_MAX_TOKENS,
     CONNECTION_TEST_PROMPT,
     CONNECTION_TEST_TIMEOUT_MS,
+    LLM_CALL_FEATURES,
     LlmCallError,
     parseJsonArrayFromLlm,
     postChatCompletion,
@@ -180,6 +181,7 @@ async function _requestExtraction(prompt, settings, windowIndex, route) {
     let reply;
     try {
         reply = await postChatCompletion({
+            feature: LLM_CALL_FEATURES.eventBase,
             messages: [{ role: 'user', content: prompt }],
             ...route,
             maxTokens,

@@ -7,7 +7,7 @@
  *
  * Runs the real store and the real records, with only the host and the backend faked.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('../../../../extensions.js', () => ({
     extension_settings: { vectfox: {} },
@@ -59,6 +59,7 @@ import {
     windowFingerprint,
     writeEventBaseProgress,
 } from '../src/features/eventbase/eventbase-store.js';
+import { setEventBaseListeners } from '../src/features/eventbase/eventbase-announcements.js';
 
 const CHAT_UUID = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
 let collectionNumber = 0;
@@ -224,6 +225,13 @@ describe('no message read twice (§2.7)', () => {
 });
 
 describe("Start over's emptying (§2.6)", () => {
+    const removals = [];
+    beforeEach(() => {
+        removals.length = 0;
+        setEventBaseListeners({ onEventsRemoved: (collectionId, eventIds) => removals.push([collectionId, eventIds]) });
+    });
+    afterEach(() => setEventBaseListeners());
+
     const pointerOf = (registryKey) => {
         markWindowExtracted(FIRST_WINDOW, registryKey);
         markWindowUnfinished(SECOND_WINDOW, registryKey);
@@ -244,6 +252,14 @@ describe("Start over's emptying (§2.6)", () => {
         ]);
         expect(readEventBaseProgress(registryKey)).toEqual({ autoSyncStartMarker: 2, windowSize: 6 });
         expect(getVectorizationTip(registryKey)).toBeUndefined();
+        expect(removals).toEqual([[registryKey.slice('qdrant:'.length), null]]);
+    });
+
+    it('says nothing was removed from a collection that held no event', async () => {
+        const registryKey = freshCollectionKey();
+        getSavedHashes.mockResolvedValueOnce([]);
+        expect(await emptyEventBaseCollection(registryKey, {}, { windowSize: 6 })).toBe(0);
+        expect(removals).toEqual([]);
     });
 
     it('keeps the pointer as it was when a delete fails, or leaves an event it was given', async () => {
@@ -259,6 +275,8 @@ describe("Start over's emptying (§2.6)", () => {
         await expect(emptyEventBaseCollection(registryKey, {}, { windowSize: 6 })).rejects.toThrow('1 of the 2 events it was asked to delete are still stored');
         expect(readEventBaseProgress(registryKey)).toEqual(pointer);
         expect(getVectorizationTip(registryKey)).toBe(2);
+        // Not emptied: the feed carries what each delete removed.
+        expect(removals).toEqual([]);
     });
 });
 

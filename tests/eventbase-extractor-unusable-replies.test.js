@@ -12,6 +12,7 @@ const provider = vi.hoisted(() => ({ reply: { content: '[]', finishReason: 'stop
 vi.mock('../src/features/llm-provider/index.js', async () => {
     const parser = await vi.importActual('../src/features/llm-provider/llm-provider-call.js');
     return {
+        LLM_CALL_FEATURES: (await vi.importActual('../src/features/llm-provider/llm-call-report.js')).LLM_CALL_FEATURES,
         parseJsonArrayFromLlm: parser.parseJsonArrayFromLlm,
         LlmCallError: parser.LlmCallError,
         resolveModelParameterStyle: () => ({}),

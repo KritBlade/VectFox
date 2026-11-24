@@ -29,6 +29,9 @@ vi.mock('../src/shared/progress-tracker.js', () => ({ progressTracker: progressM
 vi.mock('../src/sillytavern/log.js', () => ({ log: { warn: vi.fn(), lifecycle: vi.fn(), domain: vi.fn(), error: vi.fn() } }));
 
 const { compactCollection, planCollectionCompaction } = await import('../src/features/eventbase/eventbase-compaction.js');
+const { setEventBaseListeners } = await import('../src/features/eventbase/eventbase-announcements.js');
+const removals = vi.fn();
+setEventBaseListeners({ onEventsRemoved: removals });
 
 const COLLECTION = 'vf_eventbase_qdrant_rook_mira_aaaa';
 const settings = { vector_backend: 'qdrant' };
@@ -80,6 +83,9 @@ describe('Compact collection', () => {
         expect(backend.updateChunkMetadata).toHaveBeenCalledWith(COLLECTION, 13, { story_links: [{ event_id: 'event-12', type: 'continues', thread: '' }] }, settings);
         expect(backend.deleteVectorItems).toHaveBeenCalledWith(COLLECTION, [11], settings);
         expect(backend.updateChunkMetadata.mock.invocationCallOrder[0]).toBeLessThan(backend.deleteVectorItems.mock.invocationCallOrder[0]);
+        // EventBase's listener hears the removed events' IDs once they are gone.
+        expect(removals).toHaveBeenCalledWith(COLLECTION, ['event-11']);
+        expect(backend.deleteVectorItems.mock.invocationCallOrder[0]).toBeLessThan(removals.mock.invocationCallOrder[0]);
     });
 
     it('removes the repeated events with no link write when no link points at them', async () => {
@@ -99,6 +105,7 @@ describe('Compact collection', () => {
 
         expect(result.removedCount).toBe(0);
         expect(backend.deleteVectorItems).not.toHaveBeenCalled();
+        expect(removals).not.toHaveBeenCalled();
         expect(progressMock.complete).toHaveBeenLastCalledWith(false, expect.stringContaining('No event was removed. Press Compact collection again to retry those.'));
     });
 

@@ -21,8 +21,12 @@ import {
     registerCollection,
     setDeletedOrImportedCollectionCleanup,
 } from './features/collections/index.js';
-import { clearCachesForDeletedOrImportedCollection, refreshWorldInfoEntryDepthCache, runEventBaseReplyStep, synchronizeChat } from './features/eventbase/index.js';
-import { setInsertedCollectionRegistrar } from './features/vector-backend/index.js';
+import {
+    clearCachesForDeletedOrImportedCollection, followCollectionInUse, refreshWorldInfoEntryDepthCache, runEventBaseReplyStep,
+    setEventBaseListeners, synchronizeChat,
+} from './features/eventbase/index.js';
+import { setLlmCallFinishedListener } from './features/llm-provider/index.js';
+import { setInsertedCollectionRegistrar, setPurgedCollectionListener } from './features/vector-backend/index.js';
 import { migrateLegacyApiKeys } from './shared/api-keys.js';
 import { migration_setting_name_for_connection } from './app/settings-migration-connection-setting-names.js';
 import { migration_embedding_source_key } from './app/settings-migration-embedding-provider-key.js';
@@ -49,12 +53,23 @@ import { mountSettingsPanel, mountWandMenu, refreshAutoSyncCheckbox, scheduleMan
 import { initializeDatabaseBrowser } from './features/database-browser/index.js';
 import { KEY_CALLS_AT_ONCE_DEFAULT, LORE_BUDGET_DEFAULT, initializeLoreBase, prepareLoreBesideRetrieval } from './features/lorebase/index.js';
 import { initializeReplyLore } from './features/reply-lore/index.js';
-import { announcePublicApiReady, publishPublicApi } from './features/public-api/index.js';
+import {
+    announceCollectionInUseChanged, announceEventBaseEventsRemoved, announceEventBaseRunEnded, announceLlmCallFinished,
+    announcePublicApiReady, announcePurgedCollection, publishPublicApi,
+} from './features/public-api/index.js';
 import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from './features/keyword-search/index.js';
 
 // Calls a lower layer makes into a higher one, wired here before anything can delete or insert.
 setDeletedOrImportedCollectionCleanup(clearCachesForDeletedOrImportedCollection);
 setInsertedCollectionRegistrar(registerCollection);
+// What EventBase, the vector backend and the LLM calls tell the public API, which sends it on as vectfox_* events.
+setEventBaseListeners({
+    onRunEnded: announceEventBaseRunEnded,
+    onEventsRemoved: announceEventBaseEventsRemoved,
+    onCollectionInUseChanged: announceCollectionInUseChanged,
+});
+setPurgedCollectionListener(announcePurgedCollection);
+setLlmCallFinishedListener(announceLlmCallFinished);
 
 // Default settings
 const defaultSettings = {
@@ -595,6 +610,9 @@ jQuery(async () => {
 
     // The last generation past its slash commands, so LoreBase's pick and EventBase's reply step know a quiet-to-loud one
     followGenerations();
+
+    // The collection the open chat uses, so the public API says when it changes
+    followCollectionInUse(settings);
 
     // LoreBase settles Vector Storage's World Info search before a reply, and arms each World Info scan
     initializeLoreBase();

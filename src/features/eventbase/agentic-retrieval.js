@@ -28,6 +28,7 @@ import { buildPlannerUserMessage, getAgenticPlannerPrompt } from './prompts-i18n
 import { readStoryLanguage } from './story-language.js';
 import { cleanText, stripReasoningBlocks, stripGameSystemBlocks } from '../text-cleaning/index.js';
 import {
+    LLM_CALL_FEATURES,
     describeConnectionProblem,
     postChatCompletion,
     resolveConnectionProfileId,
@@ -294,6 +295,7 @@ async function _searchPlannedQueries(params) {
                 llmConnection,
                 timeoutMs,
                 maxTokens: resolveAgenticMaxTokens(settings),
+                feature: LLM_CALL_FEATURES.agentMode,
             }),
             generationRateLimitSettings(settings),
             'agent',
@@ -422,7 +424,7 @@ async function _searchPlannedQueries(params) {
  * @param {object} params.settings
  * @param {string} params.label - Which call this is, for the log
  * @param {string} [params.nextStep] - What the turn does without this call
- * @param {object} params.call - What callLlmForJson needs, other than the time limit
+ * @param {object} params.call - What callLlmForJson needs, other than the time limit and the feature, StoryArc's
  * @param {(reply: unknown) => T} params.read - Reads the reply, and may throw on a malformed one
  * @returns {Promise<T|null>}
  * @template T
@@ -432,7 +434,7 @@ async function _askStoryLlm({ settings, label, nextStep, call, read }) {
     const tStart = (typeof performance !== 'undefined' ? performance.now() : Date.now());
     try {
         const reply = await generationRateLimiter.execute(
-            () => callLlmForJson({ ...call, timeoutMs }),
+            () => callLlmForJson({ ...call, timeoutMs, feature: LLM_CALL_FEATURES.storyArc }),
             generationRateLimitSettings(settings),
             'agent',
         );
@@ -653,7 +655,7 @@ export function resolveStoryLinkLlmConfig(settings) {
 export async function testAgentModeConnection(settings) {
     const connection = _resolveAgenticLLMConfig(settings);
     if (!connection.ok) throw new Error(describeLlmSetupProblem(AGENT_MODE, connection.reason, connection.problem));
-    return sendConnectionTest(connection, { contextLabel: AGENT_MODE, parameterStyle: connection.parameterStyle });
+    return sendConnectionTest(connection, { contextLabel: AGENT_MODE, feature: LLM_CALL_FEATURES.agentMode, parameterStyle: connection.parameterStyle });
 }
 
 /**
@@ -667,7 +669,7 @@ export async function testAgentModeConnection(settings) {
 export async function testStoryArcConnection(settings) {
     const connection = resolveStoryLinkLlmConfig(settings);
     if (!connection.ok) throw new Error(connection.problem ?? `StoryArc link model is not ready: ${connection.reason}`);
-    return sendConnectionTest(connection, { contextLabel: 'StoryArc', parameterStyle: connection.parameterStyle });
+    return sendConnectionTest(connection, { contextLabel: 'StoryArc', feature: LLM_CALL_FEATURES.storyArc, parameterStyle: connection.parameterStyle });
 }
 
 /**
@@ -675,14 +677,16 @@ export async function testStoryArcConnection(settings) {
  * router, thread pick and links. Throws on network/auth failure, a reply with no text,
  * or unparseable JSON, naming the provider's cut when it cut the reply short. A cut
  * reply whose JSON parses lost nothing, since the JSON closed before the cut.
+ * `feature` is the feature the call is reported under, one of LLM_CALL_FEATURES.
  */
-export async function callLlmForJson({ systemPrompt, userMessage, llmConnection, timeoutMs, maxTokens, contextLabel = 'Agent Mode' }) {
+export async function callLlmForJson({ systemPrompt, userMessage, llmConnection, timeoutMs, maxTokens, contextLabel = 'Agent Mode', feature }) {
     // Shared HTTP + response classification (llm-provider-call.js). The planner
     // is a two-message, json_object call. authBranch:false folds 401/403 into the
     // model-config and generic paths, since the caller degrades to pre-search.
     let content, usage, finishReason, cutReason;
     try {
         ({ content, usage, finishReason, cutReason } = await postChatCompletion({
+            feature,
             messages: [
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: userMessage },

@@ -10,7 +10,9 @@
  * ConnectionManagerRequestService (sillytavern/connection-profiles.js) → classify
  * a failure (connection-profile-core.js). Both then extract the reply, read why
  * it stopped (completion-finish.js), and classify a reply with no text the same
- * way. Plus the LLM-output JSON-array parser both extraction features use.
+ * way. Each call that was sent is reported once it ends, with the feature that
+ * made it (llm-call-report.js). Plus the LLM-output JSON-array parser both
+ * extraction features use.
  *
  * DESIGN — neutral core, feature policy at the edge.
  * This module throws ONE neutral error type (LlmCallError, carrying a `kind`).
@@ -42,6 +44,9 @@ import { describeUpstreamRejectionCauses, isConnectionError, notifyConnectionErr
 import { log } from '../../sillytavern/log.js';
 import { completionCutReason, completionFinishReason, describeNoTextAnswer } from './completion-finish.js';
 import { classifyConnectionProfileFailure, connectionProfileProblem, connectionProfileRequestShape, isProviderServerFailure } from './connection-profile-core.js';
+import {
+    LLM_CALL_CONNECTIONS, LLM_CALL_FEATURES, LLM_CALL_OUTCOMES, isLlmCallFeature, outcomeOfFailedCall, reportLlmCallFinished,
+} from './llm-call-report.js';
 import { readErrorBody } from '../../shared/server-error-text.js';
 
 /**
@@ -230,6 +235,8 @@ export function resolveModelParameterStyle(settings = {}) {
  * feature-specific "where to set it" message) and must run before this.
  *
  * @param {object}   opts
+ * @param {string}   opts.feature            the feature the call is made for, one of LLM_CALL_FEATURES; the report
+ *        of the call, sent once it ends, names it
  * @param {Array<{role: string, content: string}>} opts.messages
  * @param {string}   opts.model
  * @param {string}   opts.provider           'openrouter' | 'vllm'
@@ -259,8 +266,10 @@ export function resolveModelParameterStyle(settings = {}) {
  *          `cutReason` says why the provider cut a reply that has text, null when the model finished it. The caller
  *          decides what a cut reply is worth, since only it knows whether part of its answer is any use.
  * @throws {LlmCallError}
+ * @throws {TypeError} When `feature` is not one of LLM_CALL_FEATURES
  */
 export async function postChatCompletion({
+    feature,
     messages,
     model,
     provider,
@@ -279,14 +288,55 @@ export async function postChatCompletion({
     connectionProfileId = '',
     connectionProfilePage = '',
 }) {
-    if (provider === CONNECTION_PROFILE_PROVIDER) {
-        return _postOnConnectionProfile({
-            messages, maxTokens, temperature, timeoutMs, responseFormat, contextLabel, shouldNotifyProviderFailure,
-            shouldNotifyUpstreamRejection, sendTemperature, tokenLimitParameter, reasoningEffort, connectionProfileId,
-            connectionProfilePage,
-        });
+    if (!isLlmCallFeature(feature)) {
+        throw new TypeError(`postChatCompletion: feature '${feature}' is not one an LLM call reports (${Object.values(LLM_CALL_FEATURES).join(', ')})`);
     }
+    // What the route sent, filled in as it sends: the connection the request left on, and the tokens of any reply read.
+    const sending = { route: null, sentAt: 0, usage: null };
+    try {
+        const result = provider === CONNECTION_PROFILE_PROVIDER
+            ? await _postOnConnectionProfile({
+                messages, maxTokens, temperature, timeoutMs, responseFormat, contextLabel, shouldNotifyProviderFailure,
+                shouldNotifyUpstreamRejection, sendTemperature, tokenLimitParameter, reasoningEffort, connectionProfileId,
+                connectionProfilePage,
+            }, sending)
+            : await _postOnManualConnection({
+                messages, model, provider, vllmUrl, maxTokens, temperature, timeoutMs, responseFormat, contextLabel,
+                authBranch, shouldNotifyProviderFailure, shouldNotifyUpstreamRejection, sendTemperature,
+                tokenLimitParameter, reasoningEffort,
+            }, sending);
+        _reportSentCall(feature, sending, LLM_CALL_OUTCOMES.ok);
+        return result;
+    } catch (error) {
+        _reportSentCall(feature, sending, outcomeOfFailedCall(error));
+        throw error;
+    }
+}
 
+/**
+ * Reports a call once it ends, if it was sent.
+ * @param {string} feature
+ * @param {{route: object|null, sentAt: number, usage: object|null}} sending
+ * @param {string} outcome - One of LLM_CALL_OUTCOMES
+ */
+function _reportSentCall(feature, sending, outcome) {
+    if (!sending.route) return;
+    reportLlmCallFinished({
+        feature,
+        ...sending.route,
+        durationMs: Math.round(performance.now() - sending.sentAt),
+        outcome,
+        usage: sending.usage,
+    });
+}
+
+/**
+ * The manual branch of postChatCompletion: OpenRouter, or vLLM and Custom at their URL, through SillyTavern's proxy.
+ */
+async function _postOnManualConnection({
+    messages, model, provider, vllmUrl, maxTokens, temperature, timeoutMs, responseFormat, contextLabel, authBranch,
+    shouldNotifyProviderFailure, shouldNotifyUpstreamRejection, sendTemperature, tokenLimitParameter, reasoningEffort,
+}, sending) {
     const label = _providerLabel(provider);
 
     const body = { model, messages, [tokenLimitParameter]: maxTokens };
@@ -317,6 +367,8 @@ export async function postChatCompletion({
         }
         : { chat_completion_source: 'openrouter', ...body };
 
+    sending.route = { connection: LLM_CALL_CONNECTIONS.manual, profileName: null, provider, model: model || null };
+    sending.sentAt = performance.now();
     const response = await fetch('/api/backends/chat-completions/generate', {
         method: 'POST',
         headers: getRequestHeaders(),
@@ -356,6 +408,7 @@ export async function postChatCompletion({
     }
 
     const data = await response.json();
+    sending.usage = _usageOf(data);
     const content = data?.choices?.[0]?.message?.content?.trim() || null;
 
     if (!content) {
@@ -411,7 +464,7 @@ async function _postOnConnectionProfile({
     messages, maxTokens, temperature, timeoutMs, responseFormat, contextLabel, shouldNotifyProviderFailure,
     shouldNotifyUpstreamRejection, sendTemperature, tokenLimitParameter, reasoningEffort, connectionProfileId,
     connectionProfilePage,
-}) {
+}, sending) {
     const check = checkConnectionProfile(connectionProfileId, { feature: contextLabel, page: connectionProfilePage || 'VectFox' });
     if (!check.ok) throw new LlmCallError(check.reason, { kind: 'model_config', provider: CONNECTION_PROFILE_PROVIDER });
 
@@ -420,6 +473,8 @@ async function _postOnConnectionProfile({
     const model = profile.model || '(the server\'s)';
     const request = connectionProfileRequestShape({ api, source, maxTokens, temperature, sendTemperature, tokenLimitParameter, reasoningEffort, responseFormat });
 
+    sending.route = { connection: LLM_CALL_CONNECTIONS.profile, profileName: profile.name || null, provider: source || api || null, model: profile.model || null };
+    sending.sentAt = performance.now();
     let data;
     try {
         data = await sendConnectionProfileRequest(profile, messages, request.maxTokens, { timeoutMs, overridePayload: request.overridePayload });
@@ -435,6 +490,7 @@ async function _postOnConnectionProfile({
         });
     }
 
+    sending.usage = _usageOf(data);
     const content = connectionProfileReplyText(profile, data).trim() || null;
     if (!content) {
         _throwForReplyWithoutText({
@@ -455,21 +511,30 @@ function _completionResult(content, data, { contextLabel, label, model }) {
     if (cutReason) {
         log.warn(`[${contextLabel}] ${label} cut the reply from model "${model}" short, with finish reason ${cutReason}, after ${Array.from(content).length} characters.`);
     }
-    // cached_tokens: of the prompt's tokens, those the provider read from its cache, where it reports them.
-    const usage = data?.usage ? {
-        prompt_tokens: data.usage.prompt_tokens ?? null,
-        completion_tokens: data.usage.completion_tokens ?? null,
-        total_tokens: data.usage.total_tokens ?? null,
-        cached_tokens: data.usage.prompt_tokens_details?.cached_tokens ?? null,
-    } : null;
 
     return {
         content,
         finishReason: completionFinishReason(data) || null,
         cutReason,
-        usage,
+        usage: _usageOf(data),
         data,
     };
+}
+
+/**
+ * The tokens a reply reports, null when it reports none. cached_tokens: of the prompt's tokens, those the provider
+ * read from its cache, where it reports them.
+ * @param {any} data - The parsed reply
+ * @returns {{prompt_tokens: number|null, completion_tokens: number|null, total_tokens: number|null,
+ *   cached_tokens: number|null}|null}
+ */
+function _usageOf(data) {
+    return data?.usage ? {
+        prompt_tokens: data.usage.prompt_tokens ?? null,
+        completion_tokens: data.usage.completion_tokens ?? null,
+        total_tokens: data.usage.total_tokens ?? null,
+        cached_tokens: data.usage.prompt_tokens_details?.cached_tokens ?? null,
+    } : null;
 }
 
 /**

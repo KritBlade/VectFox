@@ -75,6 +75,12 @@ vi.mock('../src/features/collections/index.js', async () => {
         collectionNameOf: key => host.names.get(key) ?? AUTOMATIC_NAME,
     };
 });
+// SillyTavern's event bus, which the follower of the collection in use listens on.
+const bus = vi.hoisted(() => ({ listeners: {} }));
+vi.mock('../src/sillytavern/events.js', () => ({
+    eventSource: { on: (event, listener) => { (bus.listeners[event] ??= []).push(listener); } },
+    event_types: { CHAT_CHANGED: 'chat_id_changed', SETTINGS_UPDATED: 'settings_updated' },
+}));
 vi.mock('../src/features/eventbase/eventbase-store.js', async () => {
     const { COLLECTION_PREFIXES, parseCollectionId, parseRegistryKey } = await import('../src/shared/collection-ids.js');
     return {
@@ -88,6 +94,7 @@ vi.mock('../src/features/eventbase/eventbase-store.js', async () => {
 });
 
 const chatCollections = await import('../src/features/eventbase/eventbase-chat-collections.js');
+const { setEventBaseListeners } = await import('../src/features/eventbase/eventbase-announcements.js');
 const collections = await import('../src/features/collections/index.js');
 const store = await import('../src/features/eventbase/eventbase-store.js');
 const { formPopup } = await import('../src/sillytavern/popup.js');
@@ -422,5 +429,83 @@ describe('New collection', () => {
         expect(() => chatCollections.startNewChatCollection(SETTINGS, { windowSize: 2 })).toThrow('No chat is open.');
         expect(collections.registerCollection).not.toHaveBeenCalled();
         expect(collections.setCollectionMeta).not.toHaveBeenCalled();
+    });
+});
+
+describe('following the collection the open chat uses', () => {
+    const idOf = registryKey => registryKey.slice(registryKey.indexOf(':') + 1);
+    const emit = name => (bus.listeners[name] ?? []).forEach(listener => listener());
+    // Each test follows from a bus of its own, so no follower an earlier test started hears it.
+    beforeEach(() => { bus.listeners = {}; });
+
+    it('follows a settings save, a change to the collections and a chat change, each on its own, telling the listener once per change and nothing at the start or when nothing changed', async () => {
+        vi.useFakeTimers();
+        const told = [];
+        const moveLock = (from, to) => {
+            host.locks.set(from, []);
+            host.locks.set(to, [CHAT_ID]);
+        };
+        try {
+            setEventBaseListeners({ onCollectionInUseChanged: inUse => told.push(inUse) });
+            host.locks.set(FIRST, [CHAT_ID]);
+            chatCollections.followCollectionInUse(SETTINGS);
+
+            emit('settings_updated');
+            await vi.runAllTimersAsync();
+            expect(told).toEqual([]);
+
+            // A lock moved, which ends in a settings save; moved back, as VectFox's own signal says; then moved again,
+            // with all three signals at once, which say it once.
+            moveLock(FIRST, LATER);
+            emit('settings_updated');
+            await vi.runAllTimersAsync();
+            moveLock(LATER, FIRST);
+            document.dispatchEvent(new CustomEvent('vectfox:collections-updated'));
+            await vi.runAllTimersAsync();
+            moveLock(FIRST, LATER);
+            emit('settings_updated');
+            document.dispatchEvent(new CustomEvent('vectfox:collections-updated'));
+            emit('chat_id_changed');
+            await vi.runAllTimersAsync();
+            expect(told).toEqual([
+                { chatId: CHAT_UUID, collectionId: idOf(LATER) },
+                { chatId: CHAT_UUID, collectionId: idOf(FIRST) },
+                { chatId: CHAT_UUID, collectionId: idOf(LATER) },
+            ]);
+
+            // Another chat opened, which uses none; then no chat at all.
+            Object.assign(host, { chatUUID: OTHER_UUID, chatId: 'Harbor Keeper - other' });
+            emit('chat_id_changed');
+            await vi.runAllTimersAsync();
+            Object.assign(host, { chatUUID: null, chatId: null });
+            emit('chat_id_changed');
+            await vi.runAllTimersAsync();
+            expect(told.slice(3)).toEqual([{ chatId: OTHER_UUID, collectionId: null }, { chatId: null, collectionId: null }]);
+        } finally {
+            setEventBaseListeners();
+            vi.useRealTimers();
+        }
+    });
+
+    it('tells only where the chat ends up when its collection changes twice in one turn, never the state between', async () => {
+        vi.useFakeTimers();
+        const told = [];
+        try {
+            setEventBaseListeners({ onCollectionInUseChanged: inUse => told.push(inUse) });
+            host.locks.set(FIRST, [CHAT_ID]);
+            chatCollections.followCollectionInUse(SETTINGS);
+
+            // The chat changes with no collection locked yet, and a lock lands before the turn ends.
+            host.locks.set(FIRST, []);
+            emit('chat_id_changed');
+            host.locks.set(LATER, [CHAT_ID]);
+            emit('settings_updated');
+            await vi.runAllTimersAsync();
+
+            expect(told).toEqual([{ chatId: CHAT_UUID, collectionId: idOf(LATER) }]);
+        } finally {
+            setEventBaseListeners();
+            vi.useRealTimers();
+        }
     });
 });

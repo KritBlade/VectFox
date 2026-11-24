@@ -51,6 +51,7 @@ vi.mock('../src/features/llm-provider/index.js', async () => {
     const connection = await import('../src/features/llm-provider/llm-connection.js');
     return {
         postChatCompletion: (...args) => postChatCompletionMock(...args),
+        LLM_CALL_FEATURES: (await vi.importActual('../src/features/llm-provider/llm-call-report.js')).LLM_CALL_FEATURES,
         resolveModelParameterStyle: () => ({ sendTemperature: true, reasoningEffort: 'none' }),
         resolveConnectionProfileId: (await import('../src/features/llm-provider/connection-profile-core.js')).resolveConnectionProfileId,
         resolveLlmConnection: connection.resolveLlmConnection,
@@ -429,6 +430,7 @@ describe('retrieveEventsForTurn with StoryArc mode', () => {
         expect(result.storyArcShape).toBe('chain');
         expect(result.debug.storyArc).toEqual({ ruleName: 'links-not-generated', cutRuleName: '', shape: 'chain', subject: 'Nora', finalCount: 2 });
         expect(postChatCompletionMock).toHaveBeenCalledTimes(1);
+        expect(routerCalls()[0][0].feature).toBe('storyarc');
         expect(retrieveEventsMock).toHaveBeenCalledTimes(1);
     });
 

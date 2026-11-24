@@ -8,6 +8,7 @@
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 import { log } from '../../sillytavern/log.js';
 import {
+    LLM_CALL_FEATURES,
     describeConnectionProblem,
     parseJsonArrayFromLlm,
     postChatCompletion,
@@ -100,6 +101,7 @@ export function describeLoreBaseConnectionProblem(reason, problem, settings) {
 export function askOnLoreBase(connection) {
     return async (messages, { maxTokens, reasoningEffort, identKeys, onUsage = null }) => {
         const { content, cutReason, usage } = await postChatCompletion({
+            feature: LLM_CALL_FEATURES.loreBase,
             messages,
             model: connection.model,
             provider: connection.provider,
@@ -134,5 +136,5 @@ export function askOnLoreBase(connection) {
 export async function testLoreBaseConnection(settings) {
     const connection = resolveLoreBaseLlmConfig(settings);
     if (!connection.ok) throw new Error(describeLoreBaseConnectionProblem(connection.reason, connection.problem, settings));
-    return sendConnectionTest(connection, { contextLabel: LOREBASE, parameterStyle: connection.parameterStyle });
+    return sendConnectionTest(connection, { contextLabel: LOREBASE, feature: LLM_CALL_FEATURES.loreBase, parameterStyle: connection.parameterStyle });
 }

@@ -109,6 +109,14 @@ const { clearExtractionCaches, markWindowExtracted, setVectorizationTip } = awai
 const { hashSourceMessage } = await import('../src/features/eventbase/eventbase-message-hash.js');
 const { deleteVectorItems } = await import('../src/features/vector-backend/vector-api.js');
 const { log } = await import('../src/sillytavern/log.js');
+const { setEventBaseListeners } = await import('../src/features/eventbase/eventbase-announcements.js');
+
+/** What EventBase's listeners heard: each run that ended, and each removal. */
+const heard = { runs: [], removals: [] };
+setEventBaseListeners({
+    onRunEnded: run => heard.runs.push(run),
+    onEventsRemoved: (collectionId, eventIds) => heard.removals.push([collectionId, eventIds]),
+});
 
 const SETTINGS = { eventbase_window_size: 2, eventbase_window_overlap: 0, eventbase_min_importance_store: 1 };
 
@@ -162,6 +170,8 @@ describe('a window extracted again', () => {
         state.extensionSettings.vectfox = {};
         vi.mocked(deleteVectorItems).mockClear();
         vi.mocked(log.warn).mockClear();
+        heard.runs.length = 0;
+        heard.removals.length = 0;
     });
 
     it('replaces the events of a window whose reply was rewritten, and no others', async () => {
@@ -180,6 +190,13 @@ describe('a window extracted again', () => {
         expect(eventIdsOfWindow(2)).toHaveLength(1);
         expect(firstEventsOfWindow2).not.toContain(eventIdsOfWindow(2)[0]);
         expect([...eventIdsOfWindow(0), ...eventIdsOfWindow(4)]).toEqual(otherEvents);
+        // EventBase's listener heard the replaced events' IDs, and each run's end with what it stored.
+        expect(heard.removals).toEqual([[collectionIdOf(chatUUID), firstEventsOfWindow2]]);
+        expect(heard.runs).toEqual([
+            { collectionId: collectionIdOf(chatUUID), eventsAdded: 4, windowsProcessed: 3 },
+            { collectionId: collectionIdOf(chatUUID), eventsAdded: result.insertedEventIds.length, windowsProcessed: result.windowsProcessed },
+        ]);
+        expect(result.insertedEventIds).toHaveLength(2);
     });
 
     it('leaves one version of each window when the chat is read again from the start', async () => {
@@ -276,6 +293,7 @@ describe('a window extracted again', () => {
         expect(result.eventsExtracted).toBe(2);
         expect(callsByWindow()).toEqual({ 0: 1, 2: 2, 4: 1, 6: 1 });
         expect(log.warn.mock.calls.some(([message]) => String(message).includes('keep both versions'))).toBe(true);
+        expect(heard.removals).toEqual([]);
     });
 
     it('keeps both versions, and says so, when the collection cannot be read', async () => {

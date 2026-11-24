@@ -43,6 +43,7 @@ describe('EventBase extraction on a profile', () => {
         await extractEvents({ ...WINDOW, settings: { ...onProfile, chat_model: '' } });
         expect(calls.post.mock.calls[0][0]).toMatchObject({
             provider: 'connection_profile', connectionProfileId: 'profile-harbor', connectionProfilePage: 'Core', contextLabel: 'EventBase',
+            feature: 'eventbase',
         });
     });
 

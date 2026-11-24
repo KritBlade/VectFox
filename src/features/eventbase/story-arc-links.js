@@ -21,7 +21,7 @@ import { resolveStoryArcMaxTokens } from '../../shared/retrieval-budget.js';
 import { updateChunkMetadata } from '../vector-backend/index.js';
 import { searchEventCollection } from './eventbase-search.js';
 import { isInvalidModelConfigError, notifyInvalidModel } from '../../shared/model-config-notifier.js';
-import { readOpenRouterModelPrice } from '../llm-provider/index.js';
+import { LLM_CALL_FEATURES, readOpenRouterModelPrice } from '../llm-provider/index.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
 import { log } from '../../sillytavern/log.js';
 import { callLlmForJson, resolveStoryLinkLlmConfig } from './agentic-retrieval.js';
@@ -73,6 +73,7 @@ async function _decideLinks(event, candidates, llmConnection, settings) {
             timeoutMs: LINK_TIMEOUT_MS,
             maxTokens: resolveStoryArcMaxTokens(settings),
             contextLabel: 'StoryArc links',
+            feature: LLM_CALL_FEATURES.storyArc,
         }),
         generationRateLimitSettings(settings),
         'story-links',

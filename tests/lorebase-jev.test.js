@@ -3,8 +3,9 @@
  * plans/executed/lorebook-semantic-overhaul-passage-index.md): Jev runs on the OpenRouter or Custom profile chosen for it; VectFox
  * sends Similharity's decisions route the profile's source, URL, model and key ID, never a key; each setup that cannot
  * run says what is wrong, then what that costs (connectionConsequence, a stand-in here: lorebase-connection.test.js
- * covers it); a refusal says what Similharity answered; and Test connection asks one made-up question. The real profile
- * wrapper reads a stand-in for SillyTavern's context.
+ * covers it); a refusal says what Similharity answered; each call is reported once it ends, as LoreBase's, with no key
+ * ID; and Test connection asks one made-up question. The real profile wrapper reads a stand-in for SillyTavern's
+ * context.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -13,8 +14,11 @@ const host = vi.hoisted(() => ({ connectionConsequence: null }));
 vi.mock('../src/sillytavern/log.js', () => ({ log: { warn: vi.fn(), error: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn() } }));
 vi.mock('../src/sillytavern/requests.js', () => ({ getRequestHeaders: () => ({ 'Content-Type': 'application/json', 'X-CSRF-Token': 'session' }) }));
 vi.mock('../src/features/lorebase/lorebase-connection.js', () => ({ connectionConsequence: (...args) => host.connectionConsequence(...args) }));
+// The real report of finished calls, which is all of the barrel this file reaches.
+vi.mock('../src/features/llm-provider/index.js', () => vi.importActual('../src/features/llm-provider/llm-call-report.js'));
 
 const { askJev, resolveJevConnection, testJevConnection } = await import('../src/features/lorebase/lorebase-jev.js');
+const { setLlmCallFinishedListener } = await import('../src/features/llm-provider/llm-call-report.js');
 
 const PROFILES = [
     { id: 'p-or', name: 'Jev on OpenRouter', api: 'openrouter', model: 'typesafe/jev-1.14', 'secret-id': 'or-jev' },
@@ -42,14 +46,15 @@ beforeEach(() => {
         }),
     };
     globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ yes: { e1: 0.37 }, inputTokens: 40, usd: 0.000014 }) }));
+    setLlmCallFinishedListener(null);
 });
 
 describe("Jev's connection", () => {
     it("sends an OpenRouter profile's source, model and key ID, never a URL or a key", async () => {
         const connection = resolveJevConnection({ lorebase_jev_connection_profile_id: 'p-or' });
-        expect(connection).toEqual({ ok: true, fields: { source: 'openrouter', model: 'typesafe/jev-1.14', secret_id: 'or-jev' } });
+        expect(connection).toEqual({ ok: true, fields: { source: 'openrouter', model: 'typesafe/jev-1.14', secret_id: 'or-jev' }, profileName: 'Jev on OpenRouter' });
 
-        const answer = await askJev(connection.fields, STATE, QUESTIONS);
+        const answer = await askJev(connection, STATE, QUESTIONS);
         expect(answer).toEqual({ yes: { e1: 0.37 }, inputTokens: 40, usd: 0.000014 });
         const [url, init] = fetch.mock.calls[0];
         expect(url).toBe('/api/plugins/similharity/lorebase/decisions');
@@ -60,6 +65,7 @@ describe("Jev's connection", () => {
     it("sends a Custom profile's URL with its model and key ID", () => {
         expect(resolveJevConnection({ lorebase_jev_connection_profile_id: 'p-ts' })).toEqual({
             ok: true, fields: { source: 'custom', model: 'jev-1.14.0', apiUrl: 'https://api.typesafe.ai/v1', secret_id: 'ts-jev' },
+            profileName: 'Jev on Typesafe',
         });
     });
 
@@ -83,8 +89,46 @@ describe("Jev's connection", () => {
 
     it('says what Similharity answered when Jev cannot answer', async () => {
         globalThis.fetch = vi.fn(async () => ({ ok: false, status: 502, statusText: 'Bad Gateway', text: async () => '{"error":"Jev on OpenRouter: 401 Unauthorized (the server refused the API key)"}' }));
-        await expect(askJev({ source: 'openrouter', model: 'typesafe/jev-1.14' }, STATE, QUESTIONS))
+        await expect(askJev({ fields: { source: 'openrouter', model: 'typesafe/jev-1.14' }, profileName: 'Jev on OpenRouter' }, STATE, QUESTIONS))
             .rejects.toThrow('Jev could not answer through Similharity (HTTP 502): {"error":"Jev on OpenRouter: 401 Unauthorized (the server refused the API key)"}');
+    });
+});
+
+describe("the report of Jev's calls", () => {
+    const reports = [];
+    const connection = () => resolveJevConnection({ lorebase_jev_connection_profile_id: 'p-or' });
+    beforeEach(() => {
+        reports.length = 0;
+        setLlmCallFinishedListener(call => reports.push(call));
+    });
+
+    it("names LoreBase, the profile, Jev's model and the prompt tokens Jev counted, and no key ID", async () => {
+        await askJev(connection(), STATE, QUESTIONS);
+        expect(reports).toHaveLength(1);
+        const [report] = reports;
+        expect(report).toEqual({
+            feature: 'lorebase', connection: 'profile', profileName: 'Jev on OpenRouter', provider: 'openrouter', model: 'typesafe/jev-1.14',
+            durationMs: expect.any(Number), outcome: 'ok',
+            usage: { prompt_tokens: 40, completion_tokens: null, total_tokens: null, cached_tokens: null },
+        });
+        expect(JSON.stringify(report)).not.toContain('or-jev');
+    });
+
+    it('says a refused call failed, with no tokens, and one that ran out of time timed out', async () => {
+        globalThis.fetch = vi.fn(async () => ({ ok: false, status: 502, statusText: 'Bad Gateway', text: async () => 'refused' }));
+        await expect(askJev(connection(), STATE, QUESTIONS)).rejects.toThrow('HTTP 502');
+        globalThis.fetch = vi.fn(async () => { throw new DOMException('The operation timed out.', 'TimeoutError'); });
+        await expect(askJev(connection(), STATE, QUESTIONS)).rejects.toThrow('timed out');
+        expect(reports.map(({ outcome, usage }) => ({ outcome, usage }))).toEqual([
+            { outcome: 'failed', usage: null },
+            { outcome: 'timed-out', usage: null },
+        ]);
+    });
+
+    it('reports no tokens when Jev counted none', async () => {
+        globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ yes: { e1: 0.2 }, inputTokens: null, usd: null }) }));
+        await askJev(connection(), STATE, QUESTIONS);
+        expect(reports[0].usage).toBeNull();
     });
 });
 

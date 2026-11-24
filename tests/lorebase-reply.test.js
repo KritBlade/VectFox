@@ -86,7 +86,11 @@ vi.mock('../src/shared/api-keys.js', () => ({ getOpenRouterApiKey: () => 'key', 
 vi.mock('../src/shared/model-http-errors.js', () => ({ getModelConfigErrorMessage: () => null }));
 vi.mock('../src/features/llm-provider/index.js', async () => {
     const call = await vi.importActual('../src/features/llm-provider/llm-provider-call.js');
-    return { parseJsonArrayFromLlm: call.parseJsonArrayFromLlm, postChatCompletion: vi.fn() };
+    return {
+        LLM_CALL_FEATURES: (await vi.importActual('../src/features/llm-provider/llm-call-report.js')).LLM_CALL_FEATURES,
+        parseJsonArrayFromLlm: call.parseJsonArrayFromLlm,
+        postChatCompletion: vi.fn(),
+    };
 });
 vi.mock('../src/features/text-cleaning/index.js', () => ({
     cleanText: text => text,
@@ -201,7 +205,7 @@ beforeEach(() => {
     host.unvectorizedUids = new Set();
     host.vectorsReadError = null;
     host.searchError = null;
-    host.jevConnection = { ok: true, fields: { source: 'openrouter', model: 'typesafe/jev-1.14', secret_id: 'or-jev' } };
+    host.jevConnection = { ok: true, fields: { source: 'openrouter', model: 'typesafe/jev-1.14', secret_id: 'or-jev' }, profileName: 'Jev harbor' };
     host.jevAnswer = { yes: { e1: 0.64, e2: 0.2 }, inputTokens: 40, usd: 0.00002 };
     // A fresh generation record for each test: a plain reply.
     afterCommands('normal', {});
@@ -278,8 +282,8 @@ describe('Fast and Cheap [Jev] (D16)', () => {
 
         expect(postChatCompletion).not.toHaveBeenCalled();
         expect(askJev).toHaveBeenCalledTimes(1);
-        const [fields, state, questions] = askJev.mock.calls[0];
-        expect(fields).toEqual(host.jevConnection.fields);
+        const [jev, state, questions] = askJev.mock.calls[0];
+        expect(jev).toBe(host.jevConnection);
         expect(state).toBe("The chat so far. The last message is the user's; the next reply answers it.\n\nKeeper Orrin: The lamp is lit.\n\nWren: Who keeps it tonight?");
         expect(questions.e1.instructions).toBe('Does the next reply need the lorebook entry "Lighthouse of Vell" (about: keys of Lighthouse of Vell)?');
         expect(Object.keys(questions)).toEqual(['e1', 'e2']);
@@ -557,7 +561,8 @@ describe("the calls on LoreBase's connection", () => {
 
         const sent = {
             provider: 'connection_profile', model: 'openai/gpt-6-luna', connectionProfileId: 'p-harbor', connectionProfilePage: 'WorldInfo',
-            timeoutMs: 30000, contextLabel: 'LoreBase', shouldNotifyProviderFailure: false, sendTemperature: false, tokenLimitParameter: 'max_tokens',
+            timeoutMs: 30000, contextLabel: 'LoreBase', feature: 'lorebase', shouldNotifyProviderFailure: false, sendTemperature: false,
+            tokenLimitParameter: 'max_tokens',
         };
         const [pickRequest, reviewRequest] = postChatCompletion.mock.calls.map(([request]) => request);
         expect(pickRequest).toMatchObject({ ...sent, maxTokens: 9500, reasoningEffort: 'low' });

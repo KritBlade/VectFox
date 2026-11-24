@@ -8,6 +8,7 @@
 import { connectionProfileDecisionsFields, findConnectionProfile } from '../../sillytavern/connection-profiles.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { readErrorBody } from '../../shared/server-error-text.js';
+import { LLM_CALL_CONNECTIONS, LLM_CALL_FEATURES, LLM_CALL_OUTCOMES, outcomeOfFailedCall, reportLlmCallFinished } from '../llm-provider/index.js';
 import { connectionConsequence } from './lorebase-connection.js';
 import { CALL_TIMEOUT_MS } from './lorebase-reply-core.js';
 
@@ -23,7 +24,8 @@ const TEST_QUESTIONS = { e1: { type: 'noul', instructions: 'Does the next reply 
  * Jev's connection on the profile chosen for it, or why it cannot run, ending on what that costs as LoreBase stands
  * now (connectionConsequence).
  * @param {object} settings - VectFox settings
- * @returns {{ok: true, fields: object}|{ok: false, problem: string}}
+ * @returns {{ok: true, fields: object, profileName: string}|{ok: false, problem: string}} fields: what Similharity is
+ *   sent; profileName: the profile's name, which the report of each call names
  */
 export function resolveJevConnection(settings) {
     const cannotRun = (...sentences) => ({ ok: false, problem: [...sentences, connectionConsequence(settings, { isJev: true })].filter(Boolean).join(' ') });
@@ -37,29 +39,52 @@ export function resolveJevConnection(settings) {
         return cannotRun(`Jev's profile "${profile.name}" names no model: set typesafe/jev-1.14 on OpenRouter, or jev-1.14.0 on Typesafe's own URL.`);
     }
     if (fields.source === 'custom' && !fields.apiUrl) return cannotRun(`Jev's Custom profile "${profile.name}" names no URL.`);
-    return { ok: true, fields };
+    return { ok: true, fields, profileName: profile.name || null };
 }
 
 /**
- * Ask Jev the questions about the state, through Similharity.
- * @param {object} fields - From resolveJevConnection
+ * Ask Jev the questions about the state, through Similharity. The call is reported once it ends, as LoreBase's, on
+ * Jev's profile, with the prompt tokens Jev counted.
+ * @param {{fields: object, profileName: string|null}} jev - From resolveJevConnection, ok
  * @param {string} state
  * @param {Record<string, {type: string, instructions: string}>} questions
  * @returns {Promise<{yes: Record<string, number>, inputTokens: number|null, usd: number|null}>}
  * @throws {Error} What Similharity answered, or a TimeoutError when it has not answered in time
  */
-export async function askJev(fields, state, questions) {
-    const response = await fetch(DECISIONS_ROUTE, {
-        method: 'POST',
-        headers: getRequestHeaders(),
-        body: JSON.stringify({ ...fields, state, questions }),
-        signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
+export async function askJev(jev, state, questions) {
+    const sentAt = performance.now();
+    const report = (outcome, usage) => reportLlmCallFinished({
+        feature: LLM_CALL_FEATURES.loreBase,
+        connection: LLM_CALL_CONNECTIONS.profile,
+        profileName: jev.profileName,
+        provider: jev.fields.source,
+        model: jev.fields.model || null,
+        durationMs: Math.round(performance.now() - sentAt),
+        outcome,
+        usage,
     });
-    if (!response.ok) {
-        const detail = await readErrorBody(response, response.statusText);
-        throw new Error(`Jev could not answer through Similharity (HTTP ${response.status}): ${detail}`);
+    let answer;
+    try {
+        const response = await fetch(DECISIONS_ROUTE, {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify({ ...jev.fields, state, questions }),
+            signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
+        });
+        if (!response.ok) {
+            const detail = await readErrorBody(response, response.statusText);
+            throw new Error(`Jev could not answer through Similharity (HTTP ${response.status}): ${detail}`);
+        }
+        answer = await response.json();
+    } catch (error) {
+        report(outcomeOfFailedCall(error), null);
+        throw error;
     }
-    return response.json();
+    const usage = Number.isFinite(answer?.inputTokens)
+        ? { prompt_tokens: answer.inputTokens, completion_tokens: null, total_tokens: null, cached_tokens: null }
+        : null;
+    report(LLM_CALL_OUTCOMES.ok, usage);
+    return answer;
 }
 
 /**
@@ -71,7 +96,7 @@ export async function askJev(fields, state, questions) {
 export async function testJevConnection(settings) {
     const connection = resolveJevConnection(settings);
     if (!connection.ok) throw new Error(connection.problem);
-    const { yes, usd } = await askJev(connection.fields, TEST_STATE, TEST_QUESTIONS);
+    const { yes, usd } = await askJev(connection, TEST_STATE, TEST_QUESTIONS);
     const cost = Number.isFinite(usd) ? `, for $${usd.toFixed(6)}` : '';
     return { content: `Jev rated a made-up entry at ${Number(yes.e1).toFixed(2)}${cost}.`, cutReason: null };
 }

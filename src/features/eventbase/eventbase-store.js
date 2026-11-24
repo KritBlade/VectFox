@@ -24,6 +24,7 @@ import { buildEmbedText } from './eventbase-schema.js';
 import { findReplacedEvents, linksMovedToReplacements, mayHoldEarlierEvents, replacementIdsOf, windowSpanOf } from './eventbase-window-replacement-core.js';
 import { log } from '../../sillytavern/log.js';
 import { readErrorBody } from '../../shared/server-error-text.js';
+import { announceEventsRemoved } from './eventbase-announcements.js';
 
 // ---------------------------------------------------------------------------
 // The pointer: how far EventBase has read a chat into one collection
@@ -439,7 +440,8 @@ export async function insertEvents(events, settings, abortSignal, collectionId) 
 /**
  * What one ingestion run uses to replace the events its windows hold from earlier extractions;
  * eventbase-window-replacement-core.js decides which those are. The collection is read once per
- * run, and only when a window may hold such events, so an ordinary turn reads nothing more.
+ * run, and only when a window may hold such events, so an ordinary turn reads nothing more. The IDs of the events
+ * removed go to EventBase's listener (announceEventsRemoved).
  *
  * Neither method throws. A window whose earlier events could not be removed keeps both versions
  * until it is extracted again, and a link left on a removed event is one no walk can follow.
@@ -491,6 +493,7 @@ export function createWindowReplacement({ collectionId, settings, tipAtRunStart 
                 log.warn(`[EventBase] Could not remove ${replacedEvents.length} event(s) of earlier extractions from ${collectionId}, so their windows keep both versions:`, err);
                 return;
             }
+            announceEventsRemoved(collectionId, replacedEvents.map(event => event.event_id));
             for (const [replacedId, newId] of replacementIdsOf(replacedEvents, eventsToCheck)) replacementById.set(replacedId, newId);
             log.lifecycle(`[EventBase] Replaced ${replacedEvents.length} event(s) of earlier extractions in ${new Set(replacedEvents.map(windowSpanOf)).size} window(s)`);
         },
@@ -881,7 +884,8 @@ export function clearExtractionCaches(registryKey) {
  * a collection holds, and with them the StoryArc links stored on them; only once none is left, forget the windows it
  * read, the windows that failed and how far it read, and take the window size given. Where auto-sync started stays, as
  * do the collection's ID, name, locks, auto-sync switch and StoryArc merges, and the collection itself, empty, so
- * discovery keeps listing it. Deletes as many events as a listing gives at a time, until none is listed.
+ * discovery keeps listing it. Deletes as many events as a listing gives at a time, until none is listed. Once a
+ * collection that held events is empty, EventBase's listener hears that it was emptied (announceEventsRemoved).
  *
  * @param {string} registryKey - The collection's registry key ("backend:id")
  * @param {object} settings - VectFox settings
@@ -905,6 +909,7 @@ export async function emptyEventBaseCollection(registryKey, settings, { windowSi
     clearExtractionCaches(registryKey);
     setCollectionWindowSize(registryKey, windowSize);
     log.lifecycle(`[EventBase] Start over emptied ${registryKey}: ${deletedCount} event(s) deleted, window size ${windowSize}`);
+    if (deletedCount > 0) announceEventsRemoved(collectionId, null);
     return deletedCount;
 }
 

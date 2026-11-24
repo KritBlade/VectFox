@@ -7,7 +7,7 @@
  * convention as reformat-extractor.test.js.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('../../../../../script.js', () => ({
     getRequestHeaders: () => ({ 'Content-Type': 'application/json' }),
@@ -34,6 +34,7 @@ vi.mock('../src/sillytavern/log.js', () => ({
 }));
 
 import { postChatCompletion, parseJsonArrayFromLlm, resolveModelParameterStyle, LlmCallError } from '../src/features/llm-provider/llm-provider-call.js';
+import { setLlmCallFinishedListener } from '../src/features/llm-provider/llm-call-report.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -62,6 +63,7 @@ function errorResponse(status, text = 'boom', bodyJson = null) {
 
 function baseArgs(overrides = {}) {
     return {
+        feature: 'eventbase',
         messages: [{ role: 'user', content: 'hello' }],
         model: 'test/model',
         provider: 'openrouter',
@@ -228,6 +230,65 @@ describe('postChatCompletion — request body', () => {
 // ---------------------------------------------------------------------------
 // resolveModelParameterStyle — settings → request shape
 // ---------------------------------------------------------------------------
+
+describe('postChatCompletion — the report of a finished call', () => {
+    const reports = [];
+    beforeEach(() => {
+        reports.length = 0;
+        setLlmCallFinishedListener(call => reports.push(call));
+    });
+    afterEach(() => setLlmCallFinishedListener(null));
+
+    it('names the feature, the manual connection, its provider and model, the time it took and the tokens', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => okResponse({ content: 'ok', usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 } })));
+        await postChatCompletion(baseArgs({ feature: 'storyarc' }));
+        expect(reports).toEqual([{
+            feature: 'storyarc', connection: 'manual', profileName: null, provider: 'openrouter', model: 'test/model',
+            durationMs: expect.any(Number), outcome: 'ok',
+            usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15, cached_tokens: null },
+        }]);
+        expect(reports[0].durationMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('reports a reply that carries no tokens with usage null', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => okResponse({ content: 'ok' })));
+        await postChatCompletion(baseArgs({ provider: 'vllm', vllmUrl: 'http://harbor.local/v1', model: 'harbor-chat' }));
+        expect(reports).toEqual([expect.objectContaining({ connection: 'manual', provider: 'vllm', model: 'harbor-chat', outcome: 'ok', usage: null })]);
+    });
+
+    it('says a refused call failed, a reply with no text failed with the tokens it spent, and a timeout timed out', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => errorResponse(500, 'boom')));
+        await expect(postChatCompletion(baseArgs())).rejects.toBeInstanceOf(LlmCallError);
+        vi.stubGlobal('fetch', vi.fn(async () => ({
+            ok: true,
+            status: 200,
+            json: async () => ({ choices: [{ message: { content: '' }, finish_reason: 'length' }], usage: { prompt_tokens: 50, completion_tokens: 100, total_tokens: 150 } }),
+        })));
+        await expect(postChatCompletion(baseArgs())).rejects.toBeInstanceOf(LlmCallError);
+        vi.stubGlobal('fetch', vi.fn(async () => { throw new DOMException('The operation timed out.', 'TimeoutError'); }));
+        await expect(postChatCompletion(baseArgs())).rejects.toThrow('timed out');
+        expect(reports.map(({ outcome, usage }) => ({ outcome, usage }))).toEqual([
+            { outcome: 'failed', usage: null },
+            { outcome: 'failed', usage: { prompt_tokens: 50, completion_tokens: 100, total_tokens: 150, cached_tokens: null } },
+            { outcome: 'timed-out', usage: null },
+        ]);
+    });
+
+    it('sends nothing and reports nothing for a feature it does not know', async () => {
+        const fetchMock = vi.fn(async () => okResponse());
+        vi.stubGlobal('fetch', fetchMock);
+        await expect(postChatCompletion(baseArgs({ feature: undefined }))).rejects.toThrow(TypeError);
+        await expect(postChatCompletion(baseArgs({ feature: 'summaries' }))).rejects.toThrow("feature 'summaries'");
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(reports).toEqual([]);
+    });
+
+    it('returns the reply when the listener throws', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => okResponse({ content: 'still here' })));
+        setLlmCallFinishedListener(() => { throw new Error('a listener broke'); });
+        await expect(postChatCompletion(baseArgs())).resolves.toMatchObject({ content: 'still here' });
+    });
+});
 
 describe('resolveModelParameterStyle', () => {
     it('defaults to the classic OpenAI shape, with thinking off', () => {

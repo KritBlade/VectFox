@@ -121,6 +121,11 @@ const { hashSourceMessage } = await import('../src/features/eventbase/eventbase-
 const { extractEvents } = await import('../src/features/eventbase/eventbase-extractor.js');
 const { linkNewStoryEvents } = await import('../src/features/eventbase/story-arc-links.js');
 const { progressTracker } = await import('../src/shared/progress-tracker.js');
+const { setEventBaseListeners } = await import('../src/features/eventbase/eventbase-announcements.js');
+
+/** Each run's end as EventBase's listener heard it. */
+const runsEnded = [];
+setEventBaseListeners({ onRunEnded: run => runsEnded.push(run) });
 
 const SETTINGS = { eventbase_window_size: 2, eventbase_window_overlap: 0, eventbase_min_importance_store: 1, story_arc_mode_enabled: true, vector_backend: 'qdrant' };
 
@@ -173,6 +178,7 @@ describe('a stretch read again', () => {
         state.onExtract = null;
         state.extensionSettings.vectfox = {};
         vi.clearAllMocks();
+        runsEnded.length = 0;
     });
 
     it('reads every window from the one holding its first message to the one holding its last, though the record holds them, and replaces their events', async () => {
@@ -267,6 +273,8 @@ describe('a stretch read again', () => {
         expect(linker.story_links).toEqual([{ event_id: replacementId, type: 'continues', thread: '' }]);
         expect(result.insertedEventIds).toEqual([replacementId]);
         expect(result.eventIdsWithMovedLinks).toEqual([linker.event_id]);
+        // The stopped run's end is heard, with the event it stored.
+        expect(runsEnded.at(-1)).toEqual({ collectionId: collectionIdOf(chatUUID), eventsAdded: 1, windowsProcessed: result.windowsProcessed });
     });
 
     it('moves the links off the window it replaced when a later window\'s insert fails, which keeps its events', async () => {
@@ -279,8 +287,11 @@ describe('a stretch read again', () => {
         linker.story_links = [{ event_id: replacedId, type: 'continues', thread: '' }];
         state.failingInsertWindowStart = 4;
 
+        const runsBefore = runsEnded.length;
         await expect(readAgain(chat, chatUUID, { parallelWindows: 1 })).rejects.toThrow('Hedge fatal');
 
+        // The failed run's end is heard too, once, with the event it stored before the failure.
+        expect(runsEnded.slice(runsBefore)).toEqual([{ collectionId: collectionIdOf(chatUUID), eventsAdded: 1, windowsProcessed: expect.any(Number) }]);
         const [replacementId] = eventIdsOfWindow(2);
         expect(replacementId).not.toBe(replacedId);
         expect(eventIdsOfWindow(4)).toEqual(keptIds);

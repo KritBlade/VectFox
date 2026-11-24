@@ -45,11 +45,11 @@ describe('the connection test message', () => {
     it('goes out on the route a consumer resolved, with its request switches, and raises no toast of its own', async () => {
         const reply = await sendConnectionTest(
             { provider: 'connection_profile', connectionProfileId: 'p-harbor', connectionProfilePage: 'AgentMode', ok: true },
-            { contextLabel: 'Agent Mode', parameterStyle: { sendTemperature: false, tokenLimitParameter: 'max_completion_tokens', reasoningEffort: 'none' } },
+            { contextLabel: 'Agent Mode', feature: 'agent', parameterStyle: { sendTemperature: false, tokenLimitParameter: 'max_completion_tokens', reasoningEffort: 'none' } },
         );
         expect(reply).toEqual({ content: 'OK', cutReason: null });
         expect(provider.calls).toEqual([{
-            messages: TEST_MESSAGES, model: undefined, provider: 'connection_profile', vllmUrl: '', connectionProfileId: 'p-harbor',
+            feature: 'agent', messages: TEST_MESSAGES, model: undefined, provider: 'connection_profile', vllmUrl: '', connectionProfileId: 'p-harbor',
             connectionProfilePage: 'AgentMode', maxTokens: CONNECTION_TEST_MAX_TOKENS, temperature: 0, timeoutMs: CONNECTION_TEST_TIMEOUT_MS,
             contextLabel: 'Agent Mode', shouldNotifyProviderFailure: false, sendTemperature: false, tokenLimitParameter: 'max_completion_tokens',
             reasoningEffort: 'none',
@@ -58,7 +58,7 @@ describe('the connection test message', () => {
 
     it('passes on a cut the provider made, for the button to report', async () => {
         provider.reply = { content: 'OK', finishReason: 'length', cutReason: 'length', usage: null, data: {} };
-        await expect(sendConnectionTest({ provider: 'openrouter', model: 'harbor-chat', ok: true }, { contextLabel: 'StoryArc' }))
+        await expect(sendConnectionTest({ provider: 'openrouter', model: 'harbor-chat', ok: true }, { contextLabel: 'StoryArc', feature: 'storyarc' }))
             .resolves.toEqual({ content: 'OK', cutReason: 'length' });
         expect(provider.calls).toHaveLength(1);
     });
@@ -71,7 +71,7 @@ describe('the EventBase model\'s Test connection', () => {
         expect(provider.calls).toHaveLength(1);
         expect(provider.calls[0]).toMatchObject({
             messages: TEST_MESSAGES, provider: 'vllm', model: 'harbor-chat', vllmUrl: 'http://harbor.local/v1',
-            maxTokens: CONNECTION_TEST_MAX_TOKENS, timeoutMs: CONNECTION_TEST_TIMEOUT_MS, contextLabel: 'EventBase',
+            maxTokens: CONNECTION_TEST_MAX_TOKENS, timeoutMs: CONNECTION_TEST_TIMEOUT_MS, contextLabel: 'EventBase', feature: 'eventbase',
         });
         expect(settings).toMatchObject({ eventbase_max_tokens: 4096, eventbase_timeout_ms: 90000 });
     });

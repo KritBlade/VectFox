@@ -18,12 +18,14 @@ export const CONNECTION_TEST_TIMEOUT_MS = 60000;
  * Mode's and StoryArc's ask for JSON). It raises no toast of its own: the button reports the result.
  *
  * @param {object} route - provider, model, vllmUrl, connectionProfileId and connectionProfilePage, as resolved
- * @param {{contextLabel: string, parameterStyle?: object}} options - The feature's name, and its request switches
+ * @param {{contextLabel: string, feature: string, parameterStyle?: object}} options - The feature's name, the feature
+ *   the test's call is reported under (one of LLM_CALL_FEATURES), and its request switches
  * @returns {Promise<{content: string, cutReason: string|null}>}
  * @throws {import('./llm-provider-call.js').LlmCallError} What a call on that connection throws
  */
-export async function sendConnectionTest(route, { contextLabel, parameterStyle = {} }) {
+export async function sendConnectionTest(route, { contextLabel, feature, parameterStyle = {} }) {
     const { content, cutReason } = await postChatCompletion({
+        feature,
         messages: [{ role: 'user', content: CONNECTION_TEST_PROMPT }],
         model: route.model,
         provider: route.provider,

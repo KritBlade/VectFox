@@ -11,7 +11,8 @@ const postChatCompletionMock = vi.hoisted(() => vi.fn());
 // No key saved in any slot.
 vi.mock('../src/shared/api-keys.js', () => ({ getOpenRouterApiKey: () => '', getCustomApiKey: () => '' }));
 vi.mock('../src/features/llm-provider/llm-provider-call.js', () => ({ checkConnectionProfile: vi.fn() }));
-vi.mock('../src/features/llm-provider/index.js', () => ({
+vi.mock('../src/features/llm-provider/index.js', async () => ({
+    LLM_CALL_FEATURES: (await vi.importActual('../src/features/llm-provider/llm-call-report.js')).LLM_CALL_FEATURES,
     CONNECTION_TEST_MAX_TOKENS: 16,
     CONNECTION_TEST_PROMPT: 'Reply with OK.',
     CONNECTION_TEST_TIMEOUT_MS: 1000,

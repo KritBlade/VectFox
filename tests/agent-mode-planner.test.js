@@ -38,6 +38,7 @@ vi.mock('../src/features/llm-provider/index.js', async () => {
     const connection = await import('../src/features/llm-provider/llm-connection.js');
     return {
         postChatCompletion: (...args) => postChatCompletionMock(...args),
+        LLM_CALL_FEATURES: (await vi.importActual('../src/features/llm-provider/llm-call-report.js')).LLM_CALL_FEATURES,
         resolveModelParameterStyle: () => ({ sendTemperature: true, reasoningEffort: 'none' }),
         // The real rules, so the tests of the planner's connection read what ships.
         resolveInheritedConnection: (await import('../src/features/llm-provider/inherited-connection.js')).resolveInheritedConnection,
@@ -369,6 +370,7 @@ describe('the planner\'s connection', () => {
         await callAgent({ ...agentOn, ...eventBaseOnProfile, agent_provider: '' });
         expect(postChatCompletionMock.mock.calls[0][0]).toMatchObject({
             provider: 'connection_profile', connectionProfileId: 'profile-eventbase', connectionProfilePage: 'Core', contextLabel: 'Agent Mode',
+            feature: 'agent',
         });
     });
 });
@@ -384,7 +386,7 @@ describe('Test connection of Agent Mode and StoryArc', () => {
         await expect(testAgentModeConnection(settings)).resolves.toEqual({ content: 'OK', cutReason: null });
         expect(sendConnectionTestMock).toHaveBeenCalledWith(
             expect.objectContaining({ ok: true, provider: 'vllm', model: 'harbor-chat', vllmUrl: 'http://harbor.local/v1' }),
-            { contextLabel: 'Agent Mode', parameterStyle: { sendTemperature: true, reasoningEffort: 'none' } },
+            { contextLabel: 'Agent Mode', feature: 'agent', parameterStyle: { sendTemperature: true, reasoningEffort: 'none' } },
         );
         expect(postChatCompletionMock).not.toHaveBeenCalled();
     });
@@ -404,7 +406,7 @@ describe('Test connection of Agent Mode and StoryArc', () => {
         await testStoryArcConnection({ story_arc_link_provider: 'connection_profile', story_arc_link_connection_profile_id: 'p-harbor' });
         expect(sendConnectionTestMock).toHaveBeenCalledWith(
             expect.objectContaining({ ok: true, provider: 'connection_profile', connectionProfileId: 'p-harbor', connectionProfilePage: 'StoryArc' }),
-            { contextLabel: 'StoryArc', parameterStyle: { sendTemperature: false, reasoningEffort: null } },
+            { contextLabel: 'StoryArc', feature: 'storyarc', parameterStyle: { sendTemperature: false, reasoningEffort: null } },
         );
 
         const problem = 'StoryArc: no connection profile is chosen. Choose one on the StoryArc page.';
