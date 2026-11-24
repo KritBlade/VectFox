@@ -685,10 +685,11 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
             } catch (err) {
                 if (err?.name === 'AbortError' || abortSignal?.aborted) throw err;
                 if (isInvalidModelConfigError(err)) throw new EventBaseFatalError(err.message, 'invalid_model_config');
-                // Hedge-fatal bypass: the inner hedge already burned up to 60s on 4 fresh-connection
-                // attempts in parallel. Outer retry would just trigger another round of identical
-                // hedging — same upstream, same routing pool, no new information. Throw up to
-                // the coordinator so user can press Continue later when conditions improve.
+                // Hedge-fatal bypass: the hedge race ran past its first slot and every fresh-connection
+                // attempt failed or hung, so another round would meet the same stalled upstream. Throw
+                // up to the coordinator so the user can press Continue later when conditions improve.
+                // A rate limit, or attempts that all failed fast, arrive as the provider's own error
+                // and take the waits below.
                 // See InternalProject/Vectfox/plans/executed/embedding-resilience-hedge-and-diagnostics.md §6.5.
                 if (err?.isHedgeFatal === true) throw err;
                 lastErr = err;

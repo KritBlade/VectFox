@@ -10,7 +10,10 @@
  *
  * These tests pin both behaviours at once — the schedule still governs slowness,
  * failures short-circuit it — plus the invariants that keeps: no slot fires twice,
- * and the attempt count stays at maxHedges + 1.
+ * and the attempt count stays at maxHedges + 1. They also pin what reaches the
+ * caller's retries, which wait between attempts: a rate limit at once, attempts that
+ * all failed within the first slot as the last error, and hedge-fatal only from a race
+ * that ran past it.
  *
  * Isolation: vector-api.js reaches ST modules that don't resolve under
  * vitest, so the whole import graph is stubbed. callWithHedge touches none of it.
@@ -125,12 +128,14 @@ describe('callWithHedge — a failure short-circuits the clock', () => {
         expect(calls).toHaveLength(MAX_HEDGES + 1);
     });
 
-    // Previously this waited out the full 60s cutoff with nothing in flight.
-    it('reports hedge-fatal as soon as the last attempt fails, not at the cutoff', async () => {
+    // With nothing left in flight, the cutoff at 60s could only add dead time.
+    it('reports hedge-fatal as soon as the last attempt fails past the first slot, not at the cutoff', async () => {
         const { fn, calls } = deferredQueue();
         const race = callWithHedge(fn, THRESHOLD, MAX_HEDGES, ctx);
         const outcome = race.then(() => 'resolved', (e) => e);
 
+        // The primary hangs until hedge 1 fires on the clock; then every attempt fails.
+        await vi.advanceTimersByTimeAsync(THRESHOLD);
         for (let i = 0; i < MAX_HEDGES + 1; i++) {
             calls[i].rejectIt(new Error(`fail ${i}`));
             await vi.advanceTimersByTimeAsync(0);
@@ -144,19 +149,35 @@ describe('callWithHedge — a failure short-circuits the clock', () => {
         expect(err.message).toMatch(/fail 3/); // carries the last error
     });
 
-    // It once said "over 60s" for four attempts that had failed in 2.4s.
     it('says how long the attempts took, not the longest they could have', async () => {
         const { fn, calls } = deferredQueue();
         const race = callWithHedge(fn, THRESHOLD, MAX_HEDGES, ctx);
         const outcome = race.then(() => 'resolved', (e) => e);
 
+        await vi.advanceTimersByTimeAsync(THRESHOLD);
         for (let i = 0; i < MAX_HEDGES + 1; i++) {
             await vi.advanceTimersByTimeAsync(500);
             calls[i].rejectIt(new Error(`fail ${i}`));
             await vi.advanceTimersByTimeAsync(0);
         }
 
-        expect((await outcome).message).toBe('Hedge fatal: 4 attempts via openrouter failed in 2.0s — last error: Error: fail 3');
+        expect((await outcome).message).toBe('Hedge fatal: 4 attempts via openrouter failed in 17.0s — last error: Error: fail 3');
+    });
+
+    it('ends with the last error, not hedge-fatal, when every attempt fails within the first slot', async () => {
+        const { fn, calls } = deferredQueue();
+        const race = callWithHedge(fn, THRESHOLD, MAX_HEDGES, ctx);
+        const outcome = race.then(() => 'resolved', (e) => e);
+
+        for (let i = 0; i < MAX_HEDGES + 1; i++) {
+            await vi.advanceTimersByTimeAsync(500);
+            calls[i].rejectIt(new Error(`500 Internal Server Error - Unexpected end of JSON input (${i})`));
+            await vi.advanceTimersByTimeAsync(0);
+        }
+
+        const err = await outcome;
+        expect(err.message).toBe('500 Internal Server Error - Unexpected end of JSON input (3)');
+        expect(err.isHedgeFatal).toBeUndefined();
     });
 
     // A late failure must not cancel a hedge that is still running and may yet win.
@@ -218,6 +239,23 @@ describe('callWithHedge — a configuration error', () => {
         await vi.advanceTimersByTimeAsync(0);
 
         expect(await outcome).toBe(configError);
+        await vi.advanceTimersByTimeAsync(THRESHOLD * (MAX_HEDGES + 1));
+        expect(calls).toHaveLength(1);
+    });
+});
+
+describe('callWithHedge — a rate limit', () => {
+    // Similharity carries the embedding provider's 429 inside a 500.
+    it('ends the race at once with that error, as an attempt fired now meets the same limit', async () => {
+        const { fn, calls } = deferredQueue();
+        const race = callWithHedge(fn, THRESHOLD, MAX_HEDGES, ctx);
+        const outcome = race.then(() => 'resolved', (e) => e);
+
+        const rateLimit = new Error('[Qdrant] Failed to insert 2 vectors into c: 500 Internal Server Error - {"error":"Custom embedding: 429 Too Many Requests (the server is busy or hit a rate limit)"}');
+        calls[0].rejectIt(rateLimit);
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(await outcome).toBe(rateLimit);
         await vi.advanceTimersByTimeAsync(THRESHOLD * (MAX_HEDGES + 1));
         expect(calls).toHaveLength(1);
     });

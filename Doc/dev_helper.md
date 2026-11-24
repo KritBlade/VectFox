@@ -203,7 +203,9 @@ Agent Mode is covered by the reply step's EventBase bound (its fan-out `queryCol
 
 ### Hedge-fatal escape
 
-After 4 fresh-connection attempts in 60s with no success, `callWithHedge` throws an error with `name === 'HedgeFatalError'` and `isHedgeFatal === true`. Both `RETRY_CONFIG.shouldRetry` and `_insertWithRetry` (the outer EventBase retry in `eventbase-workflow.js`) check this flag and skip retrying — more retries would just trigger another 60s of identical hedging against the same broken upstream. User presses Continue button later to resume; the existing window-cache semantics ensure no duplicates on resume thanks to hash-deterministic Qdrant upserts.
+When the race ran past its first slot (15s) and every attempt failed or hung, `callWithHedge` throws an error with `name === 'HedgeFatalError'` and `isHedgeFatal === true`. Both `RETRY_CONFIG.shouldRetry` and `_insertWithRetry` (the outer EventBase retry in `eventbase-workflow.js`) check this flag and skip retrying — more retries would just trigger another round of hedging against the same stalled upstream. User presses Continue button later to resume; the existing window-cache semantics ensure no duplicates on resume thanks to hash-deterministic Qdrant upserts.
+
+Two failures never become hedge-fatal, as a fresh connection fired at once cannot beat them. A **rate limit** (a 429, or "rate limit" / "too many requests" in the error: Similharity carries an embedding provider's 429 inside a 500) ends the race at once with that error, and four attempts that **all fail within the first slot** end it with the last one. Either way the provider's error reaches the retries, which wait: `RETRY_CONFIG` retries a rate limit, a timeout and the network and 5xx words up to 4 attempts, 5s, 8s and 8s apart, and `_insertWithRetry` runs that 3 times, 5s and 10s apart, before EventBase stops. A rate limit that lasts costs 12 requests over about 80s rather than ending the run in 2s.
 
 ### Wait for each batch (`eventbase_disable_pipeline`)
 
@@ -218,9 +220,9 @@ Read-site semantics: `settings?.eventbase_disable_pipeline === true` (`eventbase
 | Layer | Behavior with hedge enabled |
 |---|---|
 | Coordinator (EventBase pipelined or serial) | Hedge-fatal bubbles up as a fatal; windows stay unmarked; user resumes via Continue. |
-| Outer `_insertWithRetry` (pipelined mode) | Catches anything except AbortError AND hedge-fatal. Hedge-fatal escapes the 3-attempt outer retry budget. |
-| Inner `retry` (`src/shared/retry.js`) | `shouldRetry` returns false for hedge-fatal. Otherwise retries on TimeoutError + the keyword set in `RETRY_CONFIG.shouldRetry`. |
-| Hedge (`callWithHedge`) | Primary at t=0, hedge at t=15s, 30s, 45s. Hard fatal cutoff at t=60s. AbortError short-circuits the entire race so Stop button cancels within microseconds (no 60s of spam). |
+| Outer `_insertWithRetry` (pipelined mode) | Catches anything except AbortError AND hedge-fatal, 3 attempts 5s and 10s apart. Hedge-fatal escapes the 3-attempt outer retry budget. |
+| Inner `retry` (`src/shared/retry.js`) | `shouldRetry` returns false for hedge-fatal. Otherwise retries on TimeoutError, a rate limit and the keyword set in `RETRY_CONFIG.shouldRetry`, up to 4 attempts 5s, 8s and 8s apart. |
+| Hedge (`callWithHedge`) | Primary at t=0, hedge at t=15s, 30s, 45s; a failed attempt fires the next at once. Hard fatal cutoff at t=60s. AbortError, a configuration error and a rate limit end the race at once with that error; attempts that all fail within the first slot end it with the last one, not hedge-fatal. |
 | Parallel-split wave composite (Group=OFF only) | If ANY individual failure is `isHedgeFatal=true`, the composite Error inherits the flag — outer retry short-circuits instead of burning ~12min/wave on a wave certain to fail again. |
 | Backend `insertVectorItems` (similharity → ST → provider → Qdrant) | One call per hedge invocation. |
 

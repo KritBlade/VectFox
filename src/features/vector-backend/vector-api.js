@@ -150,6 +150,15 @@ function chunkArray(array, size) {
     return chunks;
 }
 
+/** A provider's rate limit, by its status or its words: Similharity carries an embedding provider's 429 inside a 500. */
+const RATE_LIMIT_SIGNAL = /\b429\b|rate.?limit|too many requests/i;
+
+/**
+ * @param {unknown} error
+ * @returns {boolean} whether the error says a provider refused the request for its rate limit
+ */
+const isRateLimited = error => RATE_LIMIT_SIGNAL.test(String(error?.message ?? error ?? ''));
+
 /**
  * callWithHedge — fire a duplicate request after a threshold to dodge connection-level
  * routing stalls on multi-upstream embedding providers (OpenRouter, SiliconFlow behind
@@ -174,18 +183,23 @@ function chunkArray(array, size) {
  *     t=15s).
  * Attempts still cap at maxHedges + 1 either way.
  *
- * A configuration error (code `invalid_model_config`: a model that is no longer valid, a
- * collection holding another vector size or made with another CJK tokenizer) fails the
- * same way on every attempt, and a fresh connection cannot change that, so it ends the
- * race at once, as itself: its code reaches the caller, which pauses auto-sync and shows
- * the sticky toast.
+ * Two failures end the race at once, as themselves, since a fresh connection cannot
+ * change them:
+ *   - a configuration error (code `invalid_model_config`: a model that is no longer valid,
+ *     a collection holding another vector size or made with another CJK tokenizer) fails
+ *     the same way on every attempt; its code reaches the caller, which pauses auto-sync
+ *     and shows the sticky toast;
+ *   - a rate limit (isRateLimited) refuses an attempt fired at once the same way, and more
+ *     attempts only prolong it; the caller's retry (RETRY_CONFIG) waits before the next.
  *
- * Hedge-fatal: if all (maxHedges + 1) attempts fail, throw an error with
- * `name === 'HedgeFatalError'` and `isHedgeFatal === true` — immediately once the last
- * one fails, or at the hard cutoff at (maxHedges + 1) × thresholdMs if attempts are
- * still in flight. The shouldRetry filter in RETRY_CONFIG checks this flag and skips
- * retrying — the user can resume manually via Continue button. See
- * InternalProject/Vectfox/plans/executed/embedding-resilience-hedge-and-diagnostics.md §6.
+ * When every attempt has failed: if they all failed within the first hedge slot
+ * (thresholdMs), the race saw no stall, so it throws the last attempt's error for the
+ * caller's retries, which wait between attempts. Otherwise it throws hedge-fatal, an error
+ * with `name === 'HedgeFatalError'` and `isHedgeFatal === true` — immediately once the last
+ * one fails, or at the hard cutoff at (maxHedges + 1) × thresholdMs if attempts are still
+ * in flight. RETRY_CONFIG's shouldRetry and the EventBase coordinator's insert retry skip
+ * hedge-fatal, as a race that ran past a slot already spent its waiting; the user resumes
+ * with Continue. See InternalProject/Vectfox/plans/executed/embedding-resilience-hedge-and-diagnostics.md §6.
  *
  * @param {Function} fn - Async function to call (each invocation must be safe to repeat)
  * @param {number} thresholdMs - Time between attempts (e.g., 15000)
@@ -294,8 +308,9 @@ export async function callWithHedge(fn, thresholdMs, maxHedges, ctx) {
                         settle('err', e);
                         return;
                     }
-                    // A configuration error would fail every hedge the same way (see above).
-                    if (isInvalidModelConfigError(e)) {
+                    // A configuration error would fail every hedge the same way, and a rate limit
+                    // would refuse every hedge fired now (see above).
+                    if (isInvalidModelConfigError(e) || isRateLimited(e)) {
                         settle('err', e);
                         return;
                     }
@@ -311,7 +326,12 @@ export async function callWithHedge(fn, thresholdMs, maxHedges, ctx) {
                     }
                     // Last attempt, and nothing left in flight: every attempt has failed,
                     // so the hard cutoff below can only add dead time before saying so.
-                    if (attemptsInFlight === 0) settle('err', buildHedgeFatal());
+                    // Failures that all came within the first slot saw no stall: the last
+                    // one goes to the caller's retries, which wait between attempts.
+                    if (attemptsInFlight === 0) {
+                        const isWithinFirstSlot = performance.now() - raceStart < thresholdMs;
+                        settle('err', isWithinFirstSlot ? e : buildHedgeFatal());
+                    }
                 },
             );
         };
@@ -348,11 +368,11 @@ const RETRY_CONFIG = {
     maxDelay: RETRY_MAX_DELAY_MS,
     backoffFactor: RETRY_BACKOFF_MULTIPLIER,
     shouldRetry: (error) => {
-        // Hedge-fatal errors carry an isHedgeFatal flag. After hedge already
-        // burned 4 fresh-connection attempts, in up to 60s, without success, an
-        // immediate outer retry would just trigger another round of hedge —
-        // upstream is genuinely broken for our payload. Throw straight up to
-        // the coordinator so the user can press Continue later. See
+        // Hedge-fatal errors carry an isHedgeFatal flag: the hedge race ran past its first
+        // slot and every fresh-connection attempt failed or hung, so another round would
+        // meet the same stalled upstream. Throw straight up to the coordinator so the user
+        // can press Continue later. A rate limit, or attempts that all failed fast, come as
+        // the provider's own error instead, which the keywords below retry after a wait. See
         // InternalProject/Vectfox/plans/executed/embedding-resilience-hedge-and-diagnostics.md §6.5.
         if (error?.isHedgeFatal === true) return false;
         // A configuration error fails the same way on every attempt, whatever words its message holds.
@@ -362,6 +382,7 @@ const RETRY_CONFIG = {
         // contain "timeout", so the keyword list alone would not retry a request
         // that hit its timeout.
         if (error?.name === 'TimeoutError') return true;
+        if (isRateLimited(error)) return true;
         const message = error?.message?.toLowerCase() || '';
         const isRetryable =
             message.includes('network') ||
@@ -370,9 +391,6 @@ const RETRY_CONFIG = {
             message.includes('failed to fetch') ||
             message.includes('fetch') ||
             message.includes('suspended') ||
-            message.includes('429') ||
-            message.includes('rate limit') ||
-            message.includes('too many requests') ||
             message.includes('502') ||
             message.includes('503') ||
             message.includes('504');
@@ -571,7 +589,7 @@ export async function insertVectorItems(collectionId, items, settings, onProgres
                 if (failed.length > 0) {
                     const sample = failed[0].reason;
                     // Hedge-fatal propagation: if ANY of the wave's failures hit hedge-fatal
-                    // (4 fresh-connection attempts, in up to 60s, with no success), the upstream is
+                    // (a race past its first slot with every attempt failed or hung), the upstream is
                     // genuinely broken for our payload. Propagating isHedgeFatal lets the
                     // outer _insertWithRetry (eventbase-workflow.js) stop instead of re-running
                     // a wave that is certain to fail the same way: without it, the composite
