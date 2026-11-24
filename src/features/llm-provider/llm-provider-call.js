@@ -11,7 +11,8 @@
  * a failure (connection-profile-core.js). Both then extract the reply, read why
  * it stopped (completion-finish.js), and classify a reply with no text the same
  * way. Each call that was sent is reported once it ends, with the feature that
- * made it (llm-call-report.js). Plus the LLM-output JSON-array parser both
+ * made it, and a manual request carries VectFox's mark, written before it is
+ * sent (llm-call-report.js). Plus the LLM-output JSON-array parser both
  * extraction features use.
  *
  * DESIGN — neutral core, feature policy at the edge.
@@ -45,7 +46,8 @@ import { log } from '../../sillytavern/log.js';
 import { completionCutReason, completionFinishReason, describeNoTextAnswer } from './completion-finish.js';
 import { classifyConnectionProfileFailure, connectionProfileProblem, connectionProfileRequestShape, isProviderServerFailure } from './connection-profile-core.js';
 import {
-    LLM_CALL_CONNECTIONS, LLM_CALL_FEATURES, LLM_CALL_OUTCOMES, isLlmCallFeature, outcomeOfFailedCall, reportLlmCallFinished,
+    LLM_CALL_CONNECTIONS, LLM_CALL_FEATURES, LLM_CALL_OUTCOMES, isLlmCallFeature, markedAsOwnRequest, outcomeOfFailedCall,
+    reportLlmCallFinished,
 } from './llm-call-report.js';
 import { readErrorBody } from '../../shared/server-error-text.js';
 
@@ -236,7 +238,7 @@ export function resolveModelParameterStyle(settings = {}) {
  *
  * @param {object}   opts
  * @param {string}   opts.feature            the feature the call is made for, one of LLM_CALL_FEATURES; the report
- *        of the call, sent once it ends, names it
+ *        of the call, sent once it ends, names it, and so does the mark on a manual request
  * @param {Array<{role: string, content: string}>} opts.messages
  * @param {string}   opts.model
  * @param {string}   opts.provider           'openrouter' | 'vllm'
@@ -301,8 +303,8 @@ export async function postChatCompletion({
                 connectionProfilePage,
             }, sending)
             : await _postOnManualConnection({
-                messages, model, provider, vllmUrl, maxTokens, temperature, timeoutMs, responseFormat, contextLabel,
-                authBranch, shouldNotifyProviderFailure, shouldNotifyUpstreamRejection, sendTemperature,
+                feature, messages, model, provider, vllmUrl, maxTokens, temperature, timeoutMs, responseFormat,
+                contextLabel, authBranch, shouldNotifyProviderFailure, shouldNotifyUpstreamRejection, sendTemperature,
                 tokenLimitParameter, reasoningEffort,
             }, sending);
         _reportSentCall(feature, sending, LLM_CALL_OUTCOMES.ok);
@@ -331,11 +333,13 @@ function _reportSentCall(feature, sending, outcome) {
 }
 
 /**
- * The manual branch of postChatCompletion: OpenRouter, or vLLM and Custom at their URL, through SillyTavern's proxy.
+ * The manual branch of postChatCompletion: OpenRouter, or vLLM and Custom at their URL, through SillyTavern's proxy, the
+ * request marked as VectFox's own.
  */
 async function _postOnManualConnection({
-    messages, model, provider, vllmUrl, maxTokens, temperature, timeoutMs, responseFormat, contextLabel, authBranch,
-    shouldNotifyProviderFailure, shouldNotifyUpstreamRejection, sendTemperature, tokenLimitParameter, reasoningEffort,
+    feature, messages, model, provider, vllmUrl, maxTokens, temperature, timeoutMs, responseFormat, contextLabel,
+    authBranch, shouldNotifyProviderFailure, shouldNotifyUpstreamRejection, sendTemperature, tokenLimitParameter,
+    reasoningEffort,
 }, sending) {
     const label = _providerLabel(provider);
 
@@ -369,12 +373,12 @@ async function _postOnManualConnection({
 
     sending.route = { connection: LLM_CALL_CONNECTIONS.manual, profileName: null, provider, model: model || null };
     sending.sentAt = performance.now();
-    const response = await fetch('/api/backends/chat-completions/generate', {
+    const response = await fetch('/api/backends/chat-completions/generate', markedAsOwnRequest({
         method: 'POST',
         headers: getRequestHeaders(),
         body: JSON.stringify(requestBody),
         signal: AbortSignal.timeout(timeoutMs),
-    });
+    }, feature));
 
     if (!response.ok) {
         const errText = await readErrorBody(response, response.statusText);

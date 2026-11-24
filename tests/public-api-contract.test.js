@@ -2,18 +2,18 @@
  * The public API's contract (A3 of InternalProject/Vectfox/plans/vectfox-public-api.md): every name another extension
  * reads, pinned in CONTRACT. The test goes red when a member of the `VectFox` object or of one of its groups, an event, a
  * payload field, a capability, a reason, a field of a call's answer, a setting of the snapshot, a field of an EventBase
- * event listEvents gives or a value an LLM call's report names is renamed, removed or added, when `apiVersion` differs
- * from the contract's, and when the developer page
- * (Doc/public-api.md) leaves a name out or names an event VectFox does not emit. A change to CONTRACT follows the version
- * rule (§4.4, D3): an added name raises apiVersion's minor version; a removed, renamed or changed one raises its major
- * version.
+ * event listEvents gives, a value an LLM call's report names, or the key, fields or label of the mark on the requests
+ * VectFox sends itself is renamed, removed or added, when `apiVersion` differs from the contract's, and when the
+ * developer page (Doc/public-api.md) leaves a name out or names an event VectFox does not emit. A change to CONTRACT
+ * follows the version rule (§4.4, D3): an added name raises apiVersion's minor version; a removed, renamed or changed one
+ * raises its major version.
  */
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const CONTRACT = Object.freeze({
-    apiVersion: '1.2.0',
+    apiVersion: '1.3.0',
     // Each member of globalThis.VectFox and what it is.
     members: {
         apiVersion: 'string',
@@ -69,6 +69,9 @@ const CONTRACT = Object.freeze({
         connection: ['profile', 'manual'],
         outcome: ['ok', 'timed-out', 'failed'],
     },
+    // The mark on each request VectFox sends itself: its Symbol.for key, the fields of its value, and its label, with
+    // the call's feature in place of <feature>.
+    ownRequestMark: { key: 'vectfox.internal-request', fields: ['label'], label: 'VectFox <feature>' },
 });
 
 const host = vi.hoisted(() => ({ listeners: {}, chatMetadata: {}, inUse: { chatId: null, collectionId: null }, feed: null, feedError: null }));
@@ -278,6 +281,21 @@ describe('the contract of the events', () => {
     });
 });
 
+describe('the contract of the mark on the requests VectFox sends itself', () => {
+    it('writes exactly the contract\'s mark for each feature: under its key, frozen, not enumerable', async () => {
+        const { core } = await loadPublishedApi();
+        for (const feature of CONTRACT.llmCallValues.feature) {
+            const init = { method: 'POST', body: '{}' };
+            core.markOwnRequest(init, feature);
+            const mark = init[Symbol.for(CONTRACT.ownRequestMark.key)];
+            expect(sorted(Object.keys(mark)), feature).toEqual(sorted(CONTRACT.ownRequestMark.fields));
+            expect(mark.label, feature).toBe(CONTRACT.ownRequestMark.label.replace('<feature>', feature));
+            expect(Object.isFrozen(mark), feature).toBe(true);
+            expect(Object.keys(init), feature).toEqual(['method', 'body']);
+        }
+    });
+});
+
 describe('the developer page', () => {
     // The page's inline code, its examples left out: an example may name anything.
     const page = readFileSync(fileURLToPath(new URL('../Doc/public-api.md', import.meta.url)), 'utf8');
@@ -285,7 +303,7 @@ describe('the developer page', () => {
     const escaped = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const isNamed = name => inlineCode.some(code => new RegExp(`(^|[^A-Za-z0-9_])${escaped(name)}($|[^A-Za-z0-9_])`).test(code));
 
-    it('names every member, group member, capability, reason, answer field, setting, event field, event, payload field and value of the contract', () => {
+    it('names every member, group member, capability, reason, answer field, setting, event field, event, payload field, value and mark of the contract', () => {
         const quoted = value => `'${value}'`;
         const names = [
             ...Object.keys(CONTRACT.members),
@@ -298,6 +316,8 @@ describe('the developer page', () => {
             ...Object.entries(CONTRACT.events).flatMap(([name, fields]) => [name, ...fields]),
             ...CONTRACT.llmCallUsage,
             ...Object.values(CONTRACT.llmCallValues).flat().map(quoted),
+            CONTRACT.ownRequestMark.key,
+            ...CONTRACT.ownRequestMark.fields,
         ];
         expect([...new Set(names)].filter(name => !isNamed(name))).toEqual([]);
     });

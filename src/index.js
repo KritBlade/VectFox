@@ -25,7 +25,7 @@ import {
     clearCachesForDeletedOrImportedCollection, followCollectionInUse, refreshWorldInfoEntryDepthCache, runEventBaseReplyStep,
     setEventBaseListeners, synchronizeChat,
 } from './features/eventbase/index.js';
-import { setLlmCallFinishedListener } from './features/llm-provider/index.js';
+import { setLlmCallFinishedListener, setOwnRequestMarker } from './features/llm-provider/index.js';
 import { setInsertedCollectionRegistrar, setPurgedCollectionListener } from './features/vector-backend/index.js';
 import { migrateLegacyApiKeys } from './shared/api-keys.js';
 import { migration_setting_name_for_connection } from './app/settings-migration-connection-setting-names.js';
@@ -55,14 +55,15 @@ import { KEY_CALLS_AT_ONCE_DEFAULT, LORE_BUDGET_DEFAULT, initializeLoreBase, pre
 import { initializeReplyLore } from './features/reply-lore/index.js';
 import {
     announceCollectionInUseChanged, announceEventBaseEventsRemoved, announceEventBaseRunEnded, announceLlmCallFinished,
-    announcePublicApiReady, announcePurgedCollection, publishPublicApi,
+    announcePublicApiReady, announcePurgedCollection, markOwnRequest, publishPublicApi,
 } from './features/public-api/index.js';
 import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from './features/keyword-search/index.js';
 
 // Calls a lower layer makes into a higher one, wired here before anything can delete or insert.
 setDeletedOrImportedCollectionCleanup(clearCachesForDeletedOrImportedCollection);
 setInsertedCollectionRegistrar(registerCollection);
-// What EventBase, the vector backend and the LLM calls tell the public API, which sends it on as vectfox_* events.
+// What EventBase, the vector backend and the LLM calls tell the public API, which sends it on as vectfox_* events, and
+// the public API's mark on each request VectFox sends itself.
 setEventBaseListeners({
     onRunEnded: announceEventBaseRunEnded,
     onEventsRemoved: announceEventBaseEventsRemoved,
@@ -70,6 +71,7 @@ setEventBaseListeners({
 });
 setPurgedCollectionListener(announcePurgedCollection);
 setLlmCallFinishedListener(announceLlmCallFinished);
+setOwnRequestMarker(markOwnRequest);
 
 // Default settings
 const defaultSettings = {

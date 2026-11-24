@@ -1,15 +1,15 @@
 /**
  * The public API's pure parts: its version, the events it emits, the groups it serves, the reasons, settings and
- * EventBase events its calls answer with, readiness and the shape of the `VectFox` object (§4, §5.2 and §5.3 of
- * InternalProject/Vectfox/plans/vectfox-public-api.md). No host imports: public-api.js publishes the object, answers
- * its calls and emits the events.
+ * EventBase events its calls answer with, the mark on the requests VectFox sends itself, readiness and the shape of the
+ * `VectFox` object (§4, §5.2 and §5.3 of InternalProject/Vectfox/plans/vectfox-public-api.md). No host imports:
+ * public-api.js publishes the object, answers its calls and emits the events.
  */
 
 /**
  * The API's version, semver. A minor version only adds a method, event, field or reason; a removed, renamed or changed
  * name raises the major version at once, and no code keeps the old name working. A reader compares the major only.
  */
-export const PUBLIC_API_VERSION = '1.2.0';
+export const PUBLIC_API_VERSION = '1.3.0';
 
 /** The events VectFox emits on SillyTavern's eventSource, by name. */
 export const PUBLIC_EVENTS = Object.freeze({
@@ -154,6 +154,22 @@ export function llmCallFinishedPayload({ feature, connection, profileName, provi
             }),
         } : {}),
     });
+}
+
+/**
+ * The key of the mark VectFox writes on each request it sends itself (D11, §4.3): a `Symbol.for` key, so a usage
+ * tracker that watches fetch makes the same symbol and reads the mark with no import.
+ */
+const OWN_REQUEST_MARK = Symbol.for('vectfox.internal-request');
+
+/**
+ * Writes VectFox's mark on a request it sends itself, before it is sent: `{ label: 'VectFox <feature>' }`, frozen,
+ * under OWN_REQUEST_MARK and not enumerable, so the request's body and headers stay as they are.
+ * @param {object} init - The fetch's init
+ * @param {string} feature - The feature the call is made for, as `vectfox_llm_call_finished` names it
+ */
+export function markOwnRequest(init, feature) {
+    Object.defineProperty(init, OWN_REQUEST_MARK, { value: Object.freeze({ label: `VectFox ${feature}` }) });
 }
 
 /**

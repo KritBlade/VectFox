@@ -7,8 +7,9 @@
  * ChunkBase read, and every per-chunk metadata key, before the defaults go in; the
  * connection defaults it fills in: a new install's LLM consumers and embedding start on a
  * SillyTavern profile, none chosen, and an existing install keeps the provider it saved
- * (connection plan §1, §3); and that start-up schedules the one-time notice on manual
- * OpenRouter and vLLM with the store itself, unshown on an install that never saw it (row N1).
+ * (connection plan §1, §3); that start-up schedules the one-time notice on manual
+ * OpenRouter and vLLM with the store itself, unshown on an install that never saw it (row N1);
+ * and that it hands the LLM calls the public API's marker for the requests VectFox sends itself (U1).
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -62,6 +63,7 @@ vi.mock('../src/features/vector-backend/index.js', () => ({
 }));
 vi.mock('../src/features/llm-provider/index.js', () => ({
     setLlmCallFinishedListener: vi.fn(),
+    setOwnRequestMarker: vi.fn(),
 }));
 vi.mock('../src/shared/api-keys.js', () => ({
     migrateLegacyApiKeys: vi.fn(),
@@ -85,6 +87,7 @@ vi.mock('../src/features/public-api/index.js', () => ({
     announceLlmCallFinished: vi.fn(),
     announcePublicApiReady: vi.fn(async () => {}),
     announcePurgedCollection: vi.fn(),
+    markOwnRequest: vi.fn(),
     publishPublicApi: vi.fn(),
 }));
 vi.mock('../src/features/database-browser/index.js', () => ({
@@ -259,5 +262,18 @@ describe('connection defaults at start-up', () => {
         const saved = { chat_provider: 'openrouter', story_arc_link_provider: 'vllm', embedding_provider: 'transformers' };
         const { extension_settings } = await loadPage(saved);
         expect(extension_settings.vectfox).toMatchObject(saved);
+    });
+});
+
+describe('the mark on the requests VectFox sends itself at start-up', () => {
+    beforeEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it('hands the LLM calls the public API\'s marker', async () => {
+        await loadPage({});
+        const { setOwnRequestMarker } = await import('../src/features/llm-provider/index.js');
+        const { markOwnRequest } = await import('../src/features/public-api/index.js');
+        expect(setOwnRequestMarker).toHaveBeenCalledWith(markOwnRequest);
     });
 });

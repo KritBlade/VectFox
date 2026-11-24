@@ -2,7 +2,8 @@
 // LoreBase, on manual OpenRouter and vLLM or on a SillyTavern connection profile; the check that their settings or
 // profile can run, the sentence for one that cannot, and what a profile readout shows; the connection Agent Mode takes
 // from the EventBase model; the fixed message each consumer's Test connection sends; a model's price on OpenRouter; and
-// the report of each call that ended, LoreBase's Jev calls through Similharity included, to a listener set at start-up.
+// the report of each call that ended, LoreBase's Jev calls through Similharity included, to a listener set at start-up,
+// and the mark on each manual request, by a marker set at start-up.
 //
 // Re-exports only. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
 export { resolveConnectionProfileId } from './connection-profile-core.js';
@@ -15,6 +16,7 @@ export {
     outcomeOfFailedCall,
     reportLlmCallFinished,
     setLlmCallFinishedListener,
+    setOwnRequestMarker,
 } from './llm-call-report.js';
 export { describeConnectionProblem, resolveLlmConnection, shownVllmUrl } from './llm-connection.js';
 export { validateLLMConfig } from './llm-config-validation.js';

@@ -1,8 +1,10 @@
 /**
- * Says when one of VectFox's LLM calls finished: the feature that made it, the connection it went over, how long it
- * took, how it ended and the tokens its reply reported. src/index.js sets the listener at start-up: the public API's,
- * which sends it on as `vectfox_llm_call_finished`, so a usage tracker can tell VectFox's calls from the story reply.
- * Only a call that was sent is reported: one a check stopped before it left VectFox cost nothing.
+ * How a usage tracker tells VectFox's own LLM calls from the story reply. Each call that ended is reported: the feature
+ * that made it, the connection it went over, how long it took, how it ended and the tokens its reply reported. Each
+ * request VectFox sends itself, on the manual route, is marked before it is sent; a profile's request is sent by
+ * SillyTavern and carries no mark. src/index.js sets both from the public API at start-up: the listener, which sends
+ * each report on as `vectfox_llm_call_finished`, and the marker, which writes VectFox's mark. Only a call that was sent
+ * is reported: one a check stopped before it left VectFox cost nothing.
  */
 import { log } from '../../sillytavern/log.js';
 
@@ -43,12 +45,40 @@ export const LLM_CALL_OUTCOMES = Object.freeze({
 /** @type {((call: LlmCallFinished) => void)|null} */
 let llmCallFinishedListener = null;
 
+/** @type {((init: object, feature: string) => void)|null} */
+let ownRequestMarker = null;
+
 /**
  * Sets the listener told of each finished call.
  * @param {(call: LlmCallFinished) => void} listener
  */
 export function setLlmCallFinishedListener(listener) {
     llmCallFinishedListener = listener;
+}
+
+/**
+ * Sets what marks each request VectFox sends itself.
+ * @param {(init: object, feature: string) => void} marker - Writes the mark on a fetch's init, for the call's feature
+ */
+export function setOwnRequestMarker(marker) {
+    ownRequestMarker = marker;
+}
+
+/**
+ * A request VectFox sends itself, marked by the marker set at start-up for the feature the call is made for. A marker
+ * that throws is logged, and the request goes unmarked rather than unsent.
+ * @param {object} init - The fetch's init
+ * @param {string} feature - One of LLM_CALL_FEATURES
+ * @returns {object} The same init
+ */
+export function markedAsOwnRequest(init, feature) {
+    if (!ownRequestMarker) return init;
+    try {
+        ownRequestMarker(init, feature);
+    } catch (error) {
+        log.warn('VectFox: marking one of its own requests failed, so it is sent unmarked:', error);
+    }
+    return init;
 }
 
 /**

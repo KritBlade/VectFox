@@ -34,7 +34,7 @@ Once you have the object, `await VectFox.whenReady()` does the same wait as a pr
 
 | Name | What it gives you |
 |---|---|
-| `apiVersion` | The API's version, like `'1.2.0'`. See Versions below |
+| `apiVersion` | The API's version, like `'1.3.0'`. See Versions below |
 | `extensionVersion` | VectFox's own version from its manifest, like `'3.6.245'`, once VectFox is ready. `null` before that, or when VectFox could not read its manifest (the console says why) |
 | `isReady()` | `true` once VectFox has finished starting up |
 | `whenReady()` | A promise that resolves when VectFox has finished starting up. It's the same promise every time you ask |
@@ -121,7 +121,7 @@ stop();
 | `vectfox_eventbase_synced` | `{ chatId, collectionId, eventsAdded, windowsProcessed }` | Every time an EventBase run ends, finished, stopped or failed |
 | `vectfox_eventbase_events_deleted` | `{ chatId, collectionId, eventIds }` | Events were removed from an EventBase collection in this tab |
 | `vectfox_eventbase_collection_changed` | `{ chatId, collectionId }` | The collection the open chat uses changed, or another chat opened |
-| `vectfox_llm_call_finished` | `{ feature, connection, profileName, provider, model, durationMs, outcome, usage }` | One of VectFox's own LLM calls ended |
+| `vectfox_llm_call_finished` | `{ feature, connection, profileName, provider, model, durationMs, outcome, usage }` | One of VectFox's own LLM calls ended. See VectFox's own LLM calls below |
 
 ### The EventBase events
 
@@ -136,29 +136,6 @@ When you hear it, read the feed from your cursor (Reading EventBase below). That
 `vectfox_eventbase_events_deleted` comes when events go: a window read again replacing its old events, Compact collection, Start over, a delete in the Database Browser, a deleted collection, or an import over one. `eventIds` lists the events removed, or is `null` when the whole collection was emptied. You only hear it in the tab that removed them. A removal that fails part way says nothing, so treat this event as "read again", not as the full list of what's gone.
 
 `vectfox_eventbase_collection_changed` comes when the chat starts using another collection, stops using one, or you open another chat. `collectionId` is `null` when the chat uses none. Think of it like a TV that switched channel: whatever you were following, you're now watching something else, so start following the new one. It never comes for a change that left everything where it was.
-
-### VectFox's own LLM calls
-
-VectFox makes its own LLM calls: EventBase reading the chat, Agent Mode planning a search, StoryArc linking events, LoreBase picking lore. To SillyTavern, a lot of them look just like the story reply. So if you track what a chat costs, `vectfox_llm_call_finished` is how you tell my calls apart. It comes once for every call VectFox sent, Test connection included, and never for one a setting stopped before it left.
-
-| Field | What it is |
-|---|---|
-| `feature` | Who made the call: `'eventbase'`, `'lorebase'`, `'storyarc'` or `'agent'` |
-| `connection` | `'profile'`, a SillyTavern connection profile, or `'manual'`, a provider set in VectFox itself |
-| `profileName` | The profile's name, `null` on a manual connection |
-| `provider` | The provider, like `'openrouter'` or `'custom'` |
-| `model` | The model, `null` when none is named |
-| `durationMs` | From sending the request to its end, in milliseconds |
-| `outcome` | `'ok'` for a reply with text, `'timed-out'` when its time limit passed first, `'failed'` for anything else |
-| `usage` | `{ promptTokens, completionTokens, totalTokens, cachedTokens }`, only when the reply reported its tokens. A reply that came back with no text can still carry them, since those tokens were spent |
-
-There's no key and no key ID in it, ever.
-
-```js
-VectFox.on('vectfox_llm_call_finished', ({ feature, model, usage }) => {
-    if (usage) console.log(`VectFox ${feature} on ${model}: ${usage.totalTokens} tokens`);
-});
-```
 
 ### How VectFox sends them
 
@@ -346,4 +323,53 @@ The events only come in the tab that did the work. So treat `vectfox_eventbase_s
 
 `listEvents` only rejects for a call that can't be right, with a `TypeError`: a request that isn't an object, a `collectionId` that isn't an EventBase collection's ID, a `chatId` that isn't a chat's ID, or an `after` that isn't a whole number of 0 or more.
 
-Basically, check `isReady()`, wait for `vectfox_ready` if you have to, and from there everything goes through the one object.
+## VectFox's own LLM calls
+
+VectFox makes its own LLM calls: EventBase reading the chat, Agent Mode planning a search, StoryArc linking events, LoreBase picking lore. To SillyTavern, a lot of them look just like the story reply. So if you track what a chat costs, you need to tell my calls apart, and VectFox gives you 2 ways: an event after every call, and a mark on the requests it sends itself.
+
+### The event after every call
+
+`vectfox_llm_call_finished` comes once for every call VectFox sent, Test connection included, and never for one a setting stopped before it left.
+
+| Field | What it is |
+|---|---|
+| `feature` | Who made the call: `'eventbase'`, `'lorebase'`, `'storyarc'` or `'agent'` |
+| `connection` | `'profile'`, a SillyTavern connection profile, or `'manual'`, a provider set in VectFox itself |
+| `profileName` | The profile's name, `null` on a manual connection |
+| `provider` | The provider, like `'openrouter'` or `'custom'` |
+| `model` | The model, `null` when none is named |
+| `durationMs` | From sending the request to its end, in milliseconds |
+| `outcome` | `'ok'` for a reply with text, `'timed-out'` when its time limit passed first, `'failed'` for anything else |
+| `usage` | `{ promptTokens, completionTokens, totalTokens, cachedTokens }`, only when the reply reported its tokens. A reply that came back with no text can still carry them, since those tokens were spent |
+
+There's no key and no key ID in it, ever.
+
+```js
+VectFox.on('vectfox_llm_call_finished', ({ feature, model, usage }) => {
+    if (usage) console.log(`VectFox ${feature} on ${model}: ${usage.totalTokens} tokens`);
+});
+```
+
+### The mark on the requests VectFox sends itself
+
+The event comes AFTER the call. If your tracker watches `fetch`, you want to know whose request it is while it's going out. That's what the mark is for.
+
+Think of the envelopes a company mails out. Each one has the company's stamp in the corner, so the post office knows who sent it without opening it. The mark is that stamp, and it never changes what's inside the envelope.
+
+When VectFox sends a request itself, on a provider set in VectFox (`connection: 'manual'`), it puts the mark on the `init` it passes to `fetch`, under `Symbol.for('vectfox.internal-request')`. The value is `{ label: 'VectFox storyarc' }`: `VectFox`, then the call's `feature`, the same name the event gives. It's frozen and not enumerable, so the request's body and headers are exactly what they would be without it.
+
+```js
+const VECTFOX_MARK = Symbol.for('vectfox.internal-request');
+const originalFetch = window.fetch;
+window.fetch = function (input, init) {
+    const mark = init?.[VECTFOX_MARK];
+    if (mark) console.log(`${mark.label} is calling a model`);
+    return originalFetch.apply(this, arguments);
+};
+```
+
+Read the mark from the `init` you're given. A copy made with `{ ...init }` leaves it out, since it's not enumerable.
+
+A call on a SillyTavern connection profile (`connection: 'profile'`) carries NO mark. SillyTavern builds and sends that request itself, so VectFox never gets to touch it. For those calls the event is all you get. So a tracker uses both: the mark to file a request as it goes out, and the event to catch the profile calls.
+
+Basically, check `isReady()`, wait for `vectfox_ready` if you have to, and from there everything goes through the one object. The mark is the only thing outside it, and you read that one right off the request.

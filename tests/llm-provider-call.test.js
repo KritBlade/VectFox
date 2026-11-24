@@ -29,12 +29,14 @@ vi.mock('../src/shared/model-config-notifier.js', () => ({
     describeUpstreamRejectionCauses: (isQuotaError) => (isQuotaError ? 'quota causes' : 'request causes'),
 }));
 
+const { logWarn } = vi.hoisted(() => ({ logWarn: vi.fn() }));
 vi.mock('../src/sillytavern/log.js', () => ({
-    log: new Proxy({}, { get: () => () => {} }),
+    log: new Proxy({}, { get: (_log, level) => (level === 'warn' ? logWarn : () => {}) }),
 }));
 
 import { postChatCompletion, parseJsonArrayFromLlm, resolveModelParameterStyle, LlmCallError } from '../src/features/llm-provider/llm-provider-call.js';
-import { setLlmCallFinishedListener } from '../src/features/llm-provider/llm-call-report.js';
+import { setLlmCallFinishedListener, setOwnRequestMarker } from '../src/features/llm-provider/llm-call-report.js';
+import { markOwnRequest } from '../src/features/public-api/public-api-core.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -287,6 +289,54 @@ describe('postChatCompletion — the report of a finished call', () => {
         vi.stubGlobal('fetch', vi.fn(async () => okResponse({ content: 'still here' })));
         setLlmCallFinishedListener(() => { throw new Error('a listener broke'); });
         await expect(postChatCompletion(baseArgs())).resolves.toMatchObject({ content: 'still here' });
+    });
+});
+
+describe('postChatCompletion — the mark on the requests VectFox sends itself', () => {
+    const OWN_REQUEST_MARK = Symbol.for('vectfox.internal-request');
+    afterEach(() => setOwnRequestMarker(null));
+
+    it('marks a manual request with the public API\'s mark for its feature, its body and headers as they were', async () => {
+        const unmarkedFetch = vi.fn(async () => okResponse({ content: 'hi' }));
+        vi.stubGlobal('fetch', unmarkedFetch);
+        await postChatCompletion(baseArgs({ feature: 'storyarc' }));
+        const [, unmarkedInit] = unmarkedFetch.mock.calls[0];
+
+        setOwnRequestMarker(markOwnRequest);
+        const markedFetch = vi.fn(async () => okResponse({ content: 'hi' }));
+        vi.stubGlobal('fetch', markedFetch);
+        await postChatCompletion(baseArgs({ feature: 'storyarc' }));
+        const [url, init] = markedFetch.mock.calls[0];
+
+        expect(url).toBe('/api/backends/chat-completions/generate');
+        expect(init[OWN_REQUEST_MARK]).toEqual({ label: 'VectFox storyarc' });
+        expect(Object.isFrozen(init[OWN_REQUEST_MARK])).toBe(true);
+        expect(Object.getOwnPropertySymbols(unmarkedInit)).toEqual([]);
+        // Not enumerable: the init's own keys, its body and its headers are the unmarked request's, and a copy leaves it out.
+        expect(Object.keys(init)).toEqual(Object.keys(unmarkedInit));
+        expect(init.body).toBe(unmarkedInit.body);
+        expect(init.headers).toEqual(unmarkedInit.headers);
+        expect({ ...init }[OWN_REQUEST_MARK]).toBeUndefined();
+    });
+
+    it('labels a vLLM request with its own feature', async () => {
+        setOwnRequestMarker(markOwnRequest);
+        const fetchMock = vi.fn(async () => okResponse({ content: 'hi' }));
+        vi.stubGlobal('fetch', fetchMock);
+        await postChatCompletion(baseArgs({ feature: 'agent', provider: 'vllm', vllmUrl: 'http://harbor.local/v1' }));
+        expect(fetchMock.mock.calls[0][1][OWN_REQUEST_MARK]).toEqual({ label: 'VectFox agent' });
+    });
+
+    it('sends the request unmarked when the marker throws, says so in the console, and returns the reply', async () => {
+        const markerError = new Error('a marker broke');
+        setOwnRequestMarker(() => { throw markerError; });
+        logWarn.mockClear();
+        const fetchMock = vi.fn(async () => okResponse({ content: 'still sent' }));
+        vi.stubGlobal('fetch', fetchMock);
+        await expect(postChatCompletion(baseArgs())).resolves.toMatchObject({ content: 'still sent' });
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(Object.getOwnPropertySymbols(fetchMock.mock.calls[0][1])).toEqual([]);
+        expect(logWarn).toHaveBeenCalledWith(expect.stringContaining('sent unmarked'), markerError);
     });
 });
 
