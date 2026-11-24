@@ -49,6 +49,7 @@ import fs from 'node:fs/promises';
 import vectra from 'vectra';
 import qdrantBackend, { TENANT_FIELD } from './qdrant-backend.js';
 import { createCollectionWriteOrder, TENANT_FIELDS } from './collection-write-order.js';
+import { createQdrantChanges, DEFAULT_CHANGES_PER_READ } from './qdrant-changes.js';
 import { listLoreBooks } from './lorebase-books.js';
 import { askDecisions } from './lorebase-decisions.js';
 import { deleteLoreKeys, readLoreKeys, writeLoreKeys } from './lorebase-keys.js';
@@ -495,8 +496,8 @@ export async function init(router) {
                             await collectionWrites.queueWrite(writeKey, async () => {
                                 const itemsToWrite = itemsStillToWrite(itemsWithVectors, registered, collectionId);
                                 if (itemsToWrite.length === 0) return;
-                                // Pass source and model for embedding tracking
-                                await qdrantBackend.insertVectors(collectionId, itemsToWrite, {
+                                // Numbered in this turn (qdrant-changes.js); source and model for embedding tracking
+                                await qdrantChanges.insert(collectionId, itemsToWrite, {
                                     ...tenantFilters,
                                     embeddingSource: source,
                                     embeddingModel: model,
@@ -512,21 +513,21 @@ export async function init(router) {
                         collectionWrites.overtake(writeKey, { hashes: [hash], tenant: filters });
                         const newVector = await getEmbeddingForSource(source, newText, model, directories, req);
                         const newHash = getStringHash(newText);
-                        await collectionWrites.queueWrite(writeKey, () => qdrantBackend.updateItem(collectionId, hash, { text: newText, hash: newHash, vector: newVector }, filters));
+                        await collectionWrites.queueWrite(writeKey, () => qdrantChanges.updateText(collectionId, hash, { text: newText, hash: newHash, vector: newVector }, filters));
                         return { oldHash: hash, newHash, text: newText };
                     },
 
                     updateMetadata: async (collectionId, hash, metadata, source, model, directories, filters = {}) => {
                         const writeKey = qdrantWriteKey(collectionId);
                         collectionWrites.overtake(writeKey, { hashes: [hash], tenant: filters });
-                        await collectionWrites.queueWrite(writeKey, () => qdrantBackend.updateItemMetadata(collectionId, hash, metadata, filters));
+                        await collectionWrites.queueWrite(writeKey, () => qdrantChanges.updateMetadata(collectionId, hash, metadata, filters));
                         return { hash, metadata };
                     },
 
                     delete: async (collectionId, hashes, source, model, directories, filters = {}) => {
                         const writeKey = qdrantWriteKey(collectionId);
                         collectionWrites.overtake(writeKey, { hashes, tenant: filters });
-                        await collectionWrites.queueWrite(writeKey, () => qdrantBackend.deleteVectors(collectionId, hashes, filters));
+                        await collectionWrites.queueWrite(writeKey, () => qdrantChanges.remove(collectionId, hashes, filters));
                         return hashes.length;
                     },
 
@@ -541,12 +542,12 @@ export async function init(router) {
                             // Multitenancy mode: delete specific points by filter (e.g. sourceId). Filters that name
                             // no tenant delete nothing (purgeCollection throws), so they overtake nothing.
                             if (TENANT_FIELDS.some(field => filters[field])) collectionWrites.overtake(writeKey, { tenant: filters });
-                            await collectionWrites.queueWrite(writeKey, () => qdrantBackend.purgeCollection(collectionId, filters));
                         } else {
                             // Separate-collection mode: delete the entire qdrant collection container
                             collectionWrites.overtake(writeKey);
-                            await collectionWrites.queueWrite(writeKey, () => qdrantBackend.purgeAll(collectionId));
                         }
+                        // A tenant's points with filters, the whole collection without (qdrant-changes.js)
+                        await collectionWrites.queueWrite(writeKey, () => qdrantChanges.purge(collectionId, filters));
                     },
 
                     stats: async (collectionId, source, model, directories, filters = {}) => {
@@ -1483,6 +1484,36 @@ async function getVectorsForSource(source, texts, model, directories, req) {
     });
 
     /**
+     * POST /api/plugins/similharity/chunks/changes
+     * What changed in a Qdrant collection, or in the tenant its filters name, after a change number (qdrant-changes.js),
+     * read in the collection's write turn, so it never sees half a write. Without `after`, a full read: every point,
+     * those stored before numbers existed included, and the highest number the collection holds as `cursor`. With
+     * `after`, a page of the changes after it in number order: the points written and the events removed since, and
+     * `emptied` when the collection was emptied since, with only what came after; `hasMore` says to read again from
+     * `cursor`.
+     * Body: { backend: 'qdrant', collectionId, filters?, after?, limit? (1 to 1000, 100 when left out) }
+     * Response: { success, supported: true, collectionId, points: [{hash, text, metadata}], removed: [{hash, event_id,
+     * change_number}], emptied, cursor, hasMore }, or { success, supported: false, collectionId, reason } for another
+     * backend or a Qdrant older than 1.8.
+     */
+    router.post('/chunks/changes', async (req, res) => {
+        try {
+            const { backend = 'vectra', collectionId, filters = {}, after = null, limit = DEFAULT_CHANGES_PER_READ } = req.body;
+            if (!collectionId) {
+                return res.status(400).json({ error: 'collectionId is required' });
+            }
+            if (backend !== 'qdrant') {
+                return res.json({ success: true, supported: false, collectionId, reason: `Change numbers are kept on Qdrant only, and this collection is on ${backend}.` });
+            }
+            const changes = await collectionWrites.queueWrite(qdrantWriteKey(collectionId), () => qdrantChanges.readChanges(collectionId, filters ?? {}, { after, limit }));
+            res.json({ success: true, collectionId, ...changes });
+        } catch (error) {
+            console.error(`[${pluginName}] chunks/changes error:`, error);
+            res.status(error instanceof RangeError ? 400 : 500).json({ error: formatError(error) });
+        }
+    });
+
+    /**
      * POST /api/plugins/similharity/lorebase/books
      * The requesting user's LoreBase books as Qdrant holds them (lorebase-books.js): how many entries of each book have
      * keys, and each of the account's book tenants in its own LoreBase collection and in vectfox_main, with its point
@@ -1618,6 +1649,9 @@ async function vectraIndexFolderFor(directories, collectionId, source, model) {
 // The order of the writes to each collection on this server (collection-write-order.js), so an insert still embedding,
 // such as a hedged attempt VectFox no longer waits for, cannot bring back what a later delete, edit or purge removed.
 const collectionWrites = createCollectionWriteOrder();
+
+// The change numbers and change log of the Qdrant collections (qdrant-changes.js), run in each collection's write turn.
+const qdrantChanges = createQdrantChanges(qdrantBackend);
 
 /**
  * A Vectra index's key in the write order: the user's vectors folder and the names the request gives the index. It

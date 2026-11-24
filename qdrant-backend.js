@@ -52,6 +52,13 @@ export const TENANTS_ANY_FILTER = `${TENANT_FIELD}_any`;
 // the collection listing, discovery and the start-up index pass leave it out.
 export const LOREBASE_KEYS_COLLECTION = 'vectfox_lorebase_keys';
 
+// Similharity's change log (qdrant-changes.js): a collection with no vectors, so the collection listing, discovery and
+// the start-up index pass leave it out, and no chunk route writes, deletes or purges it.
+export const CHANGE_LOG_COLLECTION = 'vectfox_change_log';
+
+// The payload field holding the change number Similharity gives every point it writes (qdrant-changes.js).
+export const CHANGE_NUMBER_FIELD = 'change_number';
+
 // The most tenants one discovery lists. A facet answer this long may be cut, so discovery then says it did not list
 // them all, and VectFox prunes nothing it did not see.
 const TENANT_FACET_LIMIT = 10000;
@@ -160,6 +167,15 @@ class QdrantBackend {
     supportsFormulaQuery() {
         if (!this.serverVersion) return false;
         return this._cmpVersion(this.serverVersion, '1.13.0') >= 0;
+    }
+
+    /**
+     * Does the connected Qdrant order a scroll by a payload field (1.8+), which change numbers need? False when the
+     * version is unknown, and then nothing is numbered or recorded (qdrant-changes.js).
+     */
+    supportsChangeNumbers() {
+        if (!this.serverVersion) return false;
+        return this._cmpVersion(this.serverVersion, '1.8.0') >= 0;
     }
 
     /**
@@ -374,9 +390,10 @@ class QdrantBackend {
             this.serverVersion = root?.version || root?.result?.version || null;
             if (this.serverVersion) {
                 const okFormula = this.supportsFormulaQuery();
-                console.log(`[Qdrant] Server version: ${this.serverVersion} (formula query ${okFormula ? 'supported' : 'NOT supported, requires 1.13+'})`);
+                const okChangeNumbers = this.supportsChangeNumbers();
+                console.log(`[Qdrant] Server version: ${this.serverVersion} (formula query ${okFormula ? 'supported' : 'NOT supported, requires 1.13+'}; change numbers ${okChangeNumbers ? 'on' : 'off, require 1.8+'})`);
             } else {
-                console.warn('[Qdrant] Server version probe returned no version field; formula-query features will stay disabled');
+                console.warn('[Qdrant] Server version probe returned no version field; formula-query features and change numbers will stay off');
             }
         } catch (error) {
             console.warn('[Qdrant] Version probe failed:', error.message);
@@ -500,6 +517,9 @@ class QdrantBackend {
             // order without pulling every point client-side. Older points simply
             // lack the field; order_by treats them as absent, which is expected.
             { field: 'timeline_sort_key', schema: 'integer' },
+            // The change number (qdrant-changes.js), which a change read and the counter after a restart order by:
+            // Qdrant's order_by needs an integer index with ranges, as this one is.
+            { field: CHANGE_NUMBER_FIELD, schema: 'integer' },
             // BOOL FIELDS
             // Required for formula expressions — Qdrant demands an index for bool fields used in formula match.
             { field: 'should_persist', schema: 'bool' },
@@ -1396,24 +1416,14 @@ class QdrantBackend {
     }
 
     /**
-     * Delete items by hash. When the filters name a tenant, the delete matches the payload `hash` inside that tenant,
-     * so a hash two collections of the shared one both hold is deleted from one of them only. Without a tenant it
-     * deletes the points whose ID is the hash, as before.
-     * @param {string} collectionName - Collection name: the collection's own, or "vectfox_main" with multitenancy on
-     * @param {number[]} hashes - Hashes to delete
-     * @param {object} [filters] - The tenant, {content_type}, and any narrowing filters
-     * @returns {Promise<void>}
+     * The hashes a delete names, as the numbers Qdrant stores them as: a point's ID, and its payload `hash`. A hash
+     * that is not a whole number of 0 or more stops the delete before anything reaches Qdrant, so the client knows it
+     * removed nothing: such an item has no `hash` payload field, as VectFox's sentinel point has none.
+     * @param {Array<number|string>} hashes - At least one
+     * @returns {number[]}
+     * @throws {Error} When any hash is not such a number
      */
-    async deleteVectors(collectionName, hashes, filters = {}) {
-        if (!this.baseUrl) { console.error(`[Qdrant LIFECYCLE] 'Qdrant not initialized' thrown. instanceId=${this._instanceId}, initCount=${this._initCount}, config.url=${this.config?.url}, config.host=${this.config?.host}, config.port=${this.config?.port}, apiKey=${this.apiKey ? '(set)' : '(null)'}`); throw new Error('Qdrant not initialized'); }
-        if (hashes.length === 0) return;
-
-        collectionName = this._parseCollectionName(collectionName);
-        const mainCollection = collectionName;
-
-        // Validate: Qdrant point IDs must be uint or UUID string. Drop null/undefined/NaN
-        // hashes before sending; surface them as an error so the client knows the delete
-        // never reached Qdrant for those items (previously: 400 from Qdrant + silent catch).
+    _pointHashesOf(hashes) {
         const numericHashes = [];
         const invalidHashes = [];
         for (const h of hashes) {
@@ -1430,6 +1440,25 @@ class QdrantBackend {
         if (numericHashes.length === 0) {
             throw new Error(`[Qdrant] Cannot delete: all ${hashes.length} hash(es) were invalid.`);
         }
+        return numericHashes;
+    }
+
+    /**
+     * Delete items by hash. When the filters name a tenant, the delete matches the payload `hash` inside that tenant,
+     * so a hash two collections of the shared one both hold is deleted from one of them only. Without a tenant it
+     * deletes the points whose ID is the hash, as before.
+     * @param {string} collectionName - Collection name: the collection's own, or "vectfox_main" with multitenancy on
+     * @param {number[]} hashes - Hashes to delete
+     * @param {object} [filters] - The tenant, {content_type}, and any narrowing filters
+     * @returns {Promise<void>}
+     */
+    async deleteVectors(collectionName, hashes, filters = {}) {
+        if (!this.baseUrl) { console.error(`[Qdrant LIFECYCLE] 'Qdrant not initialized' thrown. instanceId=${this._instanceId}, initCount=${this._initCount}, config.url=${this.config?.url}, config.host=${this.config?.host}, config.port=${this.config?.port}, apiKey=${this.apiKey ? '(set)' : '(null)'}`); throw new Error('Qdrant not initialized'); }
+        if (hashes.length === 0) return;
+
+        collectionName = this._parseCollectionName(collectionName);
+        const mainCollection = collectionName;
+        const numericHashes = this._pointHashesOf(hashes);
 
         // Throw on failure so the route returns 500 and the client UI sees the error.
         await this._request('POST', `/collections/${mainCollection}/points/delete?wait=true`, this._namesTenant(filters)
@@ -1510,11 +1539,16 @@ class QdrantBackend {
 
 
 
+    /**
+     * The names of the Qdrant collections that hold vectors: every collection but LoreBase's keys and the change log,
+     * which hold none. The collection listing, discovery and the start-up index pass read this.
+     * @returns {Promise<string[]>} An empty list when Qdrant cannot be read
+     */
     async getCollections() {
         if (!this.baseUrl) { console.error(`[Qdrant LIFECYCLE] 'Qdrant not initialized' thrown. instanceId=${this._instanceId}, initCount=${this._initCount}, config.url=${this.config?.url}, config.host=${this.config?.host}, config.port=${this.config?.port}, apiKey=${this.apiKey ? '(set)' : '(null)'}`); throw new Error('Qdrant not initialized'); }
         try {
             const collections = await this._request('GET', '/collections');
-            return collections.result?.collections?.map(c => c.name).filter(name => name !== LOREBASE_KEYS_COLLECTION) || [];
+            return collections.result?.collections?.map(c => c.name).filter(name => name !== LOREBASE_KEYS_COLLECTION && name !== CHANGE_LOG_COLLECTION) || [];
         } catch (error) {
             console.error(`[Qdrant] getCollections failed:`, error.message);
             return [];

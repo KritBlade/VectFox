@@ -29,6 +29,8 @@ const TYPES = {
     importance: 'integer',
     source_window_end: 'integer',
     timeline_sort_key: 'integer',
+    // The change number (qdrant-changes.js), ordered by, so its index has ranges.
+    change_number: 'integer',
     should_persist: 'bool',
     characters: 'keyword',
     locations: 'keyword',
