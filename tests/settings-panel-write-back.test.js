@@ -72,6 +72,10 @@ vi.mock('../src/features/settings-panel/index.js', () => ({
 vi.mock('../src/features/reply-lore/index.js', () => ({
     initializeReplyLore: vi.fn(),
 }));
+vi.mock('../src/features/public-api/index.js', () => ({
+    publishPublicApi: vi.fn(),
+    announcePublicApiReady: vi.fn(async () => {}),
+}));
 vi.mock('../src/features/database-browser/index.js', () => ({
     initializeDatabaseBrowser: vi.fn(),
 }));

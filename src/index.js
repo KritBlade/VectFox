@@ -49,6 +49,7 @@ import { mountSettingsPanel, mountWandMenu, refreshAutoSyncCheckbox, scheduleMan
 import { initializeDatabaseBrowser } from './features/database-browser/index.js';
 import { KEY_CALLS_AT_ONCE_DEFAULT, LORE_BUDGET_DEFAULT, initializeLoreBase, prepareLoreBesideRetrieval } from './features/lorebase/index.js';
 import { initializeReplyLore } from './features/reply-lore/index.js';
+import { announcePublicApiReady, publishPublicApi } from './features/public-api/index.js';
 import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from './features/keyword-search/index.js';
 
 // Calls a lower layer makes into a higher one, wired here before anything can delete or insert.
@@ -420,6 +421,9 @@ async function vectfox_rearrangeChat(chat, contextSize, _abort, type) {
 // Export to window for ST to call
 window['vectfox_rearrangeChat'] = vectfox_rearrangeChat;
 
+// The VectFox object other extensions call, there from now on; it says it is ready when initialization ends, below.
+publishPublicApi();
+
 /**
  * Initialize VectFox extension
  */
@@ -644,6 +648,9 @@ jQuery(async () => {
     eventSource.on(event_types.CHAT_CHANGED, refreshWiDepthDebounced);
     eventSource.on(event_types.WORLDINFO_UPDATED, refreshWiDepthDebounced);
     eventSource.on(event_types.WORLDINFO_SETTINGS_UPDATED, refreshWiDepthDebounced);
+
+    // Last: VectFox.isReady() turns true and vectfox_ready goes out once
+    announcePublicApiReady();
 
     log.lifecycle('VectFox: ✅ Initialized successfully');
 });

@@ -2,8 +2,9 @@
 //
 // `npm run check:import-graph` walks the import graph from the manifest's entry, src/index.js, static and dynamic
 // imports alike, and checks that every in-repo import resolves, that no module imports itself back through a cycle,
-// that the layers import downward only (src/index.js and src/app/ over the features, the features over src/shared/,
-// everything over src/sillytavern/), and that code outside a feature imports it through its index.js.
+// that the layers import downward only (src/index.js and src/app/ over the features, features/public-api/ over the
+// other features, the features over src/shared/, everything over src/sillytavern/), and that code outside a feature
+// imports it through its index.js.
 //
 // Together the barrel rules and no-circular keep the features acyclic: every file of a feature is reached through
 // its index.js, so a cycle between two features is also a cycle between modules.
@@ -61,6 +62,14 @@ module.exports = {
             comment: 'src/index.js and src/app/ import a feature through its index.js, like the features do.',
             from: { path: '^src/(index\\.js$|app/)' },
             to: { path: '^src/features/', pathNot: '^src/features/[^/]+/index\\.js$' },
+        },
+        {
+            name: 'feature-not-to-public-api',
+            severity: 'error',
+            comment: 'features/public-api/ sits over the other features: it reads them through their barrels, and they '
+                + 'announce to it through a hook that src/index.js registers, never by importing it.',
+            from: { path: '^src/features/', pathNot: '^src/features/public-api/' },
+            to: { path: '^src/features/public-api/' },
         },
         {
             name: 'feature-not-to-own-barrel',
