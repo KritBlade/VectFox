@@ -162,12 +162,12 @@ describe('runStoryLinkPass', () => {
     });
 
     // A link needs thought, so the settings that switch thinking off for other features must not apply.
-    it('lets the link model think, with room for its reasoning', async () => {
+    it('lets the link model think, with StoryArc\'s Max tokens as room for its reasoning', async () => {
         fetchPortableChunksMock.mockResolvedValue([chunk(1, 10), chunk(2, 20)]);
-        await runStoryLinkPass({ collectionId: COLLECTION, settings, shouldRelinkDecided: true });
+        await runStoryLinkPass({ collectionId: COLLECTION, settings: { ...settings, story_arc_max_tokens: 20000 }, shouldRelinkDecided: true });
         const [call] = callLlmForJsonMock.mock.calls[0];
         expect(call.llmConnection).toEqual(resolveLinkConfigMock.mock.results[0].value);
-        expect(call.maxTokens).toBeGreaterThan(8000);
+        expect(call.maxTokens).toBe(20000);
     });
 
     it('offers the nearest earlier events by stored vector, and the 3 just before', async () => {

@@ -17,6 +17,7 @@
 
 import { fetchPortableChunks } from '../collections/index.js';
 import { exportFileHeader } from '../../shared/export-file-header.js';
+import { resolveStoryArcMaxTokens } from '../../shared/retrieval-budget.js';
 import { updateChunkMetadata } from '../vector-backend/index.js';
 import { searchEventCollection } from './eventbase-search.js';
 import { isInvalidModelConfigError, notifyInvalidModel } from '../../shared/model-config-notifier.js';
@@ -48,8 +49,6 @@ import {
 } from './story-arc-links-core.js';
 import { listStoryEvents } from './story-arc-retrieval.js';
 
-/** A thinking model's reasoning counts against this, so it leaves room for that as well as the short reply. */
-const LINK_MAX_TOKENS = 8200;
 /** A thinking model's slowest calls took over 200 seconds on one pass, and a failed call gets one more try. */
 const LINK_TIMEOUT_MS = 180000;
 const LINK_ATTEMPTS = 2;
@@ -72,7 +71,7 @@ async function _decideLinks(event, candidates, llmConnection, settings) {
             userMessage: buildStoryLinkMessage(event, candidates),
             llmConnection,
             timeoutMs: LINK_TIMEOUT_MS,
-            maxTokens: LINK_MAX_TOKENS,
+            maxTokens: resolveStoryArcMaxTokens(settings),
             contextLabel: 'StoryArc links',
         }),
         generationRateLimitSettings(settings),

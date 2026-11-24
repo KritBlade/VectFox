@@ -39,7 +39,7 @@ import {
     LlmCallError,
 } from '../llm-provider/index.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
-import { resolveAgenticPlannerTimeoutMs, resolveAgenticQueryTimeoutMs, resolveAgenticMaxTokens } from '../../shared/retrieval-budget.js';
+import { resolveAgenticPlannerTimeoutMs, resolveAgenticQueryTimeoutMs, resolveAgenticMaxTokens, resolveStoryArcMaxTokens } from '../../shared/retrieval-budget.js';
 import { ORDINARY_TURN_ROUTE, STORY_ROUTER_PROMPT, STORY_ROUTE_RULE, THREAD_PICK_PROMPT, buildBlockCutMessage, buildBlockCutPrompt, buildStoryRouterMessage, buildThreadPickMessage, hasRecipe, isOrdinaryTurn, isStoryArcActive, listStoryThreads, readBlockCut, readStoryRoute, readThreadPick } from './story-arc-core.js';
 import { retrieveStoryRecipeEvents, startStoryRecipeReads } from './story-arc-retrieval.js';
 import { isInvalidModelConfigError, notifyInvalidModel, notifySetupIncomplete } from '../../shared/model-config-notifier.js';
@@ -467,7 +467,7 @@ async function _routeStoryQuestion({ settings, keywordQuery }, linkConnection) {
             systemPrompt: STORY_ROUTER_PROMPT,
             userMessage: buildStoryRouterMessage({ recentTurns: _getRecentChatTurns(settings), userMessage: keywordQuery }),
             llmConnection: _linkModelForRouter(linkConnection, settings),
-            maxTokens: STORY_CHOICE_MAX_TOKENS,
+            maxTokens: resolveStoryArcMaxTokens(settings),
             contextLabel: 'StoryArc router',
         },
         read: (reply) => {
@@ -479,9 +479,6 @@ async function _routeStoryQuestion({ settings, keywordQuery }, linkConnection) {
         },
     });
 }
-
-/** A thinking model's reasoning counts against this, so it leaves room for that as well as the reply. */
-const STORY_CHOICE_MAX_TOKENS = 9000;
 
 function _linkModelAtEffort(linkConnection, reasoningEffort) {
     return { ...linkConnection, parameterStyle: { ...linkConnection.parameterStyle, reasoningEffort } };
@@ -528,7 +525,7 @@ async function _pickStoryThreads(storedEvents, route, { settings, keywordQuery }
             systemPrompt: THREAD_PICK_PROMPT,
             userMessage: buildThreadPickMessage(threads, keywordQuery, route.subject),
             llmConnection: _linkModelAtLowEffort(linkConnection),
-            maxTokens: STORY_CHOICE_MAX_TOKENS,
+            maxTokens: resolveStoryArcMaxTokens(settings),
             contextLabel: 'StoryArc thread pick',
         },
         read: reply => readThreadPick(reply, threads),
@@ -556,7 +553,7 @@ async function _chooseBlockEvents(events, route, { settings, keywordQuery }, lin
             systemPrompt: buildBlockCutPrompt(route.shape, lineCount),
             userMessage: buildBlockCutMessage(events, keywordQuery, route.subject),
             llmConnection: _linkModelAtLowEffort(linkConnection),
-            maxTokens: STORY_CHOICE_MAX_TOKENS,
+            maxTokens: resolveStoryArcMaxTokens(settings),
             contextLabel: 'StoryArc block cut',
         },
         read: reply => readBlockCut(reply, events),

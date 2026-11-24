@@ -43,6 +43,7 @@ describe('storyArcPageMarkup', () => {
         'VectFox_story_arc_link_pill',
         'VectFox_story_arc_debug',
         'VectFox_story_arc_block_scale',
+        'VectFox_story_arc_max_tokens',
     ])('holds the control %s', (id) => {
         expect(markup).toContain(`id="${id}"`);
     });
@@ -56,6 +57,17 @@ describe('storyArcPageMarkup', () => {
         const box = /<input type="number" id="VectFox_story_arc_block_scale"[^>]*>/.exec(mainPanel)?.[0];
         expect(box).toContain('min="0.4"');
         expect(box).toContain('max="1.0"');
+    });
+
+    it('offers the Max tokens slider from 1,000 to 32,000 on the Main tab, right under Block size', () => {
+        const mainPanel = markup.slice(markup.indexOf('data-story-arc-panel="main"'), markup.indexOf('data-story-arc-panel="linkgraph"'));
+        const range = /<input type="range" class="vfx-range" data-vfx-slider-for="VectFox_story_arc_max_tokens"[^>]*>/.exec(mainPanel)?.[0];
+        expect(range).toContain('min="1000"');
+        expect(range).toContain('max="32000"');
+        expect(range).toContain('step="500"');
+        expect(mainPanel).toContain('id="VectFox_story_arc_max_tokens"');
+        expect(mainPanel.indexOf('id="VectFox_story_arc_block_scale"')).toBeLessThan(mainPanel.indexOf('id="VectFox_story_arc_max_tokens"'));
+        expect(mainPanel.indexOf('id="VectFox_story_arc_max_tokens"')).toBeLessThan(mainPanel.indexOf('id="VectFox_story_arc_debug"'));
     });
 
     it('holds every element the page paints', () => {

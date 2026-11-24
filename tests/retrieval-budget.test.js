@@ -21,6 +21,7 @@ import {
     resolveAgenticPlannerTimeoutMs,
     resolveAgenticQueryTimeoutMs,
     resolveAgenticMaxTokens,
+    resolveStoryArcMaxTokens,
     retrievalModeExtraBudgetMs,
     resolveEventBaseRetrievalTimeoutMs,
 } from '../src/shared/retrieval-budget.js';
@@ -35,6 +36,9 @@ import {
     AGENTIC_MAX_TOKENS_DEFAULT,
     AGENTIC_MAX_TOKENS_MIN,
     AGENTIC_MAX_TOKENS_MAX,
+    STORY_ARC_MAX_TOKENS_DEFAULT,
+    STORY_ARC_MAX_TOKENS_MIN,
+    STORY_ARC_MAX_TOKENS_MAX,
 } from '../src/shared/constants.js';
 
 /** Agent mode active: enabled AND on the only backend that supports it. */
@@ -99,6 +103,19 @@ describe('agent mode timeouts', () => {
         for (const bad of [0, -1, null, NaN, '', 'lots', {}]) {
             expect(resolveAgenticMaxTokens({ agentic_retrieval_max_tokens: bad }), String(bad))
                 .toBe(AGENTIC_MAX_TOKENS_DEFAULT);
+        }
+    });
+
+    // Issue #38: StoryArc's caps were fixed in the code (8,200 tokens for links, 9,000 for the router, thread pick and
+    // block cut), so a link model that thinks long, as DeepSeek can, could not be given more room.
+    it('expose StoryArc\'s token cap at 9,000 tokens, and honor and clamp a configured one', () => {
+        expect(resolveStoryArcMaxTokens({})).toBe(STORY_ARC_MAX_TOKENS_DEFAULT);
+        expect(STORY_ARC_MAX_TOKENS_DEFAULT).toBe(9000);
+        expect(resolveStoryArcMaxTokens({ story_arc_max_tokens: '20000' })).toBe(20000);
+        expect(resolveStoryArcMaxTokens({ story_arc_max_tokens: 1 })).toBe(STORY_ARC_MAX_TOKENS_MIN);
+        expect(resolveStoryArcMaxTokens({ story_arc_max_tokens: 999_999 })).toBe(STORY_ARC_MAX_TOKENS_MAX);
+        for (const bad of [0, -1, null, NaN, '', 'lots']) {
+            expect(resolveStoryArcMaxTokens({ story_arc_max_tokens: bad }), String(bad)).toBe(STORY_ARC_MAX_TOKENS_DEFAULT);
         }
     });
 

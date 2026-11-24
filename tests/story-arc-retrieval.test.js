@@ -497,6 +497,12 @@ describe('retrieveEventsForTurn with StoryArc mode', () => {
             expect(pickCalls()[0][0].reasoningEffort).toBe('low');
         });
 
+        it('gives the thread pick StoryArc\'s Max tokens', async () => {
+            llmReplies({ shape: 'chain', subject: 'Nora' }, { threads: ['T1'] });
+            await callAgent({ ...storyArcOn, story_arc_max_tokens: 20000 });
+            expect(pickCalls()[0][0].maxTokens).toBe(20000);
+        });
+
         it('asks only for a question about a thread', async () => {
             for (const shape of ['first_time', 'current']) {
                 postChatCompletionMock.mockReset();
@@ -645,6 +651,12 @@ describe('retrieveEventsForTurn with StoryArc mode', () => {
             llmReplies({ shape: 'chain', subject: 'Nora' }, { events: [120] });
             await callAgent({ ...storyArcOn, should_disable_thinking: false });
             expect(cutCalls()[0][0].reasoningEffort).toBe('low');
+        });
+
+        it('gives the block cut StoryArc\'s Max tokens', async () => {
+            llmReplies({ shape: 'chain', subject: 'Nora' }, { events: [120] });
+            await callAgent({ ...storyArcOn, story_arc_max_tokens: 20000 });
+            expect(cutCalls()[0][0].maxTokens).toBe(20000);
         });
 
         it('asks the link model at low effort, and keeps the lines it chooses', async () => {
@@ -920,11 +932,13 @@ describe('retrieveEventsForTurn with StoryArc mode', () => {
         expect(result.debug.storyArc.ruleName).toBe('listing-failed');
     });
 
-    it('gives the router its own token limit, not Agent Mode\'s', async () => {
+    it('gives the router StoryArc\'s Max tokens, not Agent Mode\'s', async () => {
         llmReplies({ shape: 'scene', subject: '' });
         await callAgent({ ...storyArcOn, agentic_retrieval_max_tokens: 256 });
-        const [routerCall] = routerCalls();
-        expect(routerCall[0].maxTokens).toBe(9000);
+        expect(routerCalls()[0][0].maxTokens).toBe(9000);
+        llmReplies({ shape: 'scene', subject: '' });
+        await callAgent({ ...storyArcOn, story_arc_max_tokens: 20000 });
+        expect(routerCalls().at(-1)[0].maxTokens).toBe(20000);
     });
 
     it('does not run the router when StoryArc mode is off', async () => {

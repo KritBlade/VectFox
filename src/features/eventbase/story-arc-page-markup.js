@@ -13,6 +13,7 @@ import { cardHeader, pageHeader, sliderNumber, switchRow } from '../../shared/gu
 import { counted } from '../../shared/counted.js';
 import { LINK_PARALLEL_CALLS_DEFAULT, LINK_PARALLEL_CALLS_MAX, STORY_LINK_STATE, USABLE_DECIDED_SHARE, storyLinkState } from './story-arc-links-core.js';
 import { chatProviderOptions, connectionProfileRows, testConnectionButton } from '../../shared/connection-profile-rows-markup.js';
+import { STORY_ARC_MAX_TOKENS_MAX, STORY_ARC_MAX_TOKENS_MIN } from '../../shared/constants.js';
 
 /** The rail finds each page as VectFox_panel_<name> (settings-panel/panel-shell-markup.js). */
 export const STORY_ARC_PAGE_ID = 'VectFox_panel_storyarc';
@@ -189,6 +190,20 @@ function blockSizeCard() {
     </section>`;
 }
 
+function maxTokensCard() {
+    return `<section class="vfx-card">
+        ${cardHeader({ icon: 'fa-coins', title: 'Max tokens', description: 'The most each call on the link model may write, its thinking included.' })}
+        <div class="vfx-card-body vfx-stack">
+            ${field([
+                fieldLabel({ text: 'Max tokens', forId: 'VectFox_story_arc_max_tokens', hasHelp: true }),
+                sliderNumber({ id: 'VectFox_story_arc_max_tokens', min: STORY_ARC_MAX_TOKENS_MIN, max: STORY_ARC_MAX_TOKENS_MAX, step: 500, title: 'Tokens' }),
+                hint({ text: 'Raise it when a thinking model runs out of tokens before its answer.' }),
+                detail({ text: 'Links, the router, the thread pick and the block cut each get this many tokens, thinking included. A reply that runs out is cut at the token limit and gives no answer, which the console logs. A model bills only the tokens it writes, so a higher limit costs nothing by itself. A link call still stops after 180 seconds, and a server may reject a limit above what its model can write.' }),
+            ])}
+        </div>
+    </section>`;
+}
+
 function debugCard() {
     return `<section class="vfx-card">
         ${cardHeader({ icon: 'fa-bug', title: 'Debug', description: 'Console detail for StoryArc. Errors and warnings always show.' })}
@@ -270,6 +285,7 @@ export function storyArcPageMarkup({ notice = '' } = {}) {
         <div class="vfx-page" data-story-arc-panel="main">
             ${modeCard()}
             ${blockSizeCard()}
+            ${maxTokensCard()}
             ${debugCard()}
             ${connectionCard()}
         </div>

@@ -3,8 +3,8 @@
  * RETRIEVAL BUDGET
  * ============================================================================
  * What a single turn is allowed to SPEND on looking things up — milliseconds
- * for every retrieval path, plus the output-token cap for the one path that
- * calls an LLM (Agent Mode's planner). Resolved from settings. Pure arithmetic
+ * for every retrieval path, plus the output-token caps for Agent Mode's planner
+ * and for StoryArc's calls on its link model. Resolved from settings. Pure arithmetic
  * over settings + constants — no I/O, no host imports, no dependency on the
  * modules that consume it.
  *
@@ -46,6 +46,9 @@ import {
     AGENTIC_MAX_TOKENS_DEFAULT,
     AGENTIC_MAX_TOKENS_MIN,
     AGENTIC_MAX_TOKENS_MAX,
+    STORY_ARC_MAX_TOKENS_DEFAULT,
+    STORY_ARC_MAX_TOKENS_MIN,
+    STORY_ARC_MAX_TOKENS_MAX,
 } from './constants.js';
 
 /**
@@ -53,7 +56,7 @@ import {
  * non-numeric, or zero/negative, then clamp it into [min, max].
  *
  * Unit-agnostic on purpose — the same read/fallback/clamp shape serves both the
- * millisecond budgets and the token cap below.
+ * millisecond budgets and the token caps below.
  *
  * @param {*} raw - the settings value as stored (may be a string from an input)
  * @param {number} fallback
@@ -134,6 +137,23 @@ export function resolveAgenticMaxTokens(settings) {
         AGENTIC_MAX_TOKENS_DEFAULT,
         AGENTIC_MAX_TOKENS_MIN,
         AGENTIC_MAX_TOKENS_MAX,
+    );
+}
+
+/**
+ * StoryArc: output-token cap for each call on the link model (links, the router, the thread pick and the block cut),
+ * the StoryArc page's Max tokens. A thinking model spends this same budget on its reasoning first, so one that runs
+ * out mid-thought returns no JSON and the call fails (GitHub issue #38).
+ *
+ * @param {object} [settings] - VectFox settings
+ * @returns {number} tokens
+ */
+export function resolveStoryArcMaxTokens(settings) {
+    return _resolveBoundedSetting(
+        settings?.story_arc_max_tokens,
+        STORY_ARC_MAX_TOKENS_DEFAULT,
+        STORY_ARC_MAX_TOKENS_MIN,
+        STORY_ARC_MAX_TOKENS_MAX,
     );
 }
 

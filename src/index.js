@@ -38,6 +38,7 @@ import {
     AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS,
     AGENTIC_QUERY_TIMEOUT_DEFAULT_MS,
     AGENTIC_MAX_TOKENS_DEFAULT,
+    STORY_ARC_MAX_TOKENS_DEFAULT,
 } from './shared/constants.js';
 import { isVectFoxEnabled } from './shared/feature-gate.js';
 import { followGenerations } from './shared/last-generation.js';
@@ -353,6 +354,7 @@ const defaultSettings = {
     story_arc_link_model: 'openai/gpt-6-luna',         // which AgentMode's planner does not
     story_arc_link_connection_profile_id: '',          // read only while story_arc_link_provider is 'connection_profile'
     story_arc_block_scale: 0.5,                        // Block size slider, 0.4 to 1.0: a block has 2.5 × this × √events seats, and keeps 4/3 × this × √events lines
+    story_arc_max_tokens: STORY_ARC_MAX_TOKENS_DEFAULT, // Max tokens slider, 1,000 to 32,000: the output cap of each call on the link model, thinking included
     agent_provider: '',                    // '' → Same as EventBase model: chat_provider and chat_vllm_url, or its profile
     agent_connection_profile_id: '',       // read only while agent_provider is 'connection_profile'
     agent_model: '',                       // '' → chat_model, whichever provider runs the planner

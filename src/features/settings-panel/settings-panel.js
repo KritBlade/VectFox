@@ -62,6 +62,7 @@ import {
     resolveAgenticPlannerTimeoutMs,
     resolveAgenticQueryTimeoutMs,
     resolveAgenticMaxTokens,
+    resolveStoryArcMaxTokens,
 } from '../../shared/retrieval-budget.js';
 import { log } from '../../sillytavern/log.js';
 
@@ -765,6 +766,7 @@ function bindSettingsEvents(settings, callbacks) {
         });
 
     bindNumberSetting(settings, { id: 'VectFox_story_arc_block_scale', key: 'story_arc_block_scale', initial: settings.story_arc_block_scale });
+    bindNumberSetting(settings, { id: 'VectFox_story_arc_max_tokens', key: 'story_arc_max_tokens', initial: resolveStoryArcMaxTokens(settings), isInteger: true });
 
     $('#VectFox_story_arc_debug')
         .prop('checked', settings.debug_domain?.story_arc || false)

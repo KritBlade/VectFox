@@ -87,6 +87,15 @@ export const AGENTIC_MAX_TOKENS_DEFAULT = 2000;
 export const AGENTIC_MAX_TOKENS_MIN = 256;
 export const AGENTIC_MAX_TOKENS_MAX = 32000;
 
+/**
+ * Output-token cap for each StoryArc call on the link model (links, the router, the thread pick and the block cut),
+ * and the Max tokens slider's range on the StoryArc page. A thinking model's reasoning counts against it, so a model
+ * that thinks long, as DeepSeek can, needs more than the default to reach its JSON reply (GitHub issue #38).
+ */
+export const STORY_ARC_MAX_TOKENS_DEFAULT = 9000;
+export const STORY_ARC_MAX_TOKENS_MIN = 1000;
+export const STORY_ARC_MAX_TOKENS_MAX = 32000;
+
 // =============================================================================
 // CHAT PROVIDERS
 // =============================================================================
