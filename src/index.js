@@ -55,7 +55,7 @@ import { KEY_CALLS_AT_ONCE_DEFAULT, LORE_BUDGET_DEFAULT, initializeLoreBase, pre
 import { initializeReplyLore } from './features/reply-lore/index.js';
 import {
     announceCollectionInUseChanged, announceEventBaseEventsRemoved, announceEventBaseRunEnded, announceLlmCallFinished,
-    announcePublicApiReady, announcePurgedCollection, markOwnRequest, publishPublicApi,
+    announcePublicApiReady, announcePurgedCollection, markOwnRequestWhenSwitchedOn, publishPublicApi,
 } from './features/public-api/index.js';
 import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from './features/keyword-search/index.js';
 
@@ -63,7 +63,7 @@ import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, e
 setDeletedOrImportedCollectionCleanup(clearCachesForDeletedOrImportedCollection);
 setInsertedCollectionRegistrar(registerCollection);
 // What EventBase, the vector backend and the LLM calls tell the public API, which sends it on as vectfox_* events, and
-// the public API's mark on each request VectFox sends itself.
+// the public API's mark on the signal of each LLM call's request, written while the PublicAPI page's switch is on.
 setEventBaseListeners({
     onRunEnded: announceEventBaseRunEnded,
     onEventsRemoved: announceEventBaseEventsRemoved,
@@ -71,7 +71,7 @@ setEventBaseListeners({
 });
 setPurgedCollectionListener(announcePurgedCollection);
 setLlmCallFinishedListener(announceLlmCallFinished);
-setOwnRequestMarker(markOwnRequest);
+setOwnRequestMarker(markOwnRequestWhenSwitchedOn);
 
 // Default settings
 const defaultSettings = {
@@ -393,6 +393,11 @@ const defaultSettings = {
     // it writes any JSON, so too low = truncated output = agent mode silently
     // falls back to pre-search. UI: AgentMode tab.
     agentic_retrieval_max_tokens: AGENTIC_MAX_TOKENS_DEFAULT,
+
+    // ─── PublicAPI (Development) ────────────────────────────────────────
+    // VectFox's mark on the signal of each LLM call's request, which a usage tracker reads. Off until the user turns
+    // it on: nothing else reads it (src/features/public-api/public-api.js).
+    own_request_mark_enabled: false,
 
     // ─── Hidden / Power-User ────────────────────────────────────────────
     // SUPERADMIN MODE — no GUI toggle. Set to true by hand-editing settings.json

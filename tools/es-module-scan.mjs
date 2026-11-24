@@ -1,4 +1,5 @@
-// tools/es-module-scan.mjs — reads what an ES module imports and exports, for the import checks in tools/.
+// tools/es-module-scan.mjs — reads what an ES module imports and exports, for the import checks in tools/, and gives
+// the other checks there its parse and walk of a module.
 //
 // Parsed with acorn, so comments, strings and regex literals cannot fool it. It sees literal paths only: an import of
 // a path held in a variable is invisible here, as it is to every static check. bm25-scorer.js imports the jieba glue
@@ -20,7 +21,8 @@ import { parse } from 'acorn';
  */
 
 const programs = new Map();
-function programOf(filePath) {
+/** The module at `filePath`, parsed once, with each node's line. */
+export function programOf(filePath) {
     if (!programs.has(filePath)) {
         programs.set(filePath, parse(readFileSync(filePath, 'utf8'), {
             ecmaVersion: 'latest', sourceType: 'module', locations: true, allowHashBang: true,
@@ -29,15 +31,17 @@ function programOf(filePath) {
     return programs.get(filePath);
 }
 
-const nameOf = (node) => (node.type === 'Identifier' ? node.name : String(node.value));
+/** A key or name as written: an identifier's name, or a literal's value. */
+export const nameOf = (node) => (node.type === 'Identifier' ? node.name : String(node.value));
 
 const isImportMetaUrl = (node) => node?.type === 'MemberExpression' && !node.computed
     && node.object.type === 'MetaProperty' && node.object.meta.name === 'import' && nameOf(node.property) === 'url';
 
-const isFunction = (node) => /^(FunctionDeclaration|FunctionExpression|ArrowFunctionExpression)$/.test(node.type);
+/** Whether a node is a function: a declaration, a function expression or an arrow. */
+export const isFunction = (node) => /^(FunctionDeclaration|FunctionExpression|ArrowFunctionExpression)$/.test(node.type);
 
 /** Calls `onNode(node, ancestors)` for every node below `node`, outermost ancestor first. */
-function walk(node, ancestors, onNode) {
+export function walk(node, ancestors, onNode) {
     onNode(node, ancestors);
     ancestors.push(node);
     for (const key of Object.keys(node)) {
@@ -156,7 +160,7 @@ export function importsOf(filePath) {
 }
 
 /** Every name a binding pattern declares (`export const { a, b } = …` exports a and b). */
-function boundNames(pattern, names = []) {
+export function boundNames(pattern, names = []) {
     if (pattern.type === 'Identifier') names.push(pattern.name);
     else if (pattern.type === 'ObjectPattern') {
         for (const property of pattern.properties) boundNames(property.type === 'RestElement' ? property.argument : property.value, names);

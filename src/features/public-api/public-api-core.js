@@ -1,6 +1,6 @@
 /**
  * The public API's pure parts: its version, the events it emits, the groups it serves, the reasons, settings and
- * EventBase events its calls answer with, the mark on the requests VectFox sends itself, readiness and the shape of the
+ * EventBase events its calls answer with, the mark on VectFox's own requests, readiness and the shape of the
  * `VectFox` object (§4, §5.2 and §5.3 of InternalProject/Vectfox/plans/vectfox-public-api.md). No host imports:
  * public-api.js publishes the object, answers its calls and emits the events.
  */
@@ -58,7 +58,9 @@ export const PUBLIC_EVENT_FIELDS = Object.freeze({
 /**
  * The settings getSettingsSnapshot() reads by key, each public name with the setting it reads: ghosting, Summarizer
  * Injection and auto-sync's window. Beside them the snapshot gives `enabled`, VectFox's own switch, which is read
- * through its gate. A public name stays when its setting is renamed inside VectFox, and none of them is a key or key ID.
+ * through its gate, and `requestMarkEnabled`, the PublicAPI page's switch, read as the marker reads it
+ * (isOwnRequestMarkOn). A public name stays when its setting is renamed inside VectFox, and none of them is a key or key
+ * ID.
  */
 export const PUBLIC_SETTINGS = Object.freeze({
     ghostingEnabled: 'eventbase_ghost_enabled',
@@ -157,19 +159,32 @@ export function llmCallFinishedPayload({ feature, connection, profileName, provi
 }
 
 /**
- * The key of the mark VectFox writes on each request it sends itself (D11, §4.3): a `Symbol.for` key, so a usage
- * tracker that watches fetch makes the same symbol and reads the mark with no import.
+ * The key of the mark VectFox writes on each of its own requests (D11, §4.3): a `Symbol.for` key, so a usage tracker
+ * that watches fetch makes the same symbol and reads the mark with no import.
  */
 const OWN_REQUEST_MARK = Symbol.for('vectfox.internal-request');
 
 /**
- * Writes VectFox's mark on a request it sends itself, before it is sent: `{ label: 'VectFox <feature>' }`, frozen,
- * under OWN_REQUEST_MARK and not enumerable, so the request's body and headers stay as they are.
- * @param {object} init - The fetch's init
+ * Writes VectFox's mark on the signal one of its own requests is sent with, before it is sent:
+ * `{ label: 'VectFox <feature>' }`, frozen, under OWN_REQUEST_MARK and not enumerable. The signal reaches fetch in its
+ * init on every route, SillyTavern's fetch for a profile's request included, so a usage tracker reads the mark at
+ * `init.signal`, and the request's body and headers stay as they are.
+ * @param {AbortSignal} signal - The signal the request is sent with
  * @param {string} feature - The feature the call is made for, as `vectfox_llm_call_finished` names it
  */
-export function markOwnRequest(init, feature) {
-    Object.defineProperty(init, OWN_REQUEST_MARK, { value: Object.freeze({ label: `VectFox ${feature}` }) });
+export function markOwnRequest(signal, feature) {
+    Object.defineProperty(signal, OWN_REQUEST_MARK, { value: Object.freeze({ label: `VectFox ${feature}` }) });
+}
+
+/**
+ * Whether VectFox marks its LLM calls' requests: the PublicAPI page's switch, `own_request_mark_enabled`, on only when
+ * set to true, so a store that never saved it reads off. The marker and the settings snapshot both ask here, so a
+ * tracker reads what the marker does. Only the user changes the switch: the API has no call for it.
+ * @param {object|null} settings - VectFox settings
+ * @returns {boolean}
+ */
+export function isOwnRequestMarkOn(settings) {
+    return settings?.own_request_mark_enabled === true;
 }
 
 /**
@@ -202,15 +217,19 @@ export function collectionInUseAnswer({ chatId, collectionId }) {
 }
 
 /**
- * The answer of `getSettingsSnapshot()`: whether VectFox is switched on, and the settings PUBLIC_SETTINGS lists, as they
- * are when asked, by their public names, frozen. A setting VectFox does not hold reads as null.
+ * The answer of `getSettingsSnapshot()`: whether VectFox is switched on, the settings PUBLIC_SETTINGS lists, as they
+ * are when asked, by their public names, and whether VectFox marks its LLM calls' requests, frozen. A setting VectFox
+ * does not hold reads as null. A copy: nothing written to it reaches VectFox's settings.
  * @param {object} settings - VectFox settings
  * @param {{isEnabled: boolean}} gate - isEnabled: VectFox's switch, as its gate reads it
  * @returns {Readonly<{ok: true, settings: Readonly<object>}>}
  */
 export function settingsSnapshotAnswer(settings, { isEnabled }) {
     const listed = Object.fromEntries(Object.entries(PUBLIC_SETTINGS).map(([name, key]) => [name, settings[key] ?? null]));
-    return Object.freeze({ ok: true, settings: Object.freeze({ enabled: isEnabled, ...listed }) });
+    return Object.freeze({
+        ok: true,
+        settings: Object.freeze({ enabled: isEnabled, ...listed, requestMarkEnabled: isOwnRequestMarkOn(settings) }),
+    });
 }
 
 /**

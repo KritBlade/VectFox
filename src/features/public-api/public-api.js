@@ -5,8 +5,9 @@
  * the settings store the calls answer from (§5.2): until then every call answers `not-ready`. `eventBase.listEvents`
  * reads EventBase's feed, the events written and removed after a change number (§5.3). It also hands the other
  * features' listeners the announcements below, which send EventBase's runs, removals and collection in use, and each
- * LLM call, on as `vectfox_*` events. VectFox never awaits its own events: SillyTavern's emit awaits each listener in
- * turn, so a listener that never resolves would hold VectFox up.
+ * LLM call, on as `vectfox_*` events, and the LLM calls the marker that marks their requests while the PublicAPI
+ * page's switch is on. VectFox never awaits its own events: SillyTavern's emit awaits each listener in turn, so a
+ * listener that never resolves would hold VectFox up.
  */
 import { eventSource } from '../../sillytavern/events.js';
 import { log } from '../../sillytavern/log.js';
@@ -17,7 +18,8 @@ import { openChatCollectionInUse, readEventFeed } from '../eventbase/index.js';
 import {
     PUBLIC_API_REASONS, PUBLIC_EVENTS, buildPublicApi, chatIdAnswer, collectionInUseAnswer, createReadiness,
     eventBaseCollectionChangedPayload, eventBaseEventsDeletedPayload, eventBaseSyncedPayload, eventFeedAnswer,
-    isPublicEventName, llmCallFinishedPayload, readyPayload, refusal, settingsSnapshotAnswer,
+    isOwnRequestMarkOn, isPublicEventName, llmCallFinishedPayload, markOwnRequest, readyPayload, refusal,
+    settingsSnapshotAnswer,
 } from './public-api-core.js';
 
 const readiness = createReadiness();
@@ -47,8 +49,8 @@ function getCollectionInUse() {
 }
 
 /**
- * `getSettingsSnapshot()`: whether VectFox is switched on, by the gate every runtime check reads, and the listed
- * settings as they are now.
+ * `getSettingsSnapshot()`: whether VectFox is switched on, by the gate every runtime check reads, the listed settings
+ * as they are now, and whether VectFox marks its LLM calls' requests, as the marker reads the switch.
  * @returns {Readonly<object>} `{ ok: true, settings }`, or a refusal with `not-ready`
  */
 function getSettingsSnapshot() {
@@ -244,4 +246,16 @@ export function announceCollectionInUseChanged(inUse) {
  */
 export function announceLlmCallFinished(call) {
     emitWithoutWaiting(PUBLIC_EVENTS.llmCallFinished, llmCallFinishedPayload(call));
+}
+
+/**
+ * The marker llm-provider runs on the signal of each LLM call's request (`setOwnRequestMarker`): writes VectFox's mark
+ * while the PublicAPI page's switch, `own_request_mark_enabled`, is on. Off by default, as only a usage tracker reads
+ * the mark. Read from the settings store at each call, so a change counts from the next call, and a call before VectFox
+ * is ready goes unmarked.
+ * @param {AbortSignal} signal - The signal the request is sent with
+ * @param {string} feature - The feature the call is made for
+ */
+export function markOwnRequestWhenSwitchedOn(signal, feature) {
+    if (isOwnRequestMarkOn(settingsStore)) markOwnRequest(signal, feature);
 }

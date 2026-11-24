@@ -10,33 +10,19 @@
 // The browser resolves each path from the URL SillyTavern serves this extension at,
 // /scripts/extensions/third-party/VectFox/, which lies in SillyTavern's public/ folder; this check does the same.
 // It reads files only, so a SillyTavern source checkout works as well as an install:
-//   node tools/check-host-imports.mjs                           the first folder in SILLYTAVERN_FOLDERS that exists
+//   node tools/check-host-imports.mjs                           the folder tools/sillytavern-folder.mjs finds
 //   ST_ROOT=<SillyTavern folder> node tools/check-host-imports.mjs
 
-import { existsSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { exportedNamesOf, findOnDisk, importsOf, isInside, shippedModules } from './es-module-scan.mjs';
+import { findSillyTavernFolder } from './sillytavern-folder.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const shown = (file) => relative(repoRoot, file).replaceAll('\\', '/');
 
 const SERVED_AT = ['scripts', 'extensions', 'third-party', 'VectFox'];
-// The first that holds public/script.js wins, so an install outranks a source checkout.
-const SILLYTAVERN_FOLDERS = [
-    'H:\\Apps\\SillyTavern-Launcher\\SillyTavern',   // main PC: the launcher install
-    'C:\\Derek\\Github\\Dev\\misc\\SillyTavern',    // work PC: a source checkout
-    '/Users/goten/Github/Dev/SillyTavern',          // Mac: a source checkout
-];
-
-const candidates = [process.env.ST_ROOT, ...SILLYTAVERN_FOLDERS].filter(Boolean);
-const sillyTavernFolder = candidates.find((folder) => existsSync(join(folder, 'public', 'script.js')));
-if (!sillyTavernFolder) {
-    console.error('[host-imports] No SillyTavern found (looked for <folder>/public/script.js) in:');
-    candidates.forEach((folder) => console.error(`[host-imports]   ${folder}`));
-    console.error('[host-imports] A source checkout is enough. Point at one: ST_ROOT=<SillyTavern folder> npm test');
-    process.exit(1);
-}
+const sillyTavernFolder = findSillyTavernFolder('host-imports');
 const publicFolder = join(sillyTavernFolder, 'public');
 const servedFolder = join(publicFolder, ...SERVED_AT);
 console.log(`[host-imports] resolving as served from ${servedFolder}`);

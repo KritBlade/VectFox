@@ -8,7 +8,9 @@
 import { connectionProfileDecisionsFields, findConnectionProfile } from '../../sillytavern/connection-profiles.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { readErrorBody } from '../../shared/server-error-text.js';
-import { LLM_CALL_CONNECTIONS, LLM_CALL_FEATURES, LLM_CALL_OUTCOMES, outcomeOfFailedCall, reportLlmCallFinished } from '../llm-provider/index.js';
+import {
+    LLM_CALL_CONNECTIONS, LLM_CALL_FEATURES, LLM_CALL_OUTCOMES, outcomeOfFailedCall, ownRequestSignal, reportLlmCallFinished,
+} from '../llm-provider/index.js';
 import { connectionConsequence } from './lorebase-connection.js';
 import { CALL_TIMEOUT_MS } from './lorebase-reply-core.js';
 
@@ -43,8 +45,8 @@ export function resolveJevConnection(settings) {
 }
 
 /**
- * Ask Jev the questions about the state, through Similharity. The call is reported once it ends, as LoreBase's, on
- * Jev's profile, with the prompt tokens Jev counted.
+ * Ask Jev the questions about the state, through Similharity, on the signal ownRequestSignal makes for LoreBase. The
+ * call is reported once it ends, as LoreBase's, on Jev's profile, with the prompt tokens Jev counted.
  * @param {{fields: object, profileName: string|null}} jev - From resolveJevConnection, ok
  * @param {string} state
  * @param {Record<string, {type: string, instructions: string}>} questions
@@ -69,7 +71,7 @@ export async function askJev(jev, state, questions) {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({ ...jev.fields, state, questions }),
-            signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
+            signal: ownRequestSignal(CALL_TIMEOUT_MS, LLM_CALL_FEATURES.loreBase),
         });
         if (!response.ok) {
             const detail = await readErrorBody(response, response.statusText);

@@ -3,7 +3,7 @@
 // profile can run, the sentence for one that cannot, and what a profile readout shows; the connection Agent Mode takes
 // from the EventBase model; the fixed message each consumer's Test connection sends; a model's price on OpenRouter; and
 // the report of each call that ended, LoreBase's Jev calls through Similharity included, to a listener set at start-up,
-// and the mark on each manual request, by a marker set at start-up.
+// and the signal each call's request is sent with, handed to a marker set at start-up that may mark it.
 //
 // Re-exports only. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
 export { resolveConnectionProfileId } from './connection-profile-core.js';
@@ -14,6 +14,7 @@ export {
     LLM_CALL_FEATURES,
     LLM_CALL_OUTCOMES,
     outcomeOfFailedCall,
+    ownRequestSignal,
     reportLlmCallFinished,
     setLlmCallFinishedListener,
     setOwnRequestMarker,

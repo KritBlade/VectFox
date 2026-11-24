@@ -389,7 +389,7 @@ Auto-Sync card shows whether the current chat is vectorized and how many events 
 
 ### 🗂️ Tabbed interface
 
-Settings split into **Action** (vectorization, Database Browser, diagnostics, dev tools), **Core** (backend, embedding, retrieval, hybrid), **ChatHistory** (EventBase: chat history/archive chat file .jsonl), **AutoSync** (keeps the open chat in sync), **WorldInfo** (LoreBase), **RAG** (how memory is wrapped in the prompt), **AgentMode** (the search planner) and **StoryArc** (story threads).
+Settings split into **Action** (vectorization, Database Browser, diagnostics, dev tools), **Core** (backend, embedding, retrieval, hybrid), **ChatHistory** (EventBase: chat history/archive chat file .jsonl), **AutoSync** (keeps the open chat in sync), **WorldInfo** (LoreBase), **RAG** (how memory is wrapped in the prompt), **AgentMode** (the search planner), **StoryArc** (story threads) and, under Development, **PublicAPI** (a mark on VectFox's LLM requests that a usage tracker reads, off by default).
 
 ### ⚡ Windows at once — Vectorization Speedup
 

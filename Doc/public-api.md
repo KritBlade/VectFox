@@ -42,7 +42,7 @@ Once you have the object, `await VectFox.whenReady()` does the same wait as a pr
 | `on(name, handler)` | Calls your handler every time VectFox sends that event. Returns a function that stops it |
 | `off(name, handler)` | Stops calling your handler for that event |
 | `chat` | The open chat: `chat.getChatId()` and `chat.getCollectionInUse()`. See The chat, its collection and the settings below |
-| `getSettingsSnapshot()` | A frozen copy of the settings that decide what VectFox does to the prompt. Also below |
+| `getSettingsSnapshot()` | A frozen copy of the settings that decide what VectFox does to the prompt, and whether it marks its LLM requests. Also below |
 | `eventBase` | The events VectFox reads out of a chat: `eventBase.listEvents()`. See Reading EventBase below |
 
 The object is frozen, so you can't change it or add to it.
@@ -166,7 +166,7 @@ VectFox.on('vectfox_eventbase_collection_changed', () => {
 
 ### The settings snapshot
 
-`getSettingsSnapshot()` answers `{ ok: true, settings }`. It's a frozen copy of the settings that decide what VectFox does to the prompt, and how often it reads the chat.
+`getSettingsSnapshot()` answers `{ ok: true, settings }`. It's a frozen copy of the settings that decide what VectFox does to the prompt, how often it reads the chat, and whether it marks its LLM requests.
 
 It's a copy of the moment you ask, and the user can change a setting any time. So ask again for every request instead of keeping one. It's like checking the weather in the morning instead of trusting last week's forecast.
 
@@ -182,6 +182,7 @@ It's a copy of the moment you ask, and the user can change a setting any time. S
 | `summarizerInjectionMaxChars` | The most characters that block may take, `0` for no limit |
 | `autoSyncWindowTurns` | How many turns auto-sync reads at a time. While Summarizer Injection is on, it's held at 1 |
 | `autoSyncSettleLag` | `true` when auto-sync waits for a turn to stop being swipeable before it reads it |
+| `requestMarkEnabled` | `true` when VectFox puts its mark on its LLM requests (see VectFox's own LLM calls). It's the user's switch, so you can read it, but nothing in the API changes it |
 
 ```js
 const answer = VectFox.getSettingsSnapshot();
@@ -325,7 +326,7 @@ The events only come in the tab that did the work. So treat `vectfox_eventbase_s
 
 ## VectFox's own LLM calls
 
-VectFox makes its own LLM calls: EventBase reading the chat, Agent Mode planning a search, StoryArc linking events, LoreBase picking lore. To SillyTavern, a lot of them look just like the story reply. So if you track what a chat costs, you need to tell my calls apart, and VectFox gives you 2 ways: an event after every call, and a mark on the requests it sends itself.
+VectFox makes its own LLM calls: EventBase reading the chat, Agent Mode planning a search, StoryArc linking events, LoreBase picking lore. To SillyTavern, a lot of them look just like the story reply. So if you track what a chat costs, you need to tell my calls apart, and VectFox gives you 2 ways: an event after every call, and a mark on each call's request once the user switches it on.
 
 ### The event after every call
 
@@ -350,26 +351,32 @@ VectFox.on('vectfox_llm_call_finished', ({ feature, model, usage }) => {
 });
 ```
 
-### The mark on the requests VectFox sends itself
+### The mark on VectFox's requests
 
 The event comes AFTER the call. If your tracker watches `fetch`, you want to know whose request it is while it's going out. That's what the mark is for.
 
 Think of the envelopes a company mails out. Each one has the company's stamp in the corner, so the post office knows who sent it without opening it. The mark is that stamp, and it never changes what's inside the envelope.
 
-When VectFox sends a request itself, on a provider set in VectFox (`connection: 'manual'`), it puts the mark on the `init` it passes to `fetch`, under `Symbol.for('vectfox.internal-request')`. The value is `{ label: 'VectFox storyarc' }`: `VectFox`, then the call's `feature`, the same name the event gives. It's frozen and not enumerable, so the request's body and headers are exactly what they would be without it.
+The mark is OFF until the user turns it on. It's on VectFox's PublicAPI page, under Development: **Mark VectFox's LLM requests**. Most people never run a tracker, so VectFox leaves their requests alone. If your tracker reads the mark, tell your users to switch it on. It counts from the next call.
+
+Your tracker can read that switch, but not flip it. `getSettingsSnapshot()` gives it as `requestMarkEnabled`, and if it's `false`, ask the user to turn it on. Nothing in the API changes it, so please don't reach into VectFox's settings to do it either.
+
+VectFox puts the mark on the request's signal, the AbortSignal in the `init` that `fetch` gets. It's under `Symbol.for('vectfox.internal-request')`, and the value is `{ label: 'VectFox storyarc' }`: `VectFox`, then the call's `feature`, the same name the event gives. It's frozen and not enumerable, and the request's body and headers are exactly what they would be without it.
+
+It works the same on every connection. Sometimes VectFox calls `fetch` itself. On a SillyTavern connection profile (`connection: 'profile'`), SillyTavern builds the request and calls `fetch`, and it passes along the signal VectFox handed it, as is. Either way the mark goes out with the request.
 
 ```js
 const VECTFOX_MARK = Symbol.for('vectfox.internal-request');
 const originalFetch = window.fetch;
 window.fetch = function (input, init) {
-    const mark = init?.[VECTFOX_MARK];
+    const mark = init?.signal?.[VECTFOX_MARK];
     if (mark) console.log(`${mark.label} is calling a model`);
     return originalFetch.apply(this, arguments);
 };
 ```
 
-Read the mark from the `init` you're given. A copy made with `{ ...init }` leaves it out, since it's not enumerable.
+Read it right off `init.signal`, the signal you're handed. A new signal made from it, like `AbortSignal.any([init.signal])`, doesn't carry it.
 
-A call on a SillyTavern connection profile (`connection: 'profile'`) carries NO mark. SillyTavern builds and sends that request itself, so VectFox never gets to touch it. For those calls the event is all you get. So a tracker uses both: the mark to file a request as it goes out, and the event to catch the profile calls.
+The mark tells you whose request is going out, and the event is the full record. With the switch off, or if a SillyTavern update ever stops passing the signal along as is, a request goes out with no mark, but the event still reports the call. So a tracker uses both: the mark to file each request as it goes out, and the event to make sure nothing slipped by.
 
-Basically, check `isReady()`, wait for `vectfox_ready` if you have to, and from there everything goes through the one object. The mark is the only thing outside it, and you read that one right off the request.
+Basically, check `isReady()`, wait for `vectfox_ready` if you have to, and from there everything goes through the one object. The mark is the only thing outside it: your users switch it on, and you read it right off the request's signal.

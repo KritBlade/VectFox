@@ -9,7 +9,8 @@
  * SillyTavern profile, none chosen, and an existing install keeps the provider it saved
  * (connection plan §1, §3); that start-up schedules the one-time notice on manual
  * OpenRouter and vLLM with the store itself, unshown on an install that never saw it (row N1);
- * and that it hands the LLM calls the public API's marker for the requests VectFox sends itself (U1).
+ * and that it hands the LLM calls the public API's marker for VectFox's own requests, its switch off on a new install
+ * (U1).
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -87,7 +88,7 @@ vi.mock('../src/features/public-api/index.js', () => ({
     announceLlmCallFinished: vi.fn(),
     announcePublicApiReady: vi.fn(async () => {}),
     announcePurgedCollection: vi.fn(),
-    markOwnRequest: vi.fn(),
+    markOwnRequestWhenSwitchedOn: vi.fn(),
     publishPublicApi: vi.fn(),
 }));
 vi.mock('../src/features/database-browser/index.js', () => ({
@@ -265,15 +266,20 @@ describe('connection defaults at start-up', () => {
     });
 });
 
-describe('the mark on the requests VectFox sends itself at start-up', () => {
+describe('the mark on VectFox\'s own requests at start-up', () => {
     beforeEach(() => {
         vi.unstubAllGlobals();
     });
 
-    it('hands the LLM calls the public API\'s marker', async () => {
+    it('hands the LLM calls the public API\'s marker, which marks only while the PublicAPI page\'s switch is on', async () => {
         await loadPage({});
         const { setOwnRequestMarker } = await import('../src/features/llm-provider/index.js');
-        const { markOwnRequest } = await import('../src/features/public-api/index.js');
-        expect(setOwnRequestMarker).toHaveBeenCalledWith(markOwnRequest);
+        const { markOwnRequestWhenSwitchedOn } = await import('../src/features/public-api/index.js');
+        expect(setOwnRequestMarker).toHaveBeenCalledWith(markOwnRequestWhenSwitchedOn);
+    });
+
+    it('starts the switch off on a new install, and keeps an install\'s saved switch', async () => {
+        expect((await loadPage({})).extension_settings.vectfox.own_request_mark_enabled).toBe(false);
+        expect((await loadPage({ own_request_mark_enabled: true })).extension_settings.vectfox.own_request_mark_enabled).toBe(true);
     });
 });

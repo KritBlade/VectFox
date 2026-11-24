@@ -5,11 +5,12 @@
   "type": "module",
   "scripts": {
     "lint": "eslint .",
-    "test": "eslint . && knip && knip --production && npm run check:duplicates && npm run check:imports && vitest run",
+    "test": "eslint . && knip && knip --production && npm run check:duplicates && npm run check:imports && npm run check:profile-request-signal && vitest run",
     "check:imports": "npm run check:import-graph && npm run check:named-exports && npm run check:host-imports",
     "check:import-graph": "depcruise src/index.js --config .dependency-cruiser.cjs",
     "check:named-exports": "node tools/check-named-exports.mjs",
     "check:host-imports": "node tools/check-host-imports.mjs",
+    "check:profile-request-signal": "node tools/check-profile-request-signal.mjs",
     "capture-endpoint": "node tools/capture-endpoint.mjs",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

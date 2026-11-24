@@ -3,11 +3,11 @@
  * plans/executed/lorebook-semantic-overhaul-passage-index.md): Jev runs on the OpenRouter or Custom profile chosen for it; VectFox
  * sends Similharity's decisions route the profile's source, URL, model and key ID, never a key; each setup that cannot
  * run says what is wrong, then what that costs (connectionConsequence, a stand-in here: lorebase-connection.test.js
- * covers it); a refusal says what Similharity answered; each call is reported once it ends, as LoreBase's, with no key
- * ID; and Test connection asks one made-up question. The real profile wrapper reads a stand-in for SillyTavern's
- * context.
+ * covers it); a refusal says what Similharity answered; each request is sent with LoreBase's time limit on a signal
+ * that carries VectFox's mark; each call is reported once it ends, as LoreBase's, with no key ID; and Test connection
+ * asks one made-up question. The real profile wrapper reads a stand-in for SillyTavern's context.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const host = vi.hoisted(() => ({ connectionConsequence: null }));
 
@@ -18,7 +18,9 @@ vi.mock('../src/features/lorebase/lorebase-connection.js', () => ({ connectionCo
 vi.mock('../src/features/llm-provider/index.js', () => vi.importActual('../src/features/llm-provider/llm-call-report.js'));
 
 const { askJev, resolveJevConnection, testJevConnection } = await import('../src/features/lorebase/lorebase-jev.js');
-const { setLlmCallFinishedListener } = await import('../src/features/llm-provider/llm-call-report.js');
+const { setLlmCallFinishedListener, setOwnRequestMarker } = await import('../src/features/llm-provider/llm-call-report.js');
+const { markOwnRequest } = await import('../src/features/public-api/public-api-core.js');
+const { CALL_TIMEOUT_MS } = await import('../src/features/lorebase/lorebase-reply-core.js');
 
 const PROFILES = [
     { id: 'p-or', name: 'Jev on OpenRouter', api: 'openrouter', model: 'typesafe/jev-1.14', 'secret-id': 'or-jev' },
@@ -91,6 +93,25 @@ describe("Jev's connection", () => {
         globalThis.fetch = vi.fn(async () => ({ ok: false, status: 502, statusText: 'Bad Gateway', text: async () => '{"error":"Jev on OpenRouter: 401 Unauthorized (the server refused the API key)"}' }));
         await expect(askJev({ fields: { source: 'openrouter', model: 'typesafe/jev-1.14' }, profileName: 'Jev on OpenRouter' }, STATE, QUESTIONS))
             .rejects.toThrow('Jev could not answer through Similharity (HTTP 502): {"error":"Jev on OpenRouter: 401 Unauthorized (the server refused the API key)"}');
+    });
+});
+
+describe("the signal of Jev's requests", () => {
+    afterEach(() => {
+        setOwnRequestMarker(null);
+        vi.restoreAllMocks();
+    });
+
+    it("carries the public API's mark for LoreBase and LoreBase's time limit, the init, body and headers as they were", async () => {
+        setOwnRequestMarker(markOwnRequest);
+        const timeLimit = vi.spyOn(AbortSignal, 'timeout');
+        await askJev(resolveJevConnection({ lorebase_jev_connection_profile_id: 'p-or' }), STATE, QUESTIONS);
+        const [, init] = fetch.mock.calls[0];
+        expect(init.signal).toBe(timeLimit.mock.results[0].value);
+        expect(timeLimit).toHaveBeenCalledWith(CALL_TIMEOUT_MS);
+        expect(init.signal[Symbol.for('vectfox.internal-request')]).toEqual({ label: 'VectFox lorebase' });
+        expect(Object.getOwnPropertySymbols(init)).toEqual([]);
+        expect(Object.keys(init)).toEqual(['method', 'headers', 'body', 'signal']);
     });
 });
 

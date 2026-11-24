@@ -181,24 +181,26 @@ export function connectionProfileStoresKey(profile) {
 /**
  * Send one chat request on a profile through SillyTavern, which adds the profile's URL and key itself. It never
  * applies the profile, so SillyTavern's own connection and active key stay as they are. No preset is sent:
- * `includePreset` would add the preset's sampling and flags. The raw reply comes back, so its finish reason and usage
- * survive.
+ * `includePreset` would add the preset's sampling and flags. SillyTavern hands `signal` to its fetch as is, so what the
+ * caller wrote on it goes out with the request (tools/check-profile-request-signal.mjs reads SillyTavern's source to
+ * check that it still does). The raw reply comes back, so its finish reason and usage survive.
  *
  * @param {object} profile
  * @param {Array<{role: string, content: string}>} messages
  * @param {number|undefined} maxTokens - undefined when the payload carries max_completion_tokens instead
- * @param {{timeoutMs: number, overridePayload: object}} request - overridePayload from the request-shape builder
+ * @param {{signal: AbortSignal, overridePayload: object}} request - signal: ends the request; overridePayload: from the
+ *        request-shape builder
  * @returns {Promise<any>} The provider's raw reply
  * @throws {Error} SillyTavern's own errors: a bare one before the request, or 'API request failed' with the cause
  */
-export async function sendConnectionProfileRequest(profile, messages, maxTokens, { timeoutMs, overridePayload }) {
+export async function sendConnectionProfileRequest(profile, messages, maxTokens, { signal, overridePayload }) {
     const payload = connectionProfileStoresKey(profile) ? overridePayload : { ...overridePayload, secret_id: NO_KEY_SECRET_ID };
     return getContext().ConnectionManagerRequestService.sendRequest(profile.id, messages, maxTokens, {
         stream: false,
         extractData: false,
         includePreset: false,
         includeInstruct: true,
-        signal: AbortSignal.timeout(timeoutMs),
+        signal,
     }, payload);
 }
 

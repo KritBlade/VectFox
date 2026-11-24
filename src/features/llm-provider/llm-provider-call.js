@@ -11,9 +11,9 @@
  * a failure (connection-profile-core.js). Both then extract the reply, read why
  * it stopped (completion-finish.js), and classify a reply with no text the same
  * way. Each call that was sent is reported once it ends, with the feature that
- * made it, and a manual request carries VectFox's mark, written before it is
- * sent (llm-call-report.js). Plus the LLM-output JSON-array parser both
- * extraction features use.
+ * made it, and its request, on either path, is sent with a signal that carries
+ * VectFox's mark while the PublicAPI page's switch is on (llm-call-report.js).
+ * Plus the LLM-output JSON-array parser both extraction features use.
  *
  * DESIGN — neutral core, feature policy at the edge.
  * This module throws ONE neutral error type (LlmCallError, carrying a `kind`).
@@ -46,7 +46,7 @@ import { log } from '../../sillytavern/log.js';
 import { completionCutReason, completionFinishReason, describeNoTextAnswer } from './completion-finish.js';
 import { classifyConnectionProfileFailure, connectionProfileProblem, connectionProfileRequestShape, isProviderServerFailure } from './connection-profile-core.js';
 import {
-    LLM_CALL_CONNECTIONS, LLM_CALL_FEATURES, LLM_CALL_OUTCOMES, isLlmCallFeature, markedAsOwnRequest, outcomeOfFailedCall,
+    LLM_CALL_CONNECTIONS, LLM_CALL_FEATURES, LLM_CALL_OUTCOMES, isLlmCallFeature, outcomeOfFailedCall, ownRequestSignal,
     reportLlmCallFinished,
 } from './llm-call-report.js';
 import { readErrorBody } from '../../shared/server-error-text.js';
@@ -238,7 +238,7 @@ export function resolveModelParameterStyle(settings = {}) {
  *
  * @param {object}   opts
  * @param {string}   opts.feature            the feature the call is made for, one of LLM_CALL_FEATURES; the report
- *        of the call, sent once it ends, names it, and so does the mark on a manual request
+ *        of the call, sent once it ends, names it, and so does the mark on its request's signal
  * @param {Array<{role: string, content: string}>} opts.messages
  * @param {string}   opts.model
  * @param {string}   opts.provider           'openrouter' | 'vllm'
@@ -298,9 +298,9 @@ export async function postChatCompletion({
     try {
         const result = provider === CONNECTION_PROFILE_PROVIDER
             ? await _postOnConnectionProfile({
-                messages, maxTokens, temperature, timeoutMs, responseFormat, contextLabel, shouldNotifyProviderFailure,
-                shouldNotifyUpstreamRejection, sendTemperature, tokenLimitParameter, reasoningEffort, connectionProfileId,
-                connectionProfilePage,
+                feature, messages, maxTokens, temperature, timeoutMs, responseFormat, contextLabel,
+                shouldNotifyProviderFailure, shouldNotifyUpstreamRejection, sendTemperature, tokenLimitParameter,
+                reasoningEffort, connectionProfileId, connectionProfilePage,
             }, sending)
             : await _postOnManualConnection({
                 feature, messages, model, provider, vllmUrl, maxTokens, temperature, timeoutMs, responseFormat,
@@ -333,8 +333,8 @@ function _reportSentCall(feature, sending, outcome) {
 }
 
 /**
- * The manual branch of postChatCompletion: OpenRouter, or vLLM and Custom at their URL, through SillyTavern's proxy, the
- * request marked as VectFox's own.
+ * The manual branch of postChatCompletion: OpenRouter, or vLLM and Custom at their URL, through SillyTavern's proxy, on
+ * the signal ownRequestSignal makes.
  */
 async function _postOnManualConnection({
     feature, messages, model, provider, vllmUrl, maxTokens, temperature, timeoutMs, responseFormat, contextLabel,
@@ -373,12 +373,12 @@ async function _postOnManualConnection({
 
     sending.route = { connection: LLM_CALL_CONNECTIONS.manual, profileName: null, provider, model: model || null };
     sending.sentAt = performance.now();
-    const response = await fetch('/api/backends/chat-completions/generate', markedAsOwnRequest({
+    const response = await fetch('/api/backends/chat-completions/generate', {
         method: 'POST',
         headers: getRequestHeaders(),
         body: JSON.stringify(requestBody),
-        signal: AbortSignal.timeout(timeoutMs),
-    }, feature));
+        signal: ownRequestSignal(timeoutMs, feature),
+    });
 
     if (!response.ok) {
         const errText = await readErrorBody(response, response.statusText);
@@ -461,11 +461,12 @@ export function describeChatConnectionProfile(profileId, { feature, page }) {
 
 /**
  * The profile branch of postChatCompletion: SillyTavern sends the request on the profile, with its URL and key, and
- * VectFox sends only its messages and the closed set of override keys. A failure is classified by the rules of
- * connection plan §4; a reply with no text goes through the manual path's own handling.
+ * VectFox sends only its messages, the closed set of override keys and the signal ownRequestSignal makes, which
+ * SillyTavern hands to its fetch as is. A failure is classified by the rules of connection plan §4; a reply with no
+ * text goes through the manual path's own handling.
  */
 async function _postOnConnectionProfile({
-    messages, maxTokens, temperature, timeoutMs, responseFormat, contextLabel, shouldNotifyProviderFailure,
+    feature, messages, maxTokens, temperature, timeoutMs, responseFormat, contextLabel, shouldNotifyProviderFailure,
     shouldNotifyUpstreamRejection, sendTemperature, tokenLimitParameter, reasoningEffort, connectionProfileId,
     connectionProfilePage,
 }, sending) {
@@ -481,7 +482,9 @@ async function _postOnConnectionProfile({
     sending.sentAt = performance.now();
     let data;
     try {
-        data = await sendConnectionProfileRequest(profile, messages, request.maxTokens, { timeoutMs, overridePayload: request.overridePayload });
+        data = await sendConnectionProfileRequest(profile, messages, request.maxTokens, {
+            signal: ownRequestSignal(timeoutMs, feature), overridePayload: request.overridePayload,
+        });
     } catch (error) {
         const failure = classifyConnectionProfileFailure(error, { feature: contextLabel, profileName: profile.name, model, storesKey });
         if (failure.kind === 'rethrow') throw failure.cause;

@@ -26,6 +26,7 @@ export const PANEL_TABS = Object.freeze([
     { name: 'rag', group: 'Retrieval', icon: 'fa-quote-left', title: 'RAG', subtitle: 'How retrieved memory is wrapped in the prompt.' },
     { name: 'agentmode', group: 'Retrieval', icon: 'fa-robot', title: 'AgentMode', subtitle: 'An LLM planner that adds searches beside the normal one.' },
     { name: 'storyarc', group: 'Retrieval', icon: 'fa-timeline', title: 'StoryArc' },
+    { name: 'publicapi', group: 'Development', icon: 'fa-code', title: 'PublicAPI', subtitle: 'For other extensions that read VectFox, such as a usage tracker.' },
 ]);
 
 /** The page the panel opens on. */

@@ -2,8 +2,8 @@
  * The public API's contract (A3 of InternalProject/Vectfox/plans/vectfox-public-api.md): every name another extension
  * reads, pinned in CONTRACT. The test goes red when a member of the `VectFox` object or of one of its groups, an event, a
  * payload field, a capability, a reason, a field of a call's answer, a setting of the snapshot, a field of an EventBase
- * event listEvents gives, a value an LLM call's report names, or the key, fields or label of the mark on the requests
- * VectFox sends itself is renamed, removed or added, when `apiVersion` differs from the contract's, and when the
+ * event listEvents gives, a value an LLM call's report names, or the key, place, fields or label of the mark on
+ * VectFox's own requests is renamed, removed or added, when `apiVersion` differs from the contract's, and when the
  * developer page (Doc/public-api.md) leaves a name out or names an event VectFox does not emit. A change to CONTRACT
  * follows the version rule (§4.4, D3): an added name raises apiVersion's minor version; a removed, renamed or changed one
  * raises its major version.
@@ -47,7 +47,7 @@ const CONTRACT = Object.freeze({
     settings: [
         'enabled', 'ghostingEnabled', 'ghostingKeepRecent', 'ghostingBatchSize', 'summarizerInjectionEnabled',
         'summarizerInjectionCount', 'summarizerInjectionFullDetail', 'summarizerInjectionMaxChars', 'autoSyncWindowTurns',
-        'autoSyncSettleLag',
+        'autoSyncSettleLag', 'requestMarkEnabled',
     ],
     // The fields of each EventBase event listEvents() gives.
     eventFields: [
@@ -69,9 +69,9 @@ const CONTRACT = Object.freeze({
         connection: ['profile', 'manual'],
         outcome: ['ok', 'timed-out', 'failed'],
     },
-    // The mark on each request VectFox sends itself: its Symbol.for key, the fields of its value, and its label, with
-    // the call's feature in place of <feature>.
-    ownRequestMark: { key: 'vectfox.internal-request', fields: ['label'], label: 'VectFox <feature>' },
+    // The mark on VectFox's own requests: its Symbol.for key, where a fetch wrapper reads it, the fields of its value,
+    // and its label, with the call's feature in place of <feature>.
+    ownRequestMark: { key: 'vectfox.internal-request', readFrom: 'init.signal', fields: ['label'], label: 'VectFox <feature>' },
 });
 
 const host = vi.hoisted(() => ({ listeners: {}, chatMetadata: {}, inUse: { chatId: null, collectionId: null }, feed: null, feedError: null }));
@@ -281,17 +281,19 @@ describe('the contract of the events', () => {
     });
 });
 
-describe('the contract of the mark on the requests VectFox sends itself', () => {
-    it('writes exactly the contract\'s mark for each feature: under its key, frozen, not enumerable', async () => {
+describe('the contract of the mark on VectFox\'s own requests', () => {
+    it('writes exactly the contract\'s mark for each feature on the request\'s signal: under its key, frozen, not enumerable', async () => {
         const { core } = await loadPublishedApi();
         for (const feature of CONTRACT.llmCallValues.feature) {
-            const init = { method: 'POST', body: '{}' };
-            core.markOwnRequest(init, feature);
-            const mark = init[Symbol.for(CONTRACT.ownRequestMark.key)];
+            const signal = new AbortController().signal;
+            const init = { method: 'POST', body: '{}', signal };
+            core.markOwnRequest(signal, feature);
+            const key = Symbol.for(CONTRACT.ownRequestMark.key);
+            const mark = init.signal[key];
             expect(sorted(Object.keys(mark)), feature).toEqual(sorted(CONTRACT.ownRequestMark.fields));
             expect(mark.label, feature).toBe(CONTRACT.ownRequestMark.label.replace('<feature>', feature));
             expect(Object.isFrozen(mark), feature).toBe(true);
-            expect(Object.keys(init), feature).toEqual(['method', 'body']);
+            expect(Object.getOwnPropertyDescriptor(signal, key).enumerable, feature).toBe(false);
         }
     });
 });
@@ -317,6 +319,7 @@ describe('the developer page', () => {
             ...CONTRACT.llmCallUsage,
             ...Object.values(CONTRACT.llmCallValues).flat().map(quoted),
             CONTRACT.ownRequestMark.key,
+            CONTRACT.ownRequestMark.readFrom,
             ...CONTRACT.ownRequestMark.fields,
         ];
         expect([...new Set(names)].filter(name => !isNamed(name))).toEqual([]);

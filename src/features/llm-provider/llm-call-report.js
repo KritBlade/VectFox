@@ -1,10 +1,12 @@
 /**
  * How a usage tracker tells VectFox's own LLM calls from the story reply. Each call that ended is reported: the feature
  * that made it, the connection it went over, how long it took, how it ended and the tokens its reply reported. Each
- * request VectFox sends itself, on the manual route, is marked before it is sent; a profile's request is sent by
- * SillyTavern and carries no mark. src/index.js sets both from the public API at start-up: the listener, which sends
- * each report on as `vectfox_llm_call_finished`, and the marker, which writes VectFox's mark. Only a call that was sent
- * is reported: one a check stopped before it left VectFox cost nothing.
+ * call's request is sent with a signal the marker sees before it is sent: VectFox's own fetch takes it on a manual
+ * connection and for Jev, and SillyTavern's on a profile, which hands the signal it is given to fetch as is
+ * (tools/check-profile-request-signal.mjs reads SillyTavern's source to check that it still does). src/index.js sets
+ * both from the public API at start-up: the listener, which sends each report on as `vectfox_llm_call_finished`, and the
+ * marker, which writes VectFox's mark while the PublicAPI page's switch is on. Only a call that was sent is reported:
+ * one a check stopped before it left VectFox cost nothing.
  */
 import { log } from '../../sillytavern/log.js';
 
@@ -45,7 +47,7 @@ export const LLM_CALL_OUTCOMES = Object.freeze({
 /** @type {((call: LlmCallFinished) => void)|null} */
 let llmCallFinishedListener = null;
 
-/** @type {((init: object, feature: string) => void)|null} */
+/** @type {((signal: AbortSignal, feature: string) => void)|null} */
 let ownRequestMarker = null;
 
 /**
@@ -57,28 +59,31 @@ export function setLlmCallFinishedListener(listener) {
 }
 
 /**
- * Sets what marks each request VectFox sends itself.
- * @param {(init: object, feature: string) => void} marker - Writes the mark on a fetch's init, for the call's feature
+ * Sets what marks the signal of each request a call sends.
+ * @param {(signal: AbortSignal, feature: string) => void} marker - Writes the mark on a request's signal, for the
+ *        call's feature
  */
 export function setOwnRequestMarker(marker) {
     ownRequestMarker = marker;
 }
 
 /**
- * A request VectFox sends itself, marked by the marker set at start-up for the feature the call is made for. A marker
- * that throws is logged, and the request goes unmarked rather than unsent.
- * @param {object} init - The fetch's init
+ * The signal a call's request is sent with: it ends the request once `timeoutMs` pass, and is handed to the marker set
+ * at start-up, which writes the mark for the feature the call is made for while the PublicAPI page's switch is on. A
+ * marker that throws is logged, and the request goes unmarked rather than unsent.
+ * @param {number} timeoutMs - The request's time limit
  * @param {string} feature - One of LLM_CALL_FEATURES
- * @returns {object} The same init
+ * @returns {AbortSignal}
  */
-export function markedAsOwnRequest(init, feature) {
-    if (!ownRequestMarker) return init;
+export function ownRequestSignal(timeoutMs, feature) {
+    const signal = AbortSignal.timeout(timeoutMs);
+    if (!ownRequestMarker) return signal;
     try {
-        ownRequestMarker(init, feature);
+        ownRequestMarker(signal, feature);
     } catch (error) {
         log.warn('VectFox: marking one of its own requests failed, so it is sent unmarked:', error);
     }
-    return init;
+    return signal;
 }
 
 /**

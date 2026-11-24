@@ -1,9 +1,10 @@
 /**
  * The `VectFox` object (A1 of InternalProject/Vectfox/plans/vectfox-public-api.md, §4.1): there as soon as
  * src/index.js is evaluated, frozen, ready once initialization ends, and `vectfox_ready` emitted once, without
- * waiting for its listeners; its events (A2, §4.3); its chat group and settings snapshot (R1, §5.2); and its eventBase
- * group, the feed of a collection's events and removals (R2, §5.3), which answer `not-ready` until then. The emitter
- * here behaves as SillyTavern's does: it awaits each listener in turn. EventBase's feed is a stand-in.
+ * waiting for its listeners; its events (A2, §4.3); its chat group and settings snapshot (R1, §5.2); its eventBase
+ * group, the feed of a collection's events and removals (R2, §5.3), which answer `not-ready` until then; and the marker
+ * that marks the LLM calls' requests while the PublicAPI page's switch is on (U1). The emitter here behaves as
+ * SillyTavern's does: it awaits each listener in turn. EventBase's feed is a stand-in.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -338,6 +339,39 @@ describe('vectfox_llm_call_finished', () => {
     });
 });
 
+describe('the mark on VectFox\'s own requests, by the PublicAPI page\'s switch', () => {
+    const OWN_REQUEST_MARK = Symbol.for('vectfox.internal-request');
+    const markedBy = (marker, feature) => {
+        const signal = new AbortController().signal;
+        marker(signal, feature);
+        return Object.hasOwn(signal, OWN_REQUEST_MARK) ? signal[OWN_REQUEST_MARK] : null;
+    };
+
+    it('marks a signal only while the switch is on, read at each call, and none before VectFox is ready', async () => {
+        const { announcePublicApiReady, markOwnRequestWhenSwitchedOn, publishPublicApi } = await loadPublicApi();
+        publishPublicApi();
+        const store = { ...settingsStore(), own_request_mark_enabled: true };
+        expect(markedBy(markOwnRequestWhenSwitchedOn, 'eventbase')).toBeNull();
+
+        await announcePublicApiReady(store);
+        expect(markedBy(markOwnRequestWhenSwitchedOn, 'storyarc')).toEqual({ label: 'VectFox storyarc' });
+        store.own_request_mark_enabled = false;
+        expect(markedBy(markOwnRequestWhenSwitchedOn, 'storyarc')).toBeNull();
+        store.own_request_mark_enabled = true;
+        expect(markedBy(markOwnRequestWhenSwitchedOn, 'agent')).toEqual({ label: 'VectFox agent' });
+    });
+
+    it('leaves the signal unmarked for a store that never saved the switch, or holds anything but true', async () => {
+        const { announcePublicApiReady, markOwnRequestWhenSwitchedOn, publishPublicApi } = await loadPublicApi();
+        publishPublicApi();
+        const store = settingsStore();
+        await announcePublicApiReady(store);
+        expect(markedBy(markOwnRequestWhenSwitchedOn, 'lorebase')).toBeNull();
+        store.own_request_mark_enabled = 'true';
+        expect(markedBy(markOwnRequestWhenSwitchedOn, 'lorebase')).toBeNull();
+    });
+});
+
 /** VectFox's settings store as start-up leaves it, with keys beside the listed settings, as a real store holds them. */
 function settingsStore() {
     return {
@@ -426,7 +460,7 @@ describe('the chat group and the settings snapshot (R1, §5.2)', () => {
             settings: {
                 enabled: true, ghostingEnabled: true, ghostingKeepRecent: 4, ghostingBatchSize: 6, summarizerInjectionEnabled: true,
                 summarizerInjectionCount: 15, summarizerInjectionFullDetail: false, summarizerInjectionMaxChars: 10000,
-                autoSyncWindowTurns: 1, autoSyncSettleLag: true,
+                autoSyncWindowTurns: 1, autoSyncSettleLag: true, requestMarkEnabled: false,
             },
         });
         expect(after.settings).toMatchObject({ ghostingBatchSize: 10, summarizerInjectionMaxChars: null });
@@ -448,6 +482,29 @@ describe('the chat group and the settings snapshot (R1, §5.2)', () => {
         const off = api.getSettingsSnapshot().settings.enabled;
 
         expect([unset, off]).toEqual([true, false]);
+    });
+
+    it('getSettingsSnapshot reads the mark\'s switch as the marker does, on only when set to true, and a write to it changes nothing', async () => {
+        const { publishPublicApi, announcePublicApiReady, markOwnRequestWhenSwitchedOn } = await loadPublicApi();
+        publishPublicApi();
+        const store = settingsStore();
+        await announcePublicApiReady(store);
+        const api = globalThis.VectFox;
+
+        const readings = [];
+        for (const value of [undefined, false, 'true', 1, true]) {
+            if (value === undefined) delete store.own_request_mark_enabled;
+            else store.own_request_mark_enabled = value;
+            const signal = new AbortController().signal;
+            markOwnRequestWhenSwitchedOn(signal, 'eventbase');
+            readings.push([api.getSettingsSnapshot().settings.requestMarkEnabled, Object.hasOwn(signal, Symbol.for('vectfox.internal-request'))]);
+        }
+        expect(readings).toEqual([[false, false], [false, false], [false, false], [false, false], [true, true]]);
+
+        const { settings } = api.getSettingsSnapshot();
+        expect(() => { settings.requestMarkEnabled = false; }).toThrow(TypeError);
+        expect(store.own_request_mark_enabled).toBe(true);
+        expect(api.getSettingsSnapshot().settings.requestMarkEnabled).toBe(true);
     });
 
     it('the snapshot holds no key or key ID, and only plain values', async () => {

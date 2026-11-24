@@ -2,9 +2,9 @@
  * SillyTavern's connection profiles, as src/sillytavern/connection-profiles.js reads and uses them (connection plan §2,
  * §6): the Connection Manager switched off is reported, a profile with an API SillyTavern does not know answers
  * "not supported" instead of throwing, a Profile dropdown gets each profile's ID, name and what it can carry and
- * nothing of its key or URL, and hears when the list changes, a request sends no preset and keeps the raw reply, a
- * profile with no stored key sends the ID that matches no key, so SillyTavern sends none rather than its active key,
- * and the reply is read the way SillyTavern reads the profile's API.
+ * nothing of its key or URL, and hears when the list changes, a request sends no preset, hands SillyTavern the caller's
+ * signal as is and keeps the raw reply, a profile with no stored key sends the ID that matches no key, so SillyTavern
+ * sends none rather than its active key, and the reply is read the way SillyTavern reads the profile's API.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -105,20 +105,21 @@ describe('the Connection Manager and its profiles', () => {
 });
 
 describe('a request on a profile', () => {
-    it('sends the messages with no preset and keeps the raw reply, never applying the profile', async () => {
+    it('sends the messages with no preset and keeps the raw reply, never applying the profile, the caller\'s signal handed on as is', async () => {
         const messages = [{ role: 'user', content: 'Read this window.' }];
-        await sendConnectionProfileRequest(CHAT_PROFILE, messages, 900, { timeoutMs: 5000, overridePayload: { temperature: 0.2 } });
+        const signal = AbortSignal.timeout(5000);
+        await sendConnectionProfileRequest(CHAT_PROFILE, messages, 900, { signal, overridePayload: { temperature: 0.2 } });
         const [profileId, sent, maxTokens, custom, overridePayload] = host.context.ConnectionManagerRequestService.sendRequest.mock.calls[0];
         expect([profileId, sent, maxTokens]).toEqual(['profile-chat', messages, 900]);
         expect(custom).toMatchObject({ stream: false, extractData: false, includePreset: false, includeInstruct: true });
-        expect(custom.signal).toBeInstanceOf(AbortSignal);
+        expect(custom.signal).toBe(signal);
         expect(overridePayload).toEqual({ temperature: 0.2 });
     });
 
     it('sends the ID that matches no key when the profile stores none, so SillyTavern sends no key at all', async () => {
         expect(connectionProfileStoresKey(CHAT_PROFILE)).toBe(true);
         expect(connectionProfileStoresKey(TEXT_PROFILE)).toBe(false);
-        await sendConnectionProfileRequest(TEXT_PROFILE, [], 900, { timeoutMs: 5000, overridePayload: { temperature: 0.2 } });
+        await sendConnectionProfileRequest(TEXT_PROFILE, [], 900, { signal: AbortSignal.timeout(5000), overridePayload: { temperature: 0.2 } });
         const overridePayload = host.context.ConnectionManagerRequestService.sendRequest.mock.calls[0][4];
         expect(Object.keys(overridePayload).sort()).toEqual(['secret_id', 'temperature']);
         expect(overridePayload.secret_id).toMatch(/\S/);

@@ -2,13 +2,14 @@
  * postChatCompletion on a SillyTavern connection profile (src/features/llm-provider/llm-provider-call.js, connection
  * plan §2 and §4): the profile is checked before any request, SillyTavern sends the request with the profile's URL and
  * key and VectFox's closed set of override keys, each reply shape §2 names is read, a reply with no text goes through
- * the manual path's own handling, and a failed request becomes the kind its callers act on.
+ * the manual path's own handling, a failed request becomes the kind its callers act on, and the signal SillyTavern is
+ * handed carries VectFox's mark and ends the request at its time limit.
  *
  * SillyTavern's reply reader is copied below from 1.19.0 (public/script.js extractMessageFromData, the two APIs a
  * profile request uses), so the shapes are read as SillyTavern reads them.
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../../../../script.js', () => ({ getRequestHeaders: () => ({}) }));
 vi.mock('../src/sillytavern/log.js', () => ({ log: new Proxy({}, { get: () => () => {} }) }));
@@ -21,7 +22,8 @@ vi.mock('../src/shared/model-config-notifier.js', async () => ({
 }));
 
 const { LlmCallError, postChatCompletion } = await import('../src/features/llm-provider/llm-provider-call.js');
-const { setLlmCallFinishedListener } = await import('../src/features/llm-provider/llm-call-report.js');
+const { setLlmCallFinishedListener, setOwnRequestMarker } = await import('../src/features/llm-provider/llm-call-report.js');
+const { markOwnRequest } = await import('../src/features/public-api/public-api-core.js');
 
 function extractMessageFromData(data, activeApi) {
     const result = (() => {
@@ -220,6 +222,31 @@ describe('a profile call that cannot run', () => {
     it('rethrows a timeout as the manual path does', async () => {
         host.failure = failed('signal timed out', 'TimeoutError');
         await expect(call(PROFILES.custom)).rejects.toMatchObject({ name: 'TimeoutError' });
+    });
+});
+
+describe('the signal of a request on a profile', () => {
+    const OWN_REQUEST_MARK = Symbol.for('vectfox.internal-request');
+    afterEach(() => setOwnRequestMarker(null));
+
+    it("carries the public API's mark for the call's feature, the override keys as they were", async () => {
+        setOwnRequestMarker(markOwnRequest);
+        await call(PROFILES.custom, { feature: 'lorebase' });
+        const [, , , custom, overridePayload] = sentRequest();
+        expect(custom.signal).toBeInstanceOf(AbortSignal);
+        expect(custom.signal[OWN_REQUEST_MARK]).toEqual({ label: 'VectFox lorebase' });
+        expect(Object.isFrozen(custom.signal[OWN_REQUEST_MARK])).toBe(true);
+        expect(overridePayload).toEqual({
+            temperature: 0.2, max_completion_tokens: 900, reasoning_effort: 'none', custom_include_body: '{"reasoning_effort":"none"}', response_format: { type: 'json_object' },
+        });
+    });
+
+    it('ends the request when its time limit passes, as a timeout', async () => {
+        // SillyTavern hands the signal to fetch, which rejects with the signal's reason; sendRequest wraps that error.
+        host.context.ConnectionManagerRequestService.sendRequest = vi.fn((profileId, prompt, maxTokens, custom) => new Promise((resolve, reject) => {
+            custom.signal.addEventListener('abort', () => reject(new Error('API request failed', { cause: custom.signal.reason })));
+        }));
+        await expect(call(PROFILES.custom, { timeoutMs: 30 })).rejects.toMatchObject({ name: 'TimeoutError' });
     });
 });
 

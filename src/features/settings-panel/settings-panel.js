@@ -36,6 +36,7 @@ import { bindCollectionInUse } from './autosync-collection-in-use.js';
 import { autoSyncCollectionMarkup, autoSyncPageMarkup, autoSyncStatusMarkup } from './autosync-page-markup.js';
 import { corePageMarkup } from './core-page-markup.js';
 import { chatHistoryPageMarkup } from './chathistory-page-markup.js';
+import { publicApiPageMarkup } from './publicapi-page-markup.js';
 import { ragPageMarkup } from './rag-page-markup.js';
 import { bindLoreBaseBooksCard, refreshLoreBaseBooks } from './lorebase-books-card.js';
 import { bindLoreBaseModelCard, refreshLoreBaseModelCard } from './lorebase-model-card.js';
@@ -84,6 +85,7 @@ function panelMarkup() {
         panelPageMarkup('chathistory', chatHistoryPageMarkup()),
         storyArcPageMarkup({ notice: vectfoxOffNoticeMarkup() }),
         panelPageMarkup('agentmode', agentModePageMarkup()),
+        panelPageMarkup('publicapi', publicApiPageMarkup()),
     ];
     return `<div id="VectFox_settings" class="vfx-ui vfx-shell">${panelNavMarkup()}<main class="vfx-main">${pages.join('')}</main></div>`;
 }
@@ -791,6 +793,16 @@ function bindSettingsEvents(settings, callbacks) {
             refreshStoryLinkStatus(settings);
         }
     });
+
+    // ─── PublicAPI page ────────────────────────────────────────────────────
+    // The public API marks the signal of each LLM call's request while this is on (public-api.js).
+    $('#VectFox_own_request_mark_enabled')
+        .prop('checked', settings.own_request_mark_enabled === true)
+        .on('change', function() {
+            settings.own_request_mark_enabled = $(this).prop('checked');
+            Object.assign(extension_settings.vectfox, settings);
+            saveSettingsDebounced();
+        });
 
     $('#VectFox_agentic_model')
         .val(settings.agent_model || '')
