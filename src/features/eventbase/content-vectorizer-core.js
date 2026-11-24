@@ -3,8 +3,8 @@
  * VECTORIZE CONTENT: RULES
  * ============================================================================
  * What content-vectorizer.js wires and content-vectorizer-markup.js draws, kept
- * free of the page: the message a run starts from, how a run ends, Sync chat's
- * up-to-date answer, and how an uploaded chat file becomes messages.
+ * free of the page: the messages a run starts from and ends at, how a run ends,
+ * Sync chat's up-to-date answer, and how an uploaded chat file becomes messages.
  * ============================================================================
  */
 
@@ -15,6 +15,22 @@ export const CHAT_FILE_FORMATS = Object.freeze(['.txt', '.jsonl', '.json']);
 export function startFromMessageOf(text) {
     const message = parseInt(text, 10);
     return Number.isFinite(message) && message >= 1 ? message : 1;
+}
+
+/** The message a chat run ends at: a whole number from 1, and null, the chat's end, for anything else. */
+export function endAtMessageOf(text) {
+    const message = parseInt(text, 10);
+    return Number.isFinite(message) && message >= 1 ? message : null;
+}
+
+/**
+ * The messages a run reads, as a question names them: from its first, and to its last when it has one.
+ *
+ * @param {{startFromMessage: number, endAtMessage: number|null}} run
+ * @returns {string}
+ */
+export function stretchWords({ startFromMessage, endAtMessage }) {
+    return `from message ${startFromMessage}${endAtMessage == null ? '' : ` to message ${endAtMessage}`}`;
 }
 
 /**

@@ -195,7 +195,7 @@ const WHOLE_COLLECTION_LIMIT = 50000;
  * @returns {Promise<object[]>}
  * @throws when the backend cannot list the collection
  */
-async function _readStoredEvents(collectionId, settings) {
+export async function readStoredEvents(collectionId, settings) {
     const { getBackend } = await import('../vector-backend/index.js');
     const backendInstance = await getBackend(settings);
     const result = await backendInstance.listChunks(collectionId, settings, { limit: WHOLE_COLLECTION_LIMIT });
@@ -211,7 +211,7 @@ async function _readStoredEvents(collectionId, settings) {
  * @returns {Promise<{ end: number, createdAt: number|undefined }[]>}
  */
 async function _readEventPositions(collectionId, settings) {
-    return (await _readStoredEvents(collectionId, settings))
+    return (await readStoredEvents(collectionId, settings))
         .filter(event => typeof event.source_window_end === 'number')
         .map(event => ({ end: event.source_window_end, createdAt: event.created_at }));
 }
@@ -445,11 +445,14 @@ export async function insertEvents(events, settings, abortSignal, collectionId) 
  * until it is extracted again, and a link left on a removed event is one no walk can follow.
  *
  * @param {{collectionId: string, settings: object, tipAtRunStart: number|null|undefined}} run
- * @returns {{replaceEarlierEvents: (newEvents: object[]) => Promise<void>, moveLinksOffReplacedEvents: () => Promise<void>}}
+ * @returns {{replaceEarlierEvents: (newEvents: object[], windowsReadEmpty?: object[]) => Promise<void>,
+ *   moveLinksOffReplacedEvents: () => Promise<string[]>}}
  */
 export function createWindowReplacement({ collectionId, settings, tipAtRunStart }) {
     const runEvents = [];
+    const runWindowsReadEmpty = [];
     let uncheckedEvents = [];
+    let uncheckedWindowsReadEmpty = [];
     let storedEventsRead = null;
     const replacementById = new Map();
 
@@ -457,24 +460,30 @@ export function createWindowReplacement({ collectionId, settings, tipAtRunStart 
         /**
          * After a batch is stored: removes the earlier events of the windows these new events
          * belong to. A window whose new extraction found no events is not among them, so it keeps
-         * its earlier events.
+         * its earlier events, unless the run reads a stretch again and names it in windowsReadEmpty.
          *
          * @param {object[]} newEvents - The batch's stored events
+         * @param {object[]} [windowsReadEmpty] - The batch's windows read again with no event found, as
+         *   findReplacedEvents takes them
          */
-        async replaceEarlierEvents(newEvents) {
+        async replaceEarlierEvents(newEvents, windowsReadEmpty = []) {
             runEvents.push(...newEvents);
+            runWindowsReadEmpty.push(...windowsReadEmpty);
             uncheckedEvents.push(...newEvents);
-            if (!storedEventsRead && !mayHoldEarlierEvents(runEvents, tipAtRunStart)) return;
-            storedEventsRead ??= _readStoredEvents(collectionId, settings).catch((err) => {
+            uncheckedWindowsReadEmpty.push(...windowsReadEmpty);
+            if (!storedEventsRead && !mayHoldEarlierEvents([...runEvents, ...runWindowsReadEmpty], tipAtRunStart)) return;
+            storedEventsRead ??= readStoredEvents(collectionId, settings).catch((err) => {
                 log.warn(`[EventBase] Could not read ${collectionId} for the events of earlier extractions, so windows extracted again keep both versions:`, err);
                 return null;
             });
             const storedEvents = await storedEventsRead;
             const eventsToCheck = uncheckedEvents;
+            const emptyWindowsToCheck = uncheckedWindowsReadEmpty;
             uncheckedEvents = [];
+            uncheckedWindowsReadEmpty = [];
             if (!storedEvents) return;
 
-            const replacedEvents = findReplacedEvents(storedEvents, eventsToCheck, new Set(runEvents.map(event => event.event_id)));
+            const replacedEvents = findReplacedEvents(storedEvents, eventsToCheck, new Set(runEvents.map(event => event.event_id)), emptyWindowsToCheck);
             if (!replacedEvents.length) return;
             try {
                 await deleteVectorItems(collectionId, replacedEvents.map(event => event._hash), settings);
@@ -488,16 +497,20 @@ export function createWindowReplacement({ collectionId, settings, tipAtRunStart 
 
         /**
          * At the end of the run: points the StoryArc links that went to replaced events at the
-         * events that replaced them. Reads the collection again, since links change while a run goes on.
+         * events that replaced them, and drops those to replaced events with no replacement. Reads
+         * the collection again, since links change while a run goes on.
+         *
+         * @returns {Promise<string[]>} event_id of each event that held a link to a replaced event,
+         *   whether or not its links were stored; none when the collection could not be read
          */
         async moveLinksOffReplacedEvents() {
-            if (!replacementById.size) return;
+            if (!replacementById.size) return [];
             let writes;
             try {
-                writes = linksMovedToReplacements(await _readStoredEvents(collectionId, settings), replacementById);
+                writes = linksMovedToReplacements(await readStoredEvents(collectionId, settings), replacementById);
             } catch (err) {
                 log.warn(`[EventBase] Could not read ${collectionId} to move links off replaced events, so walks skip those links:`, err);
-                return;
+                return [];
             }
             let movedCount = 0;
             for (const { event, links } of writes) {
@@ -509,6 +522,7 @@ export function createWindowReplacement({ collectionId, settings, tipAtRunStart 
                 }
             }
             if (writes.length) log.lifecycle(`[EventBase] Moved links off replaced events on ${movedCount} of ${writes.length} event(s)`);
+            return writes.map(({ event }) => event.event_id);
         },
     };
 }

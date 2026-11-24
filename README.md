@@ -407,6 +407,14 @@ Use **1** if you're on a strict rate-limited free tier or a single local GPU. Cr
 
 **Regenerate links** on the **StoryArc** page has the same kind of slider, **Events at once**: how many events its link model decides at the same time, from 1 to 8. It starts at 3 each time the page opens.
 
+### 🔁 Read part of a chat again
+
+Two people writing the same story on two branches, or a stretch read with a bad model or a status panel taken for story: you can read just that part again. In Vectorize Content, set **Start from message** and **End at message**, switch on **Read windows already read again**, and press **Vectorize**. Each end snaps to the whole window that holds it.
+
+Before anything runs, a red confirm shows the messages it reads, the windows (one EventBase call each), the events those windows hold now, and both models. It shows a price only where VectFox can read the model's price (a model on OpenRouter, picked by hand); on a connection profile it shows no price, since you may run any model there.
+
+Each window's events are replaced by what the new read finds, and a window that now finds nothing loses its old events. A window whose read fails keeps its events. With StoryArc on, its links follow on the same progress panel: the new events get linked, and every event whose links pointed into that stretch is decided again. Stop keeps what's done, and the StoryArc tab's button picks up any event left.
+
 ### 🧹 Multilingual keyword quality
 
 Better single-character filtering for CJK, mode-specific exceptions for high-signal 1-character RPG/Slice of Life/school terms.

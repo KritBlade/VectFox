@@ -156,8 +156,8 @@ export function linkPassChoices({ undecidedCount, decidedCount, totalCount }) {
     ];
 }
 
-/** A token count as a link estimate shows it: from 950 in thousands, as "27k", and below that to the hundred, as "300". */
-const tokenCountText = count => (count >= 950 ? `${Math.round(count / 1000)}k` : String(Math.round(count / 100) * 100));
+/** A token count as an estimate shows it: from 950 in thousands, as "27k", and below that to the hundred, as "300". */
+export const tokenCountText = count => (count >= 950 ? `${Math.round(count / 1000)}k` : String(Math.round(count / 100) * 100));
 
 /**
  * One line of what a link pass would likely cost, for Regenerate links' dialog.

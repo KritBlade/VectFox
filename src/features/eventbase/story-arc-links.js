@@ -3,9 +3,11 @@
  * STORY ARC LINKS
  * ============================================================================
  * Writes the links between story events. A pass from the StoryArc tab links a
- * chat's stored events, and each new event gets its links after it joins. One
- * decision needs only stored vectors and text, not other links, so decisions run
- * in parallel. Each is stored as it finishes, so a stopped pass keeps its work.
+ * chat's stored events, and each new event gets its links after it joins; after
+ * a stretch of the chat is read again, its new events are linked in the open and
+ * the events whose links went into it are decided again. One decision needs only
+ * stored vectors and text, not other links, so decisions run in parallel. Each is
+ * stored as it finishes, so a stopped pass keeps its work.
  * A collection's links can also be saved to a file, put back, deleted, or moved off the events
  * Compact collection removes, with no LLM call.
  *
@@ -18,6 +20,7 @@ import { exportFileHeader } from '../../shared/export-file-header.js';
 import { updateChunkMetadata } from '../vector-backend/index.js';
 import { searchEventCollection } from './eventbase-search.js';
 import { isInvalidModelConfigError, notifyInvalidModel } from '../../shared/model-config-notifier.js';
+import { readOpenRouterModelPrice } from '../llm-provider/index.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
 import { log } from '../../sillytavern/log.js';
 import { callLlmForJson, resolveStoryLinkLlmConfig } from './agentic-retrieval.js';
@@ -155,22 +158,43 @@ async function _linkEvents({ events, parallelCalls, findCandidates, collectionId
     return tally;
 }
 
-/** An LLM price, per token, from OpenRouter's public model list. Null when unknown; the caller then shows tokens only. */
-async function _readLinkModelPrice(settings) {
+/**
+ * The link model's price per token, read only on manual OpenRouter (readOpenRouterModelPrice). Null otherwise; the
+ * caller then shows tokens only.
+ *
+ * @param {object} settings
+ * @returns {Promise<{input: number, output: number}|null>}
+ */
+export async function readLinkModelPrice(settings) {
     if ((settings.story_arc_link_provider || 'openrouter') !== 'openrouter') return null;
-    try {
-        const response = await fetch('https://openrouter.ai/api/v1/models', { method: 'GET' });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const { data } = await response.json();
-        const pricing = (data ?? []).find(model => model.id === settings.story_arc_link_model)?.pricing;
-        // A link prompt is billed at the cache-write price where a model has one, as a whole pass on GPT-6 Luna showed.
-        const input = Number(pricing?.input_cache_write ?? pricing?.prompt);
-        const output = Number(pricing?.completion);
-        return Number.isFinite(input) && Number.isFinite(output) ? { input, output } : null;
-    } catch (err) {
-        log.warn('[VectFox-StoryArc] Could not read the link model\'s price:', err);
-        return null;
-    }
+    return readOpenRouterModelPrice(settings.story_arc_link_model);
+}
+
+/** A collection's stored events with their stored vectors, in timeline order, for decisions made from those vectors. */
+async function _readEventsWithVectors(collectionId, settings) {
+    const chunks = await fetchPortableChunks(collectionId, settings);
+    return inTimelineOrder(chunks
+        .filter(chunk => chunk.metadata?.eventbase === true)
+        .map(chunk => ({
+            ...chunk.metadata,
+            text: chunk.text,
+            _hash: Number(chunk.hash),
+            vector: Array.isArray(chunk.vector) ? Float32Array.from(chunk.vector) : null,
+        })));
+}
+
+/**
+ * What an event chooses links from: the earlier events nearest it by stored vector, and the latest before it.
+ *
+ * @param {object} event - With its stored vector
+ * @param {object[]} orderedEvents - The collection's events, in timeline order
+ * @returns {object[]}
+ * @throws When the event's vector could not be read, as it would choose from recent events alone and count as decided
+ */
+function _candidatesFromStoredVectors(event, orderedEvents) {
+    if (!event.vector) throw new Error('Its stored vector could not be read.');
+    const earlierEvents = earlierEventsOf(event, orderedEvents);
+    return mergeLinkCandidates(nearestByVector(event.vector, earlierEvents, LINK_NEAREST_COUNT), earlierEvents);
 }
 
 /**
@@ -210,7 +234,7 @@ export async function describeStoryLinkPass(settings, parallelCalls = LINK_PARAL
     const llmConnection = resolveStoryLinkLlmConfig(settings);
     if (!llmConnection.ok) return { problem: llmConnection.problem ?? `Set the link model and its provider's key or URL first (${llmConnection.reason}).` };
     const coverage = measureStoryLinkCoverage(events);
-    const price = await _readLinkModelPrice(settings);
+    const price = await readLinkModelPrice(settings);
     return {
         collectionId,
         collectionName: name,
@@ -251,15 +275,7 @@ export async function runStoryLinkPass({ collectionId, settings, shouldRelinkDec
     progressTracker.setCancelHandler(() => { isStopRequested = true; });
     progressTracker.updateProgress(0, 'Reading stored events and their vectors...');
     try {
-        const chunks = await fetchPortableChunks(collectionId, settings);
-        const events = inTimelineOrder(chunks
-            .filter(chunk => chunk.metadata?.eventbase === true)
-            .map(chunk => ({
-                ...chunk.metadata,
-                text: chunk.text,
-                _hash: Number(chunk.hash),
-                vector: Array.isArray(chunk.vector) ? Float32Array.from(chunk.vector) : null,
-            })));
+        const events = await _readEventsWithVectors(collectionId, settings);
         const toLink = shouldRelinkDecided ? events : events.filter(event => !Array.isArray(event.story_links));
 
         progressTracker.show('Linking story events', toLink.length, 'Events', { unitLabel: 'Events' });
@@ -268,12 +284,7 @@ export async function runStoryLinkPass({ collectionId, settings, shouldRelinkDec
         const { finishedCount, linkedCount, failedCount, droppedLinkCount, stopReason } = await _linkEvents({
             events: toLink,
             parallelCalls,
-            findCandidates: (event) => {
-                // Without its vector an event would choose from recent events alone, and count as decided.
-                if (!event.vector) throw new Error('Its stored vector could not be read.');
-                const earlierEvents = earlierEventsOf(event, events);
-                return mergeLinkCandidates(nearestByVector(event.vector, earlierEvents, LINK_NEAREST_COUNT), earlierEvents);
-            },
+            findCandidates: event => _candidatesFromStoredVectors(event, events),
             collectionId,
             llmConnection,
             settings,
@@ -367,6 +378,64 @@ export async function linkNewStoryEvents({ collectionId, newEventIds, settings }
     } catch (err) {
         log.warn('[VectFox-StoryArc] Linking new events failed:', err);
     }
+}
+
+/**
+ * After a stretch of the chat is read again (eventbase-read-range-again.md): link every new event it stored, with no
+ * limit, then decide again each event that held a link to an event the run replaced, the new events among its
+ * candidates (its D3). Each step has the progress panel to itself, under the title the caller gives it, with its own
+ * count, and the caller gives the verdict. Decisions run in parallel, each stored as it finishes, so a stop keeps the
+ * work done, and an event that failed or was not reached stays undecided for the StoryArc tab's button. A step that
+ * stopped for an invalid model or a run of failures leaves the next one undone.
+ *
+ * @param {object} params
+ * @param {string} params.collectionId
+ * @param {string[]} params.newEventIds - event_id of each event the run stored
+ * @param {string[]} params.eventIdsWithMovedLinks - event_id of each event that held a link to a replaced event
+ * @param {object} params.settings
+ * @param {() => boolean} params.shouldStop - Checked before each event
+ * @param {{newEvents: string, movedLinks: string}} params.stepTitles - The progress panel's title for each step
+ * @returns {Promise<{newEvents: object, movedLinks: object}>} each step's tally: total, finishedCount, linkedCount,
+ *   failedCount, droppedLinkCount and stopReason
+ * @throws When the link model is not ready, or the collection's events cannot be read
+ */
+export async function linkEventsReadAgain({ collectionId, newEventIds, eventIdsWithMovedLinks, settings, shouldStop, stepTitles }) {
+    const llmConnection = resolveStoryLinkLlmConfig(settings);
+    if (!llmConnection.ok) throw new Error(llmConnection.problem ?? `StoryArc link model is not ready: ${llmConnection.reason}`);
+    const events = await _readEventsWithVectors(collectionId, settings);
+    const newIds = new Set(newEventIds);
+    const movedIds = new Set(eventIdsWithMovedLinks);
+    const steps = [
+        { key: 'newEvents', toLink: events.filter(event => newIds.has(event.event_id)) },
+        { key: 'movedLinks', toLink: events.filter(event => movedIds.has(event.event_id) && !newIds.has(event.event_id)) },
+    ];
+    const tallies = {};
+    let earlierStopReason = '';
+    for (const { key, toLink } of steps) {
+        if (shouldStop() || earlierStopReason) {
+            tallies[key] = { total: toLink.length, finishedCount: 0, linkedCount: 0, failedCount: 0, droppedLinkCount: 0, stopReason: '' };
+            continue;
+        }
+        progressTracker.show(stepTitles[key], toLink.length, 'Events', { unitLabel: 'Events' });
+        const tally = await _linkEvents({
+            events: toLink,
+            parallelCalls: NEW_EVENT_PARALLEL_CALLS,
+            findCandidates: event => _candidatesFromStoredVectors(event, events),
+            collectionId,
+            llmConnection,
+            settings,
+            shouldStop,
+            onEventFailed: (event, err) => progressTracker.addError(`Message ${event.source_window_start}: ${err?.message || err}`),
+            onEventFinished: (stepTally) => {
+                progressTracker.updateEmbeddingProgress(stepTally.finishedCount, toLink.length);
+                progressTracker.updateProgress(stepTally.finishedCount, `${stepTally.linkedCount} events linked, ${stepTally.failedCount} failed`);
+            },
+        });
+        tallies[key] = { total: toLink.length, ...tally };
+        earlierStopReason = tally.stopReason;
+        log.lifecycle(`[VectFox-StoryArc] ${stepTitles[key]} on ${collectionId}: ${tally.finishedCount - tally.failedCount} of ${toLink.length} decided, ${tally.failedCount} failed${tally.stopReason ? `. Stopped: ${tally.stopReason}` : ''}`);
+    }
+    return tallies;
 }
 
 /**

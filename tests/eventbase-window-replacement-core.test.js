@@ -1,5 +1,6 @@
 /**
- * Which stored events a window extracted again replaces, and where their StoryArc links go.
+ * Which stored events a window extracted again replaces, and where their StoryArc links go; a window a stretch read
+ * again reads with no event found replaces its events with none, and the links to them are dropped.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -101,6 +102,12 @@ describe('findReplacedEvents', () => {
     it('matches message hashes stored as text against numbers', () => {
         expect(findWith([eventOf('text-hashes', 4, { hashes: ['40', '41'] })])).toEqual(['text-hashes']);
     });
+
+    it('replaces the earlier events of a window a stretch read again read with no event found, and only those written before its read', () => {
+        const readEmpty = { source_window_start: 6, source_window_end: 7, source_message_hashes: [60, 61], created_at: 2000 };
+        const stored = [eventOf('empty-old', 6), eventOf('empty-later', 6, { time: 3000 }), eventOf('other', 8)];
+        expect(idsOf(findReplacedEvents([...stored, newEvent], [newEvent], new Set(['new-a']), [readEmpty]))).toEqual(['empty-old']);
+    });
 });
 
 describe('replacementIdsOf', () => {
@@ -108,6 +115,11 @@ describe('replacementIdsOf', () => {
         const newEvents = [eventOf('new-b', 4, { time: 2000, order: 1 }), eventOf('new-a', 4, { time: 2000 }), eventOf('new-c', 6, { time: 2000 })];
         const replaced = [eventOf('old-a', 4), eventOf('old-b', 4, { order: 1 }), eventOf('old-c', 6)];
         expect(replacementIdsOf(replaced, newEvents)).toEqual(new Map([['old-a', 'new-a'], ['old-b', 'new-a'], ['old-c', 'new-c']]));
+    });
+
+    it('hands an event of a window whose new read found none to no event', () => {
+        expect(replacementIdsOf([eventOf('old-a', 4), eventOf('emptied', 6)], [eventOf('new-a', 4, { time: 2000 })]))
+            .toEqual(new Map([['old-a', 'new-a'], ['emptied', null]]));
     });
 });
 
@@ -144,6 +156,16 @@ describe('linksMovedToReplacements', () => {
             { event_id: 'new-a', type: 'continues', thread: 'The harbour debt' },
             { event_id: 'new-a', type: 'caused_by', thread: '' },
         ]);
+    });
+
+    it('drops a link to a replaced event with no replacement, keeping the others', () => {
+        const linker = eventOf('later', 10, { links: [
+            { event_id: 'emptied', type: 'continues', thread: '' },
+            { event_id: 'old-a', type: 'caused_by', thread: '' },
+        ] });
+        expect(linksMovedToReplacements([linker], new Map([['emptied', null], ['old-a', 'new-a']]))).toEqual([{ event: linker, links: [
+            { event_id: 'new-a', type: 'caused_by', thread: '' },
+        ] }]);
     });
 
     it('leaves out events with no link to a replaced event, and the replaced events themselves', () => {

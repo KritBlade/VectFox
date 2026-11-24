@@ -24,7 +24,7 @@ import {
     stack,
     statusPill,
 } from '../../shared/gui-dna/gui-dna-core.js';
-import { cardHeader, navBrand, navItem, pageHeader, sliderNumber } from '../../shared/gui-dna/panel-page-genes.js';
+import { cardHeader, navBrand, navItem, pageHeader, sliderNumber, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
 import { escapeHtml as escape } from '../../shared/html-escape.js';
 import { CHAT_FILE_FORMATS } from './content-vectorizer-core.js';
 
@@ -120,6 +120,16 @@ function sourceCard(view) {
             input({ id: cvId(CHAT_TYPE_ID, 'start_from'), type: 'number', value: 1, min: 1, step: 1 }),
             hint({ text: '1 reads the whole chat. 2000 starts at the window that holds message 2000.' }),
         ]),
+        field([
+            fieldLabel({ text: 'End at message', forId: cvId(CHAT_TYPE_ID, 'end_at') }),
+            input({ id: cvId(CHAT_TYPE_ID, 'end_at'), type: 'number', value: '', placeholder: 'The chat\'s end', min: 1, step: 1 }),
+            hint({ text: 'Empty reads to the chat\'s end. 2400 ends at the window that holds message 2400.' }),
+        ]),
+        shownPart('read-again', switchRow({
+            id: cvId(CHAT_TYPE_ID, 'read_again'),
+            title: 'Read windows already read again',
+            description: 'Reads every window from Start to End again, replacing its events and their links.',
+        }), Boolean(chat)),
     ]);
     const header = cardHeader({ icon: 'fa-inbox', title: 'Source', description: 'What this run reads.', isCollapsible: false });
     return card(cvId(CHAT_TYPE_ID, 'source_card'), header, body);

@@ -22,6 +22,7 @@ import { EventBaseFatalError, EventBaseExtractionError } from './eventbase-schem
 import { extractEvents } from './eventbase-extractor.js';
 import { readStoryLanguage } from './story-language.js';
 import { hashSourceMessage } from './eventbase-message-hash.js';
+import { chatWindowsOf, windowsInStretch } from './eventbase-window-grid-core.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
 import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, markWindowUnfinished, getUnfinishedWindowFingerprints, forgetUnfinishedWindowsNotInChat, windowFingerprint, clearExtractionCaches, isLastWindowExtracted, getVectorizationTip, setVectorizationTip, ensureVectorizationTip, shouldUseTipFallback, createWindowReplacement, readEventBaseProgress, getAutoSyncMarker, capAutoSyncMarker, autoSyncFirstWindowStart } from './eventbase-store.js';
 import { retrieveEventsForTurn } from './agentic-retrieval.js';
@@ -168,19 +169,31 @@ export function notifyUnfinishedWindows(result, nextStep = 'Resume in Vectorize 
  * eventbase-store.js), and auto-sync its own, with its overlap (windowOverlapOverride, from
  * settings.eventbase_autosync_window_turns); with none, settings.eventbase_window_size. The overlap is
  * otherwise settings.eventbase_window_overlap. A window is not read again once every message in it has
- * been read, in a window of any size (isWindowAlreadyExtracted).
+ * been read, in a window of any size (isWindowAlreadyExtracted), unless the run reads a stretch again
+ * (isReadingAgain): then every window from the one holding startFromMessage to the one holding
+ * endAtMessage is read, and one whose new read finds no event loses its earlier events too
+ * (InternalProject/Vectfox/plans/eventbase-read-range-again.md).
  *
  * @param {object} params
  * @param {object[]} params.messages - The chat's messages from its first: message numbers count in this list
  * @param {number} [params.startFromMessage] - The message the run starts at, from 1; 1 reads the whole chat
+ * @param {number|null} [params.endAtMessage] - The message the run ends at, from 1, in the window that holds it; null
+ *   reads to the chat's end
+ * @param {boolean} [params.isReadingAgain] - Read the windows of the stretch though the record holds them, each
+ *   replacing its earlier events; their StoryArc links are left to the caller, as the result names them
+ * @param {boolean} [params.shouldCompleteProgress] - false leaves the progress panel open for the caller's next step
+ *   when the run ends, as a stop or a failure still ends it
+ * @param {string} [params.progressTitle] - The progress panel's title
  * @param {string} [params.chatUUID] - Override chat UUID
  * @param {object} params.settings - VectFox settings
  * @param {AbortSignal|null} [params.abortSignal]
  * @param {{ strategy?: string, batchSize?: number, totalChunks?: number }|null} [params.progressPlan]
- * @returns {Promise<{ eventsExtracted: number, windowsProcessed: number, windowsSkipped: number, windowsTimedOut?: number, windowsFailed?: number, firstFailureDetail?: string|null, rejectionCauses?: string|null }>}
- *          rejectionCauses: a rejection's causes when a window the provider rejected still failed after its re-sends
+ * @returns {Promise<{ eventsExtracted: number, windowsProcessed: number, windowsSkipped: number, windowsTimedOut?: number, windowsFailed?: number, firstFailureDetail?: string|null, rejectionCauses?: string|null, insertedEventIds?: string[], eventIdsWithMovedLinks?: string[] }>}
+ *          rejectionCauses: a rejection's causes when a window the provider rejected still failed after its re-sends;
+ *          insertedEventIds: event_id of each event the run stored; eventIdsWithMovedLinks: event_id of each event that
+ *          held a StoryArc link to an event the run replaced
  */
-export async function runEventBaseIngestion({ messages, chatUUID, settings, abortSignal = null, progressPlan = null, collectionIdOverride = null, parallelWindows = 3, isAutoSync = false, suppressAutoSyncPopup = false, skipTipFallback = false, windowSizeOverride = undefined, windowOverlapOverride = undefined, startFromMessage = 1 }) {
+export async function runEventBaseIngestion({ messages, chatUUID, settings, abortSignal = null, progressPlan = null, collectionIdOverride = null, parallelWindows = 3, isAutoSync = false, suppressAutoSyncPopup = false, skipTipFallback = false, windowSizeOverride = undefined, windowOverlapOverride = undefined, startFromMessage = 1, endAtMessage = null, isReadingAgain = false, shouldCompleteProgress = true, progressTitle = 'EventBase Extraction' }) {
     const uuid = chatUUID || getChatUUID();
 
     // The collection the run writes. Precedence:
@@ -304,18 +317,13 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
 
     const unfinishedFingerprints = getUnfinishedWindowFingerprints(registryKey, windowSize);
     const shouldSendUnfinishedWindows = !isAutoSync && unfinishedFingerprints.size > 0;
-    if (!shouldSendUnfinishedWindows && isLastWindowExtracted(committedMessages, windowSize, step, registryKey, hashSourceMessage, firstWindowStart)) {
+    if (!isReadingAgain && !shouldSendUnfinishedWindows && isLastWindowExtracted(committedMessages, windowSize, step, registryKey, hashSourceMessage, firstWindowStart)) {
         log.lifecycle(`[EventBase] Quick-exit: last committed window already extracted, nothing new`);
         return { eventsExtracted: 0, windowsProcessed: 0, windowsSkipped: 0 };
     }
 
-    let windows = [];
-    for (let start = firstWindowStart; start < commitBoundary; start += step) {
-        const end = Math.min(start + windowSize - 1, commitBoundary - 1);
-        const msgs = messages.slice(start, end + 1);
-        if (msgs.length < windowSize) break; // tail is incomplete — wait for more messages
-        windows.push({ start, end, msgs });
-    }
+    let windows = chatWindowsOf({ messageCount: messages.length, windowSize, step, firstWindowStart, boundary: commitBoundary })
+        .map(({ start, end }) => ({ start, end, msgs: messages.slice(start, end + 1) }));
     // The messages after the last full window wait for the next one; the run's verdict names them.
     const messagesWaitingForWindow = Math.max(0, commitBoundary - (windows.length > 0 ? windows[windows.length - 1].end + 1 : firstWindowStart));
 
@@ -325,10 +333,10 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
         log.lifecycle(`[EventBase] ${getUnfinishedWindowFingerprints(registryKey, windowSize).size} unfinished window(s) on record for this collection`);
     }
 
-    // A run from a later message starts at the window that holds it. Its windows keep the chat's
-    // numbering. The record check above reads the whole chat, so the unfinished windows before
-    // that message stay on record.
-    if (startFromMessage > 1) windows = windows.filter(win => win.end >= startFromMessage - 1);
+    // A run from a later message starts at the window that holds it, and a run to an earlier message ends at the
+    // window that holds that one. Its windows keep the chat's numbering. The record check above reads the whole chat,
+    // so the unfinished windows outside the stretch stay on record.
+    windows = windowsInStretch(windows, { startFromMessage, endAtMessage });
 
     // AutoSync start-marker gate. The marker is the first message auto-sync
     // reads: its windows were built to start at the marker and every step after
@@ -370,7 +378,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
 
     const showProgressModal = !isAutoSync || settings.autosync_show_progress_modal === true;
     if (showProgressModal) {
-        progressTracker.show('EventBase Extraction', windows.length, 'Windows', { unitLabel: 'Messages', foundLabel: 'Events' });
+        progressTracker.show(progressTitle, windows.length, 'Windows', { unitLabel: 'Messages', foundLabel: 'Events' });
     }
 
     const totalLegacyChunks = Number(progressPlan?.totalChunks) || 0;
@@ -395,8 +403,9 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     // of spinning up Promise.allSettled batches that do the same check 3-at-a-time.
     // The per-window check in _runOneExtractBatch stays as a safety net for edit-in-middle
     // cases (where an old message's hash changes and breaks the contiguity assumption).
+    // A run reading a stretch again reads every window of it.
     let fastForwardSkipped = 0;
-    while (fastForwardSkipped < windows.length) {
+    while (!isReadingAgain && fastForwardSkipped < windows.length) {
         const win = windows[fastForwardSkipped];
         const hashes = win.msgs.map(hashSourceMessage);
         const isDone = isWindowAlreadyExtracted(hashes, registryKey);
@@ -411,7 +420,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     // The decision rule lives in shouldUseTipFallback() in eventbase-store.js — do
     // not inline the condition here.
     const useTipFallback = shouldUseTipFallback({
-        skipTipFallback,
+        skipTipFallback: skipTipFallback || isReadingAgain,
         hasCollection: !!collectionId,
         hasWindowRecord: (readEventBaseProgress(registryKey).extractedWindows?.length ?? 0) > 0
             || getUnfinishedWindowFingerprints(registryKey, windowSize).size > 0,
@@ -530,8 +539,8 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                 // Compute source hashes for dedup check
                 const sourceHashes = win.msgs.map(hashSourceMessage);
 
-                // Skip if already extracted
-                const alreadyDone = isWindowAlreadyExtracted(sourceHashes, registryKey);
+                // Skip if already extracted, unless the run reads the stretch again
+                const alreadyDone = !isReadingAgain && isWindowAlreadyExtracted(sourceHashes, registryKey);
                 if (alreadyDone) {
                     // Per-window skip log removed — the "Ingestion complete: skipped=N"
                     // summary at the end already conveys this. For a 720-message chat
@@ -542,6 +551,8 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                 // LLM extraction
                 let rawEvents;
                 const extractStart = performance.now();
+                // A window read again with no event found replaces only the events written before this.
+                const readStartedAt = Date.now();
                 try {
                     // Throttle extraction (summarization LLM) calls. Shares one
                     // budget with Agent Mode via generationRateLimiter. 0 = off.
@@ -604,7 +615,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                     log.verbose(`[EventBase] Window ${wIdx}: dropped ${annotated.length - toStore.length} event(s) below minImportance=${minImportanceStore}`);
                 }
 
-                return { skipped: false, events: toStore, sourceHashes, windowEnd: win.end };
+                return { skipped: false, events: toStore, sourceHashes, windowStart: win.start, windowEnd: win.end, readStartedAt };
             }),
         );
 
@@ -616,12 +627,15 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
         const allEvents = [];
         const hashesToMark = [];
         const endsExtracted = [];
+        const windowsReadEmpty = [];
         for (const r of batchResults) {
             if (r.status !== 'fulfilled' || r.value?.skipped) continue;
-            const { events: winEvents, sourceHashes: winHashes, windowEnd } = r.value;
+            const { events: winEvents, sourceHashes: winHashes, windowStart, windowEnd, readStartedAt } = r.value;
             if (!winHashes) continue; // extraction failed — do not mark
             if (winEvents?.length > 0) {
                 allEvents.push(...winEvents);
+            } else if (isReadingAgain) {
+                windowsReadEmpty.push({ source_window_start: windowStart, source_window_end: windowEnd, source_message_hashes: winHashes, created_at: readStartedAt });
             }
             hashesToMark.push(winHashes);
             if (typeof windowEnd === 'number') endsExtracted.push(windowEnd);
@@ -635,6 +649,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
             allEvents,
             hashesToMark,
             endsExtracted,
+            windowsReadEmpty,
             batchStartedAt,
             extractPhaseEndedAt,
         };
@@ -725,23 +740,26 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
      * insert errors bubble (Promise.race in the coordinator surfaces them).
      */
     async function _finalizeBatch(extractResult) {
-        const { windowsSlice, batchFirstIdx, batchResults, allEvents, hashesToMark, endsExtracted, batchStartedAt, extractPhaseEndedAt } = extractResult;
+        const { windowsSlice, batchFirstIdx, batchResults, allEvents, hashesToMark, endsExtracted, windowsReadEmpty, batchStartedAt, extractPhaseEndedAt } = extractResult;
 
+        let isStored = false;
         if (!abortSignal?.aborted && allEvents.length > 0) {
             await _insertWithRetry(allEvents, batchFirstIdx);
             insertedEventIds.push(...allEvents.map(event => event.event_id));
+            isStored = true;
         }
         // Mark windows only after insert succeeded (or there was nothing to
         // insert — in which case we still mark zero-event windows so we don't
-        // re-extract them next run). Same rule as the pre-pipeline loop.
-        if (!abortSignal?.aborted) {
+        // re-extract them next run). A batch whose events were stored finishes
+        // even when Stop came during the insert, so its windows keep one version.
+        if (isStored || (allEvents.length === 0 && !abortSignal?.aborted)) {
             for (const winHashes of hashesToMark) {
                 markWindowExtracted(winHashes, registryKey);
             }
             for (const end of endsExtracted) {
                 setVectorizationTip(registryKey, end + 1);
             }
-            if (allEvents.length > 0) await windowReplacement.replaceEarlierEvents(allEvents);
+            if (allEvents.length > 0 || windowsReadEmpty.length > 0) await windowReplacement.replaceEarlierEvents(allEvents, windowsReadEmpty);
         }
 
         const batchEndedAt = performance.now();
@@ -855,7 +873,9 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                 try { await pendingExtract; } catch (_) { /* swallow */ }
             }
             progressTracker.complete(false, 'Stopped by user');
-            return { eventsExtracted, windowsProcessed, windowsSkipped, windowsTimedOut, windowsFailed };
+            // The windows already replaced keep a walk through them.
+            const eventIdsWithMovedLinks = await windowReplacement.moveLinksOffReplacedEvents();
+            return { eventsExtracted, windowsProcessed, windowsSkipped, windowsTimedOut, windowsFailed, insertedEventIds, eventIdsWithMovedLinks };
         }
 
         // Decide what can start this iteration. Order is load-bearing:
@@ -972,7 +992,8 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                 }
                 if (winner.error?.name === 'AbortError') {
                     progressTracker.complete(false, 'Stopped by user');
-                    return { eventsExtracted, windowsProcessed, windowsSkipped, windowsTimedOut, windowsFailed };
+                    const eventIdsWithMovedLinks = await windowReplacement.moveLinksOffReplacedEvents();
+                    return { eventsExtracted, windowsProcessed, windowsSkipped, windowsTimedOut, windowsFailed, insertedEventIds, eventIdsWithMovedLinks };
                 }
                 // Surface the Qdrant error to the user. EventBaseFatalError
                 // is caught at the UI layer and turned into a popup.
@@ -1053,8 +1074,10 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
 
     // A window still timed out after its re-sends is a real failure. Reflect it in
     // the progress modal rather than a misleading green "success" — especially when
-    // timeouts swallowed the whole run (0 events).
-    if (windowsTimedOut > 0) {
+    // timeouts swallowed the whole run (0 events). A caller with a next step gives the verdict itself.
+    if (!shouldCompleteProgress) {
+        log.verbose('[EventBase] The progress panel stays open for the next step of the run');
+    } else if (windowsTimedOut > 0) {
         progressTracker.complete(false,
             `EventBase: ${windowsTimedOut} window(s) timed out — ${eventsExtracted} event(s) extracted. Raise "Extraction timeout" on the ChatHistory page, or check that your model or endpoint is responding.`);
     } else if (windowsFailed > 0) {
@@ -1075,10 +1098,11 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     log.lifecycle(`[EventBase] Ingestion complete: extracted=${eventsExtracted}, processed=${windowsProcessed}, skipped=${windowsSkipped}, timedOut=${windowsTimedOut}, failed=${windowsFailed}`);
 
     // StoryArc links that went to events this run replaced now point at the events that replaced them.
-    await windowReplacement.moveLinksOffReplacedEvents();
+    const eventIdsWithMovedLinks = await windowReplacement.moveLinksOffReplacedEvents();
 
-    // New events get their StoryArc links in the background, so this run ends now.
-    if (settings?.story_arc_mode_enabled && insertedEventIds.length > 0 && !abortSignal?.aborted) {
+    // New events get their StoryArc links in the background, so this run ends now. A run reading a stretch again
+    // leaves them to its caller, which links them in the open (D3 of eventbase-read-range-again.md).
+    if (!isReadingAgain && settings?.story_arc_mode_enabled && insertedEventIds.length > 0 && !abortSignal?.aborted) {
         const { linkNewStoryEvents } = await import('./story-arc-links.js');
         void linkNewStoryEvents({ collectionId, newEventIds: insertedEventIds, settings });
     }
@@ -1091,7 +1115,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
         }));
     }
 
-    return { eventsExtracted, windowsProcessed, windowsSkipped, windowsTimedOut, windowsFailed, firstFailureDetail, rejectionCauses };
+    return { eventsExtracted, windowsProcessed, windowsSkipped, windowsTimedOut, windowsFailed, firstFailureDetail, rejectionCauses, insertedEventIds, eventIdsWithMovedLinks };
 }
 
 // ---------------------------------------------------------------------------

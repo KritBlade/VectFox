@@ -6,9 +6,11 @@
  * file, read in windows of messages (content-vectorizer-markup.js draws it, and
  * content-vectorizer-core.js holds its rules). On a chat that has a collection,
  * Vectorize asks Catch up, Start over or New collection (§2.1 of
- * InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md). A run goes
- * on with the dialog closed, and the progress panel shows it. Sync chat and the
- * auto-sync switch's catch-up run here too, without the dialog.
+ * InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md), or,
+ * with Read windows already read again on, reads the stretch from Start to End
+ * again (eventbase-read-again.js). A run goes on with the dialog closed, and the
+ * progress panel shows it. Sync chat and the auto-sync switch's catch-up run here
+ * too, without the dialog.
  * ============================================================================
  */
 
@@ -29,15 +31,19 @@ import { bindGeneBehaviours, syncSliders } from '../../shared/gui-dna/gene-behav
 import {
     CHAT_FILE_FORMATS,
     chatCharacterName,
+    endAtMessageOf,
     eventBaseRunEnding,
     extractCharNameFromArchiveFilename,
     fileExtension,
     parseChatFile,
     startFromMessageOf,
+    stretchWords,
     syncUpToDateLines,
 } from './content-vectorizer-core.js';
 import { CHAT_TYPE_ID, contentVectorizerMarkup, cvId, cvPageId, loadedSourceMarkup } from './content-vectorizer-markup.js';
 import { runEventBaseOnOpenChat } from './eventbase-chat-sync.js';
+import { describeReadingAgain, finishReadingAgain } from './eventbase-read-again.js';
+import { readAgainConfirmLines } from './eventbase-read-again-core.js';
 import {
     NEW_COLLECTION, askWhichChatCollection, collectionInUse, resolveEventBaseRunTarget, startNewChatCollection,
 } from './eventbase-chat-collections.js';
@@ -164,6 +170,8 @@ const sourceChoice = () => controlOf('source_choice')?.value ?? null;
 function chooseSource() {
     const choice = sourceChoice();
     for (const name of ['this', 'file']) showPart(name, name === choice);
+    // Only the open chat's collection in use is read again.
+    showPart('read-again', choice === 'this');
     showNewCollectionChosen(session.isOnNewCollection);
     session.sourceData = null;
     paintFile('');
@@ -330,13 +338,23 @@ async function sourceReadyToRun(options) {
     return collection ? { source, collection } : null;
 }
 
-/** The run the page sets up: its source, the message it starts from, and how many windows it reads at once. */
-const runOfPage = source => ({ source, startFromMessage: startFromMessageOf(controlOf('start_from').value), parallelWindows: parallelWindowsOfPage() });
+/**
+ * The run the page sets up: its source, the messages it starts from and ends at, how many windows it reads at once,
+ * and whether it reads the open chat's windows already read again.
+ */
+const runOfPage = source => ({
+    source,
+    startFromMessage: startFromMessageOf(controlOf('start_from').value),
+    endAtMessage: endAtMessageOf(controlOf('end_at')?.value),
+    parallelWindows: parallelWindowsOfPage(),
+    isReadingAgain: source.type === 'current' && Boolean(controlOf('read_again')?.checked),
+});
 
 /**
  * Vectorize: a chat's first read into its first collection; on a chat that has a collection, Catch up, Start over or
- * New collection (askVectorizeChoice); New collection at once when the dialog was opened on it or the question chose
- * it; a chat file read afresh into its archive collection.
+ * New collection (askVectorizeChoice), or with Read windows already read again on, the stretch read again
+ * (readStretchAgain); New collection at once when the dialog was opened on it or the question chose it; a chat file
+ * read afresh into its archive collection.
  */
 async function startVectorization() {
     const ready = await sourceReadyToRun({ canMakeNew: true, isNewCollectionChosen: Boolean(session?.isOnNewCollection) });
@@ -345,7 +363,8 @@ async function startVectorization() {
     if (ready.collection === 'file') return vectorizeChatFile(run);
     if (ready.collection === 'first') return readFirstCollection(run, { resetCaches: true });
     if (ready.collection === 'new') return readIntoNewCollection(run);
-    const choice = await askVectorizeChoice(run.startFromMessage);
+    if (run.isReadingAgain) return readStretchAgain(run);
+    const choice = await askVectorizeChoice(run);
     if (choice === 'catch-up') return catchUp(run);
     if (choice === 'start-over') return startOver(run);
     if (choice === 'new-collection') return readIntoNewCollection(run);
@@ -365,16 +384,16 @@ async function resumeChat() {
 /**
  * Vectorize's question on a chat whose collection is in use (§2.1 of
  * InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md).
- * @param {number} startFromMessage
+ * @param {{startFromMessage: number, endAtMessage: number|null}} run
  * @returns {Promise<'catch-up'|'start-over'|'new-collection'|null>} Null on Cancel
  */
-function askVectorizeChoice(startFromMessage) {
+function askVectorizeChoice(run) {
     const { collection } = collectionInUse(extension_settings.vectfox || {});
     return choicePopup([
         { text: 'This chat reads into:', name: collection?.name ?? '' },
         { text: 'Catch up reads the messages it has not read.' },
-        { text: `Start over empties it, then reads the chat again from message ${startFromMessage}.` },
-        { text: `New collection reads the chat from message ${startFromMessage} into a new collection, and keeps this one.` },
+        { text: `Start over empties it, then reads the chat again ${stretchWords(run)}.` },
+        { text: `New collection reads the chat ${stretchWords(run)} into a new collection, and keeps this one.` },
     ], { choices: [
         { text: 'Catch up', value: 'catch-up' },
         { text: 'Start over', value: 'start-over' },
@@ -428,6 +447,7 @@ async function vectorizeChatFile(run) {
         const isConfirmed = await confirmPopup([
             { text: 'Read this chat again from the start?' },
             { text: 'From message:', name: String(run.startFromMessage) },
+            ...(run.endAtMessage == null ? [] : [{ text: 'To message:', name: String(run.endAtMessage) }]),
             { text: 'Its progress resets, and EventBase reads it again, paying for each window.' },
             { text: 'Each window it reads again replaces the events it had, so they do not repeat.' },
             { text: 'Resume adds only the messages not read yet.' },
@@ -458,7 +478,7 @@ async function startOver(run) {
     const isConfirmed = await confirmPopup([
         { text: 'Start this collection over?', name: inUse?.name ?? '' },
         ...(eventCount === null ? [] : [{ text: 'Events it deletes, with their StoryArc links:', name: formatCount(eventCount) }]),
-        { text: `EventBase then reads the chat again from message ${run.startFromMessage}, paying for each window.` },
+        { text: `EventBase then reads the chat again ${stretchWords(run)}, paying for each window.` },
         { text: 'New collection keeps these events, and reads the chat into a new collection instead.' },
     ], { okButton: 'Start over', isDestructive: true });
     if (!isConfirmed) return;
@@ -493,6 +513,25 @@ async function readIntoNewCollection(run) {
     await runEventBaseBackfill({ ...run, resetCaches: true, windowSize, collectionIdOverride: made.collectionId });
     const isInUse = collectionInUse(settings).collection?.registryKey === made.registryKey;
     if (isInUse) toastr.info(`"${made.name}" is in use in this chat now. Auto-sync is off for it: turn it on on the AutoSync page.`, 'EventBase', { timeOut: 12000 });
+}
+
+/**
+ * Read windows already read again (eventbase-read-range-again.md): after a red confirm that shows what the stretch from
+ * Start to End holds and what the run costs, read every window of it again into the collection in use at its window
+ * size, each replacing its events; StoryArc then links the new events and decides again the events whose links went
+ * into it, on the same progress panel. Nothing to read says why on the page.
+ */
+async function readStretchAgain(run) {
+    const settings = extension_settings.vectfox || {};
+    const windowSize = windowSizeKeptBy(registryKeyOfRun(run.source, settings));
+    const plan = await describeReadingAgain({ settings, startFromMessage: run.startFromMessage, endAtMessage: run.endAtMessage, windowSize });
+    if (plan.problem) {
+        showRunState(plan.problem);
+        return;
+    }
+    const isConfirmed = await confirmPopup(readAgainConfirmLines(plan), { okButton: 'Read again', isDestructive: true });
+    if (!isConfirmed) return;
+    await runEventBaseBackfill({ ...run, resetCaches: false, windowSize, readAgainPlan: plan });
 }
 
 const parallelWindowsOfPage = () => parseInt(controlOf('parallel_windows')?.value, 10) || DEFAULT_PARALLEL_WINDOWS;
@@ -530,18 +569,20 @@ function hasPriorExtractionState(registryKey) {
 }
 
 /**
- * Run EventBase on the open chat or an uploaded chat file. resetCaches (a first read, Start over, New collection, a
- * chat file's Vectorize) forgets what was read into the collection, so it reads again from startFromMessage; without
- * it (Catch up, Resume, Sync chat, the auto-sync catch-up) only the unread messages go.
+ * Run EventBase on the open chat or an uploaded chat file, from startFromMessage to endAtMessage. resetCaches (a first
+ * read, Start over, New collection, a chat file's Vectorize) forgets what was read into the collection, so it reads
+ * again from startFromMessage; without it (Catch up, Resume, Sync chat, the auto-sync catch-up) only the unread
+ * messages go, unless a readAgainPlan reads the stretch again (readStretchAgain).
  *
- * @param {{source: object|null, startFromMessage: number, parallelWindows: number, resetCaches: boolean,
- *   windowSize?: number, collectionIdOverride?: string|null}} run - source null or of type current: the open chat; of
- *   type file: an uploaded chat. windowSize: the collection's (windowSizeKeptBy, dialogWindowSize).
- *   collectionIdOverride: New collection's collection, else the chat's run target
+ * @param {{source: object|null, startFromMessage: number, endAtMessage?: number|null, parallelWindows: number,
+ *   resetCaches: boolean, windowSize?: number, collectionIdOverride?: string|null, readAgainPlan?: object|null}} run -
+ *   source null or of type current: the open chat; of type file: an uploaded chat. windowSize: the collection's
+ *   (windowSizeKeptBy, dialogWindowSize). collectionIdOverride: New collection's collection, else the chat's run
+ *   target. readAgainPlan: describeReadingAgain's plan, which reads the open chat's stretch again
  * @returns {Promise<{shouldClose: boolean, message: string, hasReadNothing: boolean}|null>} How the run ended
  *   (eventBaseRunEnding); null when it did not start or failed, having said why
  */
-async function runEventBaseBackfill({ source, startFromMessage, parallelWindows, resetCaches, windowSize, collectionIdOverride = null }) {
+async function runEventBaseBackfill({ source, startFromMessage, endAtMessage = null, parallelWindows, resetCaches, windowSize, collectionIdOverride = null, readAgainPlan = null }) {
     if (activeRun) return null;
     log.lifecycle(`[EventBase] runEventBaseBackfill: starting... (resetCaches=${resetCaches})`);
     const signal = startRun();
@@ -570,9 +611,9 @@ async function runEventBaseBackfill({ source, startFromMessage, parallelWindows,
             if (resetCaches) await prepareForFreshExtraction(buildRegistryKey(archiveCollectionId, settings));
             log.lifecycle(`[EventBase] Archive upload route — collection: ${archiveCollectionId}, messages: ${messages.length}`);
 
-            result = await runEventBaseIngestion({ messages, startFromMessage, chatUUID, settings, abortSignal: signal, parallelWindows, collectionIdOverride: archiveCollectionId, skipTipFallback: resetCaches, windowSizeOverride: windowSize });
+            result = await runEventBaseIngestion({ messages, startFromMessage, endAtMessage, chatUUID, settings, abortSignal: signal, parallelWindows, collectionIdOverride: archiveCollectionId, skipTipFallback: resetCaches, windowSizeOverride: windowSize });
         } else {
-            result = await runOpenChat(signal, { startFromMessage, parallelWindows, resetCaches, windowSize, collectionIdOverride });
+            result = await runOpenChat(signal, { startFromMessage, endAtMessage, parallelWindows, resetCaches, windowSize, collectionIdOverride, readAgainPlan });
         }
         // No result: the run could not start, and said why.
         if (!result) return null;
@@ -580,8 +621,13 @@ async function runEventBaseBackfill({ source, startFromMessage, parallelWindows,
         const unfinishedWindowCount = countUnfinishedWindows(result);
         ending = eventBaseRunEnding(result, { isStopped: signal.aborted, unfinishedWindowCount });
         // The workflow put its verdict on the progress panel; a stop gets the count saved, and windows left a sticky
-        // notice, as they are the user's to send again.
-        if (signal.aborted) progressTracker.complete(false, `Stopped — saved ${result.eventsExtracted} events from ${result.windowsProcessed} windows so far`);
+        // notice, as they are the user's to send again. A stretch read again links its events next, and its verdict
+        // ends the panel.
+        if (readAgainPlan) {
+            const verdict = await finishReadingAgain({ result, plan: readAgainPlan, settings, shouldStop: () => signal.aborted });
+            ending = { ...ending, shouldClose: ending.shouldClose && verdict.isSuccess, message: verdict.message };
+            if (unfinishedWindowCount > 0 && !signal.aborted) notifyUnfinishedWindows(result);
+        } else if (signal.aborted) progressTracker.complete(false, `Stopped — saved ${result.eventsExtracted} events from ${result.windowsProcessed} windows so far`);
         else if (unfinishedWindowCount > 0) notifyUnfinishedWindows(result);
         else if (!ending.shouldClose && isPanelShownAtStart) progressTracker.complete(true, ending.message);
         log.lifecycle(`[EventBase] Run ended: ${result.eventsExtracted} events from ${result.windowsProcessed} windows, ${result.windowsSkipped ?? 0} skipped, ${unfinishedWindowCount} unfinished`);
@@ -626,14 +672,15 @@ async function runEventBaseBackfill({ source, startFromMessage, parallelWindows,
 }
 
 /**
- * Run EventBase over the open chat, into the collection given or the chat's run target, at the window size given.
+ * Run EventBase over the open chat, into the collection given or the chat's run target, at the window size given. A
+ * readAgainPlan reads the stretch's windows again and leaves the progress panel open for its link steps.
  *
  * @param {AbortSignal} signal - Stops the run
- * @param {{startFromMessage: number, parallelWindows: number, resetCaches: boolean, windowSize?: number,
- *   collectionIdOverride?: string|null}} run
+ * @param {{startFromMessage: number, endAtMessage: number|null, parallelWindows: number, resetCaches: boolean,
+ *   windowSize?: number, collectionIdOverride?: string|null, readAgainPlan: object|null}} run
  * @returns {Promise<object|null>} The run's result, or null when it did not run, having said why
  */
-async function runOpenChat(signal, { startFromMessage, parallelWindows, resetCaches, windowSize, collectionIdOverride }) {
+async function runOpenChat(signal, { startFromMessage, endAtMessage, parallelWindows, resetCaches, windowSize, collectionIdOverride, readAgainPlan }) {
     const settings = extension_settings.vectfox || {};
     const context = getContext();
     if (!Array.isArray(context.chat) || !context.chat.length) {
@@ -650,6 +697,10 @@ async function runOpenChat(signal, { startFromMessage, parallelWindows, resetCac
     const messageCount = context.chat.filter(message => message.mes && message.mes.trim().length > 0).length;
     return runEventBaseOnOpenChat(settings, signal, {
         startFromMessage,
+        endAtMessage,
+        isReadingAgain: Boolean(readAgainPlan),
+        shouldCompleteProgress: !readAgainPlan,
+        progressTitle: readAgainPlan?.stepTitles.windows,
         parallelWindows,
         // The progress panel's message count: one per message with words, as the windows read them.
         progressPlan: { strategy: 'per_message', batchSize: 1, totalChunks: messageCount },
@@ -779,6 +830,7 @@ function readControl(control) {
             extension_settings.vectfox.eventbase_window_overlap = parseInt(control.value, 10) || 0;
             return saveSettingsDebounced();
         case 'start_from': control.value = String(startFromMessageOf(control.value)); return undefined;
+        case 'end_at': control.value = String(endAtMessageOf(control.value) ?? ''); return undefined;
         case 'cleaning_preset':
             chooseCleaningPreset(control.value);
             return showCleaningPreset(control.value);

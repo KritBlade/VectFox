@@ -11,7 +11,9 @@
  * something new and otherwise stays open saying why; Stop ends a run; the close is announced once, after any run; the
  * Action page's Sync chat reads what EventBase has not read once the user confirms, and says in a dialog when there is
  * nothing to read, the AutoSync page's Up to date included, or a run found nothing new; the auto-sync catch-up reads
- * the open chat's new messages with no dialog.
+ * the open chat's new messages with no dialog. A run ends at the End message when one is set, and with Read windows
+ * already read again on, Vectorize reads the stretch again after a red confirm of what it replaces and costs
+ * (eventbase-read-range-again.md).
  */
 /* global document, window, toastr -- this file runs under the jsdom environment, and stubs SillyTavern's toastr per test */
 
@@ -34,6 +36,8 @@ const host = vi.hoisted(() => ({
     keptWindowSize: undefined,
     savedHashes: [11, 12, 13],
     emptyError: null,
+    readAgainPlan: null,
+    readAgainVerdict: null,
 }));
 
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: host.root, saveSettingsDebounced: vi.fn() }));
@@ -108,6 +112,11 @@ vi.mock('../src/features/eventbase/eventbase-workflow.js', () => ({
     getChatAutoSyncStatus: vi.fn(async () => host.syncStatus),
 }));
 vi.mock('../src/features/llm-provider/index.js', () => ({ validateLLMConfig: () => host.llmCheck }));
+// What a stretch read again holds and costs, and the link steps after it (eventbase-read-again.test.js holds them).
+vi.mock('../src/features/eventbase/eventbase-read-again.js', () => ({
+    describeReadingAgain: vi.fn(async () => host.readAgainPlan),
+    finishReadingAgain: vi.fn(async () => host.readAgainVerdict),
+}));
 vi.mock('../src/shared/api-keys.js', () => ({ getOpenRouterApiKey: () => '' }));
 vi.mock('../src/shared/collection-ids.js', () => ({
     getChatUUID: () => 'chat-uuid',
@@ -139,6 +148,8 @@ const { chooseCleaningPreset, openTextCleaningDialog } = await import('../src/fe
 const { pickFiles } = await import('../src/shared/pick-files.js');
 const { choicePopup, confirmPopup, closePanelPopup, noticePopup } = await import('../src/sillytavern/popup.js');
 const { saveSettingsDebounced } = await import('../src/sillytavern/settings.js');
+const { describeReadingAgain, finishReadingAgain } = await import('../src/features/eventbase/eventbase-read-again.js');
+const { readAgainConfirmLines } = await import('../src/features/eventbase/eventbase-read-again-core.js');
 
 const $id = id => document.getElementById(id);
 const page = () => $id('vectfox_cv_page_chat');
@@ -178,6 +189,22 @@ beforeEach(async () => {
     host.keptWindowSize = undefined;
     host.savedHashes = [11, 12, 13];
     host.emptyError = null;
+    host.readAgainPlan = {
+        problem: '',
+        collectionId: 'vf_eventbase_chat-uuid',
+        collectionName: 'Harbor Keeper',
+        firstMessage: 37,
+        lastMessage: 90,
+        windowCount: 9,
+        heldCount: 21,
+        linkingInCount: 4,
+        extraction: { model: 'deepseek/deepseek-v4 on OpenRouter', inputTokens: 23400, costUsd: 0.05 },
+        links: { model: 'Linker (gpt-6-luna), a connection profile', estimate: { eventCount: 25, inputTokens: 45250, outputTokens: 8000, minutes: 1, costUsd: null } },
+        willLink: true,
+        waitReason: '',
+        stepTitles: { windows: 'Reading again, step 1 of 3: windows', newEvents: 'Reading again, step 2 of 3: linking new events', movedLinks: 'Reading again, step 3 of 3: deciding moved links again' },
+    };
+    host.readAgainVerdict = { isSuccess: true, message: 'Read 9 of 9 windows again, 19 events found.' };
     host.root.vectfox = { eventbase_window_size: 4, eventbase_window_overlap: 1 };
     host.context = {
         chatId: 'chat.jsonl',
@@ -529,6 +556,102 @@ describe('a chat\'s Vectorize', () => {
         openContentVectorizer();
         await closeEveryDialog();
         expect(closed).toEqual(['closed']);
+    });
+});
+
+describe('the End message', () => {
+    const IN_USE = { registryKey: 'qdrant:vf_eventbase_chat-uuid', name: 'Harbor Keeper', isLockedHere: true };
+
+    it('names it in the question, and ends the run chosen at the window that holds it', async () => {
+        host.ownCollections = [IN_USE];
+        host.choice = 'catch-up';
+        openContentVectorizer();
+        change($id('vectfox_cv_chat_start_from'), '41');
+        change($id('vectfox_cv_chat_end_at'), '90');
+        actionOn('vectorize').click();
+        await vi.waitFor(() => expect(runEventBaseOnOpenChat).toHaveBeenCalledTimes(1));
+        const [lines] = choicePopup.mock.calls[0];
+        expect(lines[2]).toEqual({ text: 'Start over empties it, then reads the chat again from message 41 to message 90.' });
+        expect(runEventBaseOnOpenChat.mock.calls[0][2]).toMatchObject({ startFromMessage: 41, endAtMessage: 90, isReadingAgain: false, shouldCompleteProgress: true });
+    });
+
+    it('reads to the chat\'s end when empty, and empties a box holding no whole number from 1', async () => {
+        openContentVectorizer();
+        change($id('vectfox_cv_chat_end_at'), 'soon');
+        expect($id('vectfox_cv_chat_end_at').value).toBe('');
+        actionOn('vectorize').click();
+        await vi.waitFor(() => expect(runEventBaseOnOpenChat).toHaveBeenCalledTimes(1));
+        expect(runEventBaseOnOpenChat.mock.calls[0][2]).toMatchObject({ endAtMessage: null });
+    });
+});
+
+describe('reading a stretch again', () => {
+    const IN_USE = { registryKey: 'qdrant:vf_eventbase_chat-uuid', name: 'Harbor Keeper', isLockedHere: true };
+    const startReadingAgain = () => {
+        openContentVectorizer();
+        change($id('vectfox_cv_chat_start_from'), '41');
+        change($id('vectfox_cv_chat_end_at'), '90');
+        change($id('vectfox_cv_chat_read_again'), true);
+        actionOn('vectorize').click();
+    };
+
+    it('shows its switch for the open chat only', () => {
+        openContentVectorizer();
+        expect(partOf('read-again').hidden).toBe(false);
+        change($id('vectfox_cv_chat_source_choice'), 'file');
+        expect(partOf('read-again').hidden).toBe(true);
+    });
+
+    it('asks no Catch up question: it shows in red what the stretch holds and costs, at the window size the collection keeps, then reads it again and lets StoryArc finish on the same panel', async () => {
+        host.ownCollections = [IN_USE];
+        host.keptWindowSize = 6;
+        startReadingAgain();
+        await vi.waitFor(() => expect(finishReadingAgain).toHaveBeenCalledTimes(1));
+        expect(choicePopup).not.toHaveBeenCalled();
+        expect(describeReadingAgain).toHaveBeenCalledWith({ settings: host.root.vectfox, startFromMessage: 41, endAtMessage: 90, windowSize: 6 });
+        const [lines, options] = confirmPopup.mock.calls[0];
+        expect(lines).toEqual(readAgainConfirmLines(host.readAgainPlan));
+        expect(options).toMatchObject({ okButton: 'Read again', isDestructive: true });
+        expect(runEventBaseOnOpenChat.mock.calls[0][2]).toMatchObject({
+            startFromMessage: 41, endAtMessage: 90, isReadingAgain: true, shouldCompleteProgress: false,
+            progressTitle: 'Reading again, step 1 of 3: windows', skipTipFallback: false, windowSizeOverride: 6, collectionIdOverride: null,
+        });
+        expect(finishReadingAgain.mock.calls[0][0]).toMatchObject({ result: host.runResult, plan: host.readAgainPlan, settings: host.root.vectfox });
+        await vi.waitFor(() => expect(host.dialogs).toHaveLength(0));
+    });
+
+    it('reads nothing on Cancel', async () => {
+        host.ownCollections = [IN_USE];
+        host.answer = false;
+        startReadingAgain();
+        await vi.waitFor(() => expect(confirmPopup).toHaveBeenCalledTimes(1));
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
+    });
+
+    it('says on its page why, asking nothing and reading nothing, when the stretch has nothing to read', async () => {
+        host.ownCollections = [IN_USE];
+        host.readAgainPlan = { problem: 'No whole window of 4 messages lies between those messages, so there is nothing to read again.' };
+        startReadingAgain();
+        await vi.waitFor(() => expect(runState()).toBe(host.readAgainPlan.problem));
+        expect(confirmPopup).not.toHaveBeenCalled();
+        expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
+    });
+
+    it('stays open with the verdict on its page when an event was left undecided', async () => {
+        host.ownCollections = [IN_USE];
+        host.readAgainVerdict = { isSuccess: false, message: 'Read 9 of 9 windows again, 19 events found; 17 of 19 new events linked, 2 failed.' };
+        startReadingAgain();
+        await vi.waitFor(() => expect(finishReadingAgain).toHaveBeenCalledTimes(1));
+        await vi.waitFor(() => expect(runState()).toBe(host.readAgainVerdict.message));
+        expect(host.dialogs).toHaveLength(1);
+    });
+
+    it('reads a chat with no collection yet into its first, as Vectorize does with the switch off', async () => {
+        startReadingAgain();
+        await vi.waitFor(() => expect(runEventBaseOnOpenChat).toHaveBeenCalledTimes(1));
+        expect(describeReadingAgain).not.toHaveBeenCalled();
+        expect(runEventBaseOnOpenChat.mock.calls[0][2]).toMatchObject({ isReadingAgain: false, skipTipFallback: true });
     });
 });
 

@@ -10,9 +10,11 @@
  *
  * A stored event is replaced when it is of the same window (the same first and
  * last message), shares at least one message with the new extraction, and was
- * written before it. Every run numbers its windows from the chat's first
- * message, a run from a later message included (runEventBaseIngestion), so the
- * same first and last message is the same window. The shared message keeps a
+ * written before it. A run that reads a stretch of the chat again also removes
+ * the earlier events of a window whose new read finds none, as they may be junk,
+ * such as a status panel read as story. Every run numbers its windows from the
+ * chat's first message, a run from a later message included
+ * (runEventBaseIngestion), so the same first and last message is the same window. The shared message keeps a
  * window from removing the events of other messages stored under its number, as
  * a message deleted or added earlier in the chat leaves them. It is a loose
  * check: a message repeated word for word, as a short user reply often is, has
@@ -20,7 +22,8 @@
  * window at once from removing each other's newer events.
  *
  * StoryArc links that pointed at a replaced event move to the first new event of
- * its window, so a walk still passes through that moment.
+ * its window, so a walk still passes through that moment; a link to an event of
+ * a window whose new read found none is dropped.
  *
  * createWindowReplacement (eventbase-store.js) reads and writes the collection.
  * ============================================================================
@@ -72,11 +75,14 @@ export function mayHoldEarlierEvents(runEvents, tipAtRunStart) {
  * @param {object[]} storedEvents - The collection's events, as read from the store
  * @param {object[]} newEvents - Events a run stored, of the windows it extracted
  * @param {Set<string>} runEventIds - event_id of every event the run stored
+ * @param {object[]} [windowsReadEmpty] - Windows a run reading a stretch again read with no event found, each shaped
+ *   as an event: source_window_start, source_window_end, source_message_hashes, and created_at, when its read began.
+ *   Their earlier events are replaced by nothing.
  * @returns {object[]}
  */
-export function findReplacedEvents(storedEvents, newEvents, runEventIds) {
+export function findReplacedEvents(storedEvents, newEvents, runEventIds, windowsReadEmpty = []) {
     const newCallBySpan = new Map();
-    for (const event of newEvents) {
+    for (const event of [...newEvents, ...windowsReadEmpty]) {
         const span = windowSpanOf(event);
         const time = extractionTimeOf(event);
         if (time === null || newCallBySpan.has(span)) continue;
@@ -92,11 +98,12 @@ export function findReplacedEvents(storedEvents, newEvents, runEventIds) {
 }
 
 /**
- * Which new event takes the links of each replaced one: the first new event of its window.
+ * Which new event takes the links of each replaced one: the first new event of its window, or none when the window's
+ * new read found no event.
  *
  * @param {object[]} replacedEvents
  * @param {object[]} newEvents
- * @returns {Map<string, string>} replaced event_id → new event_id
+ * @returns {Map<string, string|null>} replaced event_id → new event_id, or null for none
  */
 export function replacementIdsOf(replacedEvents, newEvents) {
     const firstNewBySpan = new Map();
@@ -105,19 +112,17 @@ export function replacementIdsOf(replacedEvents, newEvents) {
         const first = firstNewBySpan.get(span);
         if (!first || (event.window_event_order ?? 0) < (first.window_event_order ?? 0)) firstNewBySpan.set(span, event);
     }
-    return new Map(replacedEvents
-        .filter(event => firstNewBySpan.has(windowSpanOf(event)))
-        .map(event => [event.event_id, firstNewBySpan.get(windowSpanOf(event)).event_id]));
+    return new Map(replacedEvents.map(event => [event.event_id, firstNewBySpan.get(windowSpanOf(event))?.event_id ?? null]));
 }
 
 /**
  * The events whose StoryArc links change when the links to replaced events move to their
- * replacements. Links that end up the same, to one event with one type, become the first of
- * them: links to two earlier versions of one window, or a moved link and one the event already
- * had to that event.
+ * replacements. A link to a replaced event with no replacement is dropped. Links that end up the
+ * same, to one event with one type, become the first of them: links to two earlier versions of one
+ * window, or a moved link and one the event already had to that event.
  *
  * @param {object[]} storedEvents - The collection's events, with their story_links
- * @param {Map<string, string>} replacementById - From replacementIdsOf
+ * @param {Map<string, string|null>} replacementById - From replacementIdsOf
  * @returns {{event: object, links: object[]}[]} each event whose links change, with its new links
  */
 export function linksMovedToReplacements(storedEvents, replacementById) {
@@ -129,6 +134,7 @@ export function linksMovedToReplacements(storedEvents, replacementById) {
         const newLinks = [];
         for (const link of links) {
             const target = replacementById.get(link?.event_id);
+            if (target === null) continue;
             const newLink = target === undefined ? link : { ...link, event_id: target };
             const key = `${newLink?.event_id}|${newLink?.type}`;
             if (keptKeys.has(key)) continue;

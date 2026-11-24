@@ -61,7 +61,7 @@ describe('credential invariants (plan §10)', () => {
             return url ? [`${file.path} ${url}`] : [];
         })).sort();
         expect(literalVendorFetches).toEqual([
-            'src/features/eventbase/story-arc-links.js https://openrouter.ai/api/v1/models',
+            'src/features/llm-provider/openrouter-model-price.js https://openrouter.ai/api/v1/models',
             'src/features/settings-panel/settings-panel.js https://openrouter.ai/api/v1/models',
             'src/features/settings-panel/settings-panel.js https://openrouter.ai/api/v1/models',
             'src/features/settings-panel/settings-panel.js https://openrouter.ai/api/v1/models?output_modalities=embeddings',

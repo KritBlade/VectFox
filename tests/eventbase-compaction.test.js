@@ -14,6 +14,8 @@ vi.mock('../src/features/collections/index.js', () => ({ fetchPortableChunks: vi
 // The EventBase search reads a collection's backend from its id; the real module reaches SillyTavern host modules.
 vi.mock('../src/shared/collection-ids.js', () => ({ resolveBackendForCollection: (id) => ({ backend: null, collectionId: id }) }));
 vi.mock('../src/features/eventbase/agentic-retrieval.js', () => ({ callLlmForJson: vi.fn(), resolveStoryLinkLlmConfig: vi.fn() }));
+// The link model's price, which compaction never reads; the real barrel reaches SillyTavern.
+vi.mock('../src/features/llm-provider/index.js', () => ({ readOpenRouterModelPrice: vi.fn() }));
 vi.mock('../src/features/eventbase/eventbase-chat-collections.js', () => ({ collectionInUse: vi.fn(), noCollectionInUseText: vi.fn() }));
 const listStoryEventsMock = vi.hoisted(() => vi.fn());
 vi.mock('../src/features/eventbase/story-arc-retrieval.js', () => ({ listStoryEvents: listStoryEventsMock }));
