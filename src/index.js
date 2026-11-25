@@ -280,19 +280,19 @@ const defaultSettings = {
     // OLDEST overflow is dropped (most-recent always kept); the latest event is always
     // included even if it alone exceeds the cap. 0 = no cap. Default ~4-6.5k tokens.
     summarizer_injection_max_chars: 10000,
-    // Ghosting (ephemeral prompt wipe): when enabled AND Summarizer Injection is on,
-    // keep the most recent N messages verbatim and blank ALL older already-vectorized
-    // messages from the OUTGOING prompt only. The chat file + UI are untouched and the
-    // effect resets every generation (nothing to undo, branch-safe — mirrors the proven
-    // interceptor-wipe pattern). Trades raw old context for token savings, leaning on
-    // EventBase memory (summarizer injection + semantic retrieval) for the wiped span.
-    // "Keep last N" auto-scales to any chat length (wipe count = tip − N), so a 50-reply
-    // and a 5000-reply chat use the same setting. Gated to Summarizer Injection because
-    // that forces auto-sync window=1, guaranteeing every message below the vectorization
-    // tip is extracted before it could be wiped.
+    // Ghosting: when enabled AND Summarizer Injection is on, keep the most recent N
+    // messages verbatim and take the older already-vectorized messages out of the
+    // OUTGOING prompt only, every summary kept. The chat file + UI are untouched and the
+    // effect resets every generation (nothing to undo, branch-safe). Trades raw old
+    // context for token savings, leaning on EventBase memory (summarizer injection +
+    // semantic retrieval) for the messages taken out. "Keep last N" auto-scales to any
+    // chat length (the count taken out is tip − N), so a 50-reply and a 5000-reply chat
+    // use the same setting. Gated to Summarizer Injection because that forces auto-sync
+    // window=1, guaranteeing every message below the vectorization tip is extracted
+    // before it could be taken out.
     eventbase_ghost_enabled: false,
-    eventbase_ghost_keep_recent: 1,               // recent messages kept verbatim; everything older that's vectorized is wiped. range 1-50 (Summarizer Injection's recent events cover the wiped span)
-    eventbase_ghost_batch_size: 1,                // messages the wipe boundary moves by: 1 moves it every turn; above 1 it waits for a whole batch, so the prompt's opening stays the same for a provider's prompt cache. range 1-100
+    eventbase_ghost_keep_recent: 1,               // recent messages kept verbatim; everything older that's vectorized is taken out. range 1-50 (Summarizer Injection's recent events cover the messages taken out)
+    eventbase_ghost_batch_size: 1,                // messages the take-out boundary moves by: 1 moves it every turn; above 1 it waits for a whole batch, so the prompt's opening stays the same for a provider's prompt cache. range 1-100
     eventbase_min_importance_store: 3,            // Drop events below this importance before storing
     eventbase_max_events_per_window: 3,           // Hard cap on events returned per LLM call
     eventbase_retrieval_top_k: 10,                // Events to retrieve per generation
@@ -666,7 +666,7 @@ jQuery(async () => {
 
     // Keep the ghosting WI-scan floor accurate: refresh the cached deepest per-entry World
     // Info scanDepth whenever the active books or WI settings change (off the hot path, so
-    // applyGhosting never blanks a message a deep-scanning WI entry still needs to read).
+    // applyGhosting never takes out a message a deep-scanning WI entry still needs to read).
     // Debounced — WORLDINFO_UPDATED can fire in bursts while editing, and each refresh loads
     // lore. Initial call is direct so the floor is correct before the first generation.
     // The refresh does nothing while the master switch is OFF; switching ON re-runs it.

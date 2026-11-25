@@ -331,7 +331,7 @@ describe('applyGhosting and the collection in use', () => {
         const chat = chatOf();
         getContext.mockReturnValue({ chat });
         const prompt = promptOf(chat);
-        expect(applyGhosting(prompt, GHOSTING, IN_USE)).toEqual({ wiped: 4, charsRemoved: 4 });
+        expect(applyGhosting(prompt, GHOSTING, IN_USE)).toEqual({ takenOutCount: 4, charsRemoved: 4 });
         expect(prompt.map(message => message.mes)).toEqual(['e', 'f']);
         expect(chat.map(message => message.mes)).toEqual(['a', 'b', 'c', 'd', 'e', 'f']);
         expect(getVectorizationTip).toHaveBeenCalledWith('k');
@@ -339,9 +339,9 @@ describe('applyGhosting and the collection in use', () => {
 
     it('takes nothing out while the collection in use is paused, or none is in use, reading no tip', () => {
         const paused = { ...IN_USE, collection: { ...IN_USE.collection, isPaused: true } };
-        expect(applyGhosting(promptOf(chatOf()), GHOSTING, paused)).toEqual({ wiped: 0, charsRemoved: 0 });
+        expect(applyGhosting(promptOf(chatOf()), GHOSTING, paused)).toEqual({ takenOutCount: 0, charsRemoved: 0 });
         const none = { collection: null, reason: 'none-in-use', collections: [{ registryKey: 'k' }], lockedElsewhere: [] };
-        expect(applyGhosting(promptOf(chatOf()), GHOSTING, none)).toEqual({ wiped: 0, charsRemoved: 0 });
+        expect(applyGhosting(promptOf(chatOf()), GHOSTING, none)).toEqual({ takenOutCount: 0, charsRemoved: 0 });
         expect(getVectorizationTip).not.toHaveBeenCalled();
     });
 
@@ -350,11 +350,11 @@ describe('applyGhosting and the collection in use', () => {
         getVectorizationTip.mockReturnValue(9);
         getContext.mockReturnValue({ chat: chatOf() });
         const prompt = promptOf(chatOf());
-        expect(applyGhosting(prompt, GHOSTING, IN_USE)).toEqual({ wiped: 0, charsRemoved: 0 });
+        expect(applyGhosting(prompt, GHOSTING, IN_USE)).toEqual({ takenOutCount: 0, charsRemoved: 0 });
         expect(prompt.map(message => message.mes)).toEqual(['a', 'b', 'c', 'd', 'e', 'f']);
         // At the chat's end it still takes out every message below it but the one kept.
         getVectorizationTip.mockReturnValue(6);
-        expect(applyGhosting(promptOf(chatOf()), GHOSTING, IN_USE)).toEqual({ wiped: 5, charsRemoved: 5 });
+        expect(applyGhosting(promptOf(chatOf()), GHOSTING, IN_USE)).toEqual({ takenOutCount: 5, charsRemoved: 5 });
     });
 });
 
@@ -385,17 +385,17 @@ describe('applyGhosting beside a summarizer that registered a message source', (
     it('maps the tip, counted in story order, back to the chat, and takes out the read messages around a summary, never it', () => {
         // The story: a, b, then c, d and e behind the summary, then f and g. All 7 are read; g, the last, is kept.
         const chat = [say('a'), say('b'), summaryOf('S', [say('c'), say('d'), say('e')]), say('f'), say('g')];
-        expect(ghost(chat, 7)).toEqual({ result: { wiped: 3, charsRemoved: 3 }, texts: ['S', 'g'] });
+        expect(ghost(chat, 7)).toEqual({ result: { takenOutCount: 3, charsRemoved: 3 }, texts: ['S', 'g'] });
     });
 
     it('keeps a summary that opens the chat, and takes out the read messages after it', () => {
         const chat = [summaryOf('S', [say('a'), say('b'), say('c')]), say('d'), say('e'), say('f')];
-        expect(ghost(chat, 6)).toEqual({ result: { wiped: 2, charsRemoved: 2 }, texts: ['S', 'f'] });
+        expect(ghost(chat, 6)).toEqual({ result: { takenOutCount: 2, charsRemoved: 2 }, texts: ['S', 'f'] });
     });
 
     it('keeps a summary answered with none, of messages still in the chat, too', () => {
         const chat = [say('a'), summaryOf('S', []), say('b'), say('c')];
-        expect(ghost(chat, 3)).toEqual({ result: { wiped: 2, charsRemoved: 2 }, texts: ['S', 'c'] });
+        expect(ghost(chat, 3)).toEqual({ result: { takenOutCount: 2, charsRemoved: 2 }, texts: ['S', 'c'] });
     });
 
     it('takes out up to the tip when the summary lies past it, the tip counting in story order', () => {
@@ -412,23 +412,23 @@ describe('applyGhosting beside a summarizer that registered a message source', (
 
     it('leaves a message with no text after the last message read as it is', () => {
         const chat = [say('a'), say('b'), say(''), say('c'), say('d')];
-        expect(ghost(chat, 2)).toEqual({ result: { wiped: 2, charsRemoved: 2 }, texts: ['', 'c', 'd'] });
+        expect(ghost(chat, 2)).toEqual({ result: { takenOutCount: 2, charsRemoved: 2 }, texts: ['', 'c', 'd'] });
         // Below a message read, it goes with the rest, and saves nothing.
-        expect(ghost(chat, 3)).toEqual({ result: { wiped: 3, charsRemoved: 3 }, texts: ['d'] });
+        expect(ghost(chat, 3)).toEqual({ result: { takenOutCount: 3, charsRemoved: 3 }, texts: ['d'] });
     });
 
     it('takes a tip past the chat\'s length but within the story\'s for no tip past the end', () => {
         // 5 messages in the chat, 7 in the story: a tip of 7 is not past its end.
         const chat = [say('a'), say('b'), summaryOf('S', [say('c'), say('d'), say('e')]), say('f'), say('g')];
-        expect(ghost(chat, 7).result.wiped).toBe(3);
-        expect(ghost(chat, 8).result.wiped).toBe(0);
+        expect(ghost(chat, 7).result.takenOutCount).toBe(3);
+        expect(ghost(chat, 8).result.takenOutCount).toBe(0);
     });
 
     it('finds each message by its number after an interceptor that ran first took some out', () => {
         // Vector Storage, whose interceptor runs before VectFox's, took b and f out of the prompt.
         const chat = [say('a'), say('b'), summaryOf('S', [say('c'), say('d')]), say('e'), say('f'), say('g')];
         const prompt = promptOf(chat).filter(message => !['b', 'f'].includes(message.mes));
-        expect(ghost(chat, 7, { prompt })).toEqual({ result: { wiped: 2, charsRemoved: 2 }, texts: ['S', 'g'] });
+        expect(ghost(chat, 7, { prompt })).toEqual({ result: { takenOutCount: 2, charsRemoved: 2 }, texts: ['S', 'g'] });
     });
 
     it('finds each message by its number past hidden messages, one with tool calls in the prompt while tool calling is on', () => {
@@ -437,8 +437,8 @@ describe('applyGhosting beside a summarizer that registered a message source', (
         const hidden = { mes: 'h', is_user: false, is_system: true };
         const toolCall = { mes: '', is_user: false, is_system: true, extra: { tool_invocations: [{ name: 'roll' }] } };
         const chat = [say('a'), hidden, toolCall, summaryOf('S', [say('b')]), say('c'), say('d')];
-        expect(ghost(chat, 5, { isToolCallingOn: true })).toEqual({ result: { wiped: 2, charsRemoved: 2 }, texts: ['S', 'd'] });
-        expect(ghost(chat, 5)).toEqual({ result: { wiped: 2, charsRemoved: 2 }, texts: ['S', 'd'] });
+        expect(ghost(chat, 5, { isToolCallingOn: true })).toEqual({ result: { takenOutCount: 2, charsRemoved: 2 }, texts: ['S', 'd'] });
+        expect(ghost(chat, 5)).toEqual({ result: { takenOutCount: 2, charsRemoved: 2 }, texts: ['S', 'd'] });
     });
 
     it('keeps a message another extension added, and one whose number points to a message it does not copy', () => {
@@ -452,7 +452,7 @@ describe('applyGhosting beside a summarizer that registered a message source', (
             { ...prompt[2], mes: 'name', name: 'Aoi' },
             { ...prompt[3], mes: 'sender', is_user: true });
         expect(ghost(chat, 5, { prompt })).toEqual({
-            result: { wiped: 4, charsRemoved: 4 },
+            result: { takenOutCount: 4, charsRemoved: 4 },
             texts: ['note', 'date', 'name', 'sender', 'e'],
         });
     });
@@ -500,35 +500,35 @@ describe('applyGhosting in batches', () => {
     it('snaps the boundary down, and says how many messages stay verbatim and how many until the next batch', () => {
         const { result, texts } = ghost(25, 25, ghosting(10));
         // The rolling boundary is 15 (25 messages, 10 kept), so 10 go and 15 stay.
-        expect(result).toEqual({ wiped: 10, charsRemoved: 20 });
+        expect(result).toEqual({ takenOutCount: 10, charsRemoved: 20 });
         expect(texts).toEqual(messagesOf(25).slice(10).map(message => message.mes));
         expect(lastGhost()).toMatchObject({ batchSize: 10, keptVerbatimCount: 15, messagesUntilNextBatch: 5 });
     });
 
     it('takes nothing out until a whole batch can go', () => {
         const { result } = ghost(19, 19, ghosting(10));
-        expect(result.wiped).toBe(0);
+        expect(result.takenOutCount).toBe(0);
         expect(lastGhost()).toMatchObject({ keptVerbatimCount: 19, messagesUntilNextBatch: 1 });
     });
 
     it('never takes out past the tip', () => {
         // The tip (27) is below the rolling boundary (30), and snaps down to 20.
         const { result, texts } = ghost(40, 27, ghosting(10));
-        expect(result.wiped).toBe(20);
+        expect(result.takenOutCount).toBe(20);
         expect(texts).toEqual(messagesOf(40).slice(20).map(message => message.mes));
     });
 
     it('gives no batch readout while World Info could scan the whole chat, nor at batch size 1', () => {
         getWorldInfoSettings.mockReturnValueOnce({ world_info_min_activations: 1, world_info_min_activations_depth_max: 0 });
-        expect(ghost(30, 30, ghosting(10)).result.wiped).toBe(0);
+        expect(ghost(30, 30, ghosting(10)).result.takenOutCount).toBe(0);
         expect(lastGhost()).toMatchObject({ keptVerbatimCount: null, messagesUntilNextBatch: null });
-        expect(ghost(30, 30, ghosting(1)).result.wiped).toBe(20);
+        expect(ghost(30, 30, ghosting(1)).result.takenOutCount).toBe(20);
         expect(lastGhost()).toMatchObject({ batchSize: 1, keptVerbatimCount: null, messagesUntilNextBatch: null });
     });
 
     it('moves the boundary every turn when the batch size is missing or unreadable', () => {
         for (const batchSize of [0, -5, Number.NaN, 'abc', undefined]) {
-            expect(ghost(25, 25, ghosting(batchSize)).result.wiped, String(batchSize)).toBe(15);
+            expect(ghost(25, 25, ghosting(batchSize)).result.takenOutCount, String(batchSize)).toBe(15);
             expect(lastGhost().batchSize).toBe(1);
         }
     });

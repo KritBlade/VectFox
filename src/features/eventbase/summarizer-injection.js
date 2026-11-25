@@ -203,13 +203,13 @@ function chatIndicesOfPrompt(prompt, chat, isToolCallingOn) {
  * @param {Array} chat - ST interceptor chat array (coreChat; the messages taken out are spliced from it)
  * @param {object} settings - extension_settings.vectfox
  * @param {object|null} [inUse] - The chat's collection in use (collectionInUse), as the reply step resolved it
- * @returns {{ wiped: number, charsRemoved: number }}
+ * @returns {{ takenOutCount: number, charsRemoved: number }}
  */
 export function applyGhosting(chat, settings, inUse = null) {
     if (!settings?.eventbase_ghost_enabled || !settings?.summarizer_injection_enabled) {
-        return { wiped: 0, charsRemoved: 0 };
+        return { takenOutCount: 0, charsRemoved: 0 };
     }
-    let wiped = 0;
+    let takenOutCount = 0;
     let charsRemoved = 0;
     // The batch readout: set only on a turn that ghosts at a batch size above 1, null otherwise.
     let keptVerbatimCount = null;
@@ -274,7 +274,7 @@ export function applyGhosting(chat, settings, inUse = null) {
             const text = chat[index].mes;
             if (typeof text === 'string' && text.trim()) {
                 charsRemoved += text.length;
-                wiped++;
+                takenOutCount++;
             }
         }
         chat.splice(0, cutoff, ...staying);
@@ -284,14 +284,14 @@ export function applyGhosting(chat, settings, inUse = null) {
     // readout reflects "0 saved this turn" (e.g. tip hasn't advanced yet) instead of a
     // stale value from an earlier generation.
     const approxTokens = Math.round(charsRemoved / 4); // rough 4-chars/token heuristic
-    window.VectFox_LastGhost = { wiped, charsRemoved, approxTokens, at: Date.now(), batchSize, keptVerbatimCount, messagesUntilNextBatch };
-    if (wiped > 0) {
+    window.VectFox_LastGhost = { takenOutCount, charsRemoved, approxTokens, at: Date.now(), batchSize, keptVerbatimCount, messagesUntilNextBatch };
+    if (takenOutCount > 0) {
         const batchNote = keptVerbatimCount === null
             ? ''
             : `; batches of ${batchSize}: ${keptVerbatimCount} message(s) kept verbatim, ${messagesUntilNextBatch} message(s) until the next batch`;
-        log.domain('injection', 'lifecycle', `[Ghost] Took ${wiped} vectorized message(s) out of the prompt — ~${charsRemoved} chars (~${approxTokens} tokens) saved${batchNote}`);
+        log.domain('injection', 'lifecycle', `[Ghost] Took ${takenOutCount} vectorized message(s) out of the prompt — ~${charsRemoved} chars (~${approxTokens} tokens) saved${batchNote}`);
     }
-    return { wiped, charsRemoved };
+    return { takenOutCount, charsRemoved };
 }
 
 /**

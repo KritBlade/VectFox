@@ -132,11 +132,11 @@ export async function runEventBaseReplyStep(chat, settings, type) {
             settings,
         });
 
-        // Blanks the oldest messages already vectorized from this prompt only, after the search text was read.
+        // Takes the oldest messages already vectorized out of this prompt only, after the search text was read.
         try {
             applyGhosting(chat, settings, inUse);
         } catch (error) {
-            log.error('VectFox Ghost: prompt wipe error (non-fatal):', error);
+            log.error('VectFox Ghost: taking messages out of the prompt failed (non-fatal):', error);
         }
     } catch (error) {
         toastr.error(`Generation interceptor aborted: ${error.message}`, 'VectFox');

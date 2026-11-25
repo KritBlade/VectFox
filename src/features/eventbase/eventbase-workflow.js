@@ -1410,8 +1410,8 @@ export function isChatFullyVectorized(messages, settings, registryKey, windowSiz
  *                                                                       chat's end: messages were deleted, a summary
  *                                                                       replaced some, or the events came from a longer
  *                                                                       copy of the chat. Auto-sync goes on with new
- *                                                                       messages; ghosting blanks nothing until the chat
- *                                                                       passes the tip
+ *                                                                       messages; ghosting takes nothing out until the
+ *                                                                       chat passes the tip
  *   { state: 'partial',          collectionId, registryKey,
  *     chatMessageCount, commitBoundary, unfinishedWindowCount,
  *     markerValue?, vectorizationTip? }                                — collection exists, last window not extracted or

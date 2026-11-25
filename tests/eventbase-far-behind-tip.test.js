@@ -4,7 +4,7 @@
  * SillyTavern saves the whole settings file from whichever tab saves last, so a tab left open or a
  * restored backup can put back a tip from long before the collection's events. A known tip is
  * otherwise never re-read, so the panel shows the old number, ticking Auto-sync offers to re-extract
- * a backlog that does not exist, and ghosting blanks only the messages below it.
+ * a backlog that does not exist, and ghosting takes out only the messages below it.
  *
  * Runs the real ensureVectorizationTip and the real pointer, kept in each collection's record, with only the backend
  * and the host faked.

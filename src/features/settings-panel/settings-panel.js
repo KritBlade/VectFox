@@ -1266,21 +1266,21 @@ function bindSettingsEvents(settings, callbacks) {
             return;
         }
         const g = window.VectFox_LastGhost;
-        if (!g || typeof g.wiped !== 'number') {
+        if (!g || typeof g.takenOutCount !== 'number') {
             $el.text('Last turn: no reply yet.');
             return;
         }
         const batchNote = typeof g.keptVerbatimCount === 'number'
-            ? ` In batches of ${_messageCount(g.batchSize)}: ${_messageCount(g.keptVerbatimCount)} kept verbatim, ${_messageCount(g.messagesUntilNextBatch)} until the next batch is blanked.`
+            ? ` In batches of ${_messageCount(g.batchSize)}: ${_messageCount(g.keptVerbatimCount)} kept verbatim, ${_messageCount(g.messagesUntilNextBatch)} until the next batch is taken out.`
             : '';
-        if (g.wiped === 0) {
-            $el.text(`Last turn: nothing blanked, as no vectorized message is older than those kept.${batchNote}`);
+        if (g.takenOutCount === 0) {
+            $el.text(`Last turn: nothing taken out, as no vectorized message is older than those kept.${batchNote}`);
         } else {
-            $el.html(`Last turn: <strong>${_messageCount(g.wiped)}</strong> blanked, about <strong>${g.approxTokens.toLocaleString()} tokens</strong> (${g.charsRemoved.toLocaleString()} characters) saved.${batchNote}`);
+            $el.html(`Last turn: <strong>${_messageCount(g.takenOutCount)}</strong> taken out, about <strong>${g.approxTokens.toLocaleString()} tokens</strong> (${g.charsRemoved.toLocaleString()} characters) saved.${batchNote}`);
         }
     };
 
-    // Ghosting needs Summarizer Injection on (the wipe checks it too): its controls are
+    // Ghosting needs Summarizer Injection on (applyGhosting checks it too): its controls are
     // disabled while it is off, and the Ghosting card says why.
     const _applyGhostAvailability = () => {
         const isSummarizerOn = !!settings.summarizer_injection_enabled;
@@ -1348,7 +1348,7 @@ function bindSettingsEvents(settings, callbacks) {
                     $autosync.prop('checked', true).trigger('input');
                 }
 
-                // Ghosting is the summarizer's main payoff — the wiped turns rely on
+                // Ghosting is the summarizer's main payoff — the turns it takes out rely on
                 // its injection for recall — so default it ON when the summarizer is
                 // enabled. Soft default, NOT a hard lock (unlike the 1-turn window):
                 // the ghost checkbox stays editable so the user can uncheck it. Reuses

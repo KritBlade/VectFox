@@ -67,18 +67,18 @@ function ghostingCard() {
         ${cardHeader({ icon: 'fa-ghost', title: 'Ghosting', description: 'Saves tokens: old vectorized messages leave the prompt, their events stand in.' })}
         <div class="vfx-card-body vfx-grid">
             <div id="VectFox_eventbase_ghost_needs_summarizer" class="vfx-span"${HIDDEN}>${notice({ status: 'warning', text: 'Ghosting needs Summarizer Injection on.' })}</div>
-            ${switchRow({ id: 'VectFox_eventbase_ghost_enabled', title: 'Ghost vectorized messages', description: 'Blanks them from the prompt sent. The chat and its saved file stay untouched.', isSpan: true })}
+            ${switchRow({ id: 'VectFox_eventbase_ghost_enabled', title: 'Ghost vectorized messages', description: 'Takes them out of the prompt sent. The chat and its saved file stay untouched.', isSpan: true })}
             ${field([
                 fieldLabel({ text: 'Messages kept verbatim', forId: 'VectFox_eventbase_ghost_keep_recent', hasHelp: true }),
                 sliderNumber({ id: 'VectFox_eventbase_ghost_keep_recent', min: 1, max: 50, step: 1, title: 'Messages' }),
-                hint({ text: 'Older vectorized messages are blanked. Lower saves more tokens.' }),
-                detail({ text: 'Every message World Info scans is kept as well, so keyword triggers still fire. The blanked turns live on only as events, so check recall as you lower it.' }),
+                hint({ text: 'Older vectorized messages are taken out. Lower saves more tokens.' }),
+                detail({ text: 'Every message World Info scans is kept as well, so keyword triggers still fire. The turns taken out live on only as events, so check recall as you lower it.' }),
             ])}
             ${field([
-                fieldLabel({ text: 'Blank in batches of', forId: 'VectFox_eventbase_ghost_batch_size', hasHelp: true }),
+                fieldLabel({ text: 'Take out in batches of', forId: 'VectFox_eventbase_ghost_batch_size', hasHelp: true }),
                 sliderNumber({ id: 'VectFox_eventbase_ghost_batch_size', min: 1, max: 100, step: 1, title: 'Messages' }),
                 hint({ text: 'Above 1, the prompt\'s start holds for a few turns, so a prompt cache can reuse it.' }),
-                detail({ text: 'At 1, blanking moves on every turn. At 10, it waits until 10 more messages can go and blanks them together, so up to 9 more messages stay verbatim until then. Raise it on a provider that caches prompts, such as DeepSeek or OpenAI. Elsewhere the extra messages only cost tokens.' }),
+                detail({ text: 'At 1, ghosting takes messages out every turn. At 10, it waits until 10 more messages can go and takes them out together, so up to 9 more messages stay verbatim until then. Raise it on a provider that caches prompts, such as DeepSeek or OpenAI. Elsewhere the extra messages only cost tokens.' }),
             ])}
             <div id="VectFox_eventbase_ghost_readout">${notice({ status: 'info', text: 'Last turn: no reply yet.' })}</div>
         </div>
@@ -166,7 +166,7 @@ export function autoSyncStatusMarkup({ state, isVectFoxOn, isOnForChat = false, 
         return resultList({ lines: [
             { status: 'warning', text: 'This chat is shorter than what EventBase read.' },
             { name: `Chat: ${chatMessageCount} messages · read: ${vectorizedCount} messages` },
-            { name: `Messages were deleted, a summary replaced some, or the events came from a longer copy of this chat. Auto-sync goes on with the chat's new messages, and ghosting blanks nothing until the chat passes ${vectorizedCount} messages. Sync chat on the Action page reads what EventBase has not read.` },
+            { name: `Messages were deleted, a summary replaced some, or the events came from a longer copy of this chat. Auto-sync goes on with the chat's new messages, and ghosting takes nothing out until the chat passes ${vectorizedCount} messages. Sync chat on the Action page reads what EventBase has not read.` },
         ] });
     }
     const line = stateLine({ state, isVectFoxOn, isOnForChat, unfinishedWindowCount, noneInUseText });

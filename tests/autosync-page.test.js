@@ -168,7 +168,7 @@ describe('autoSyncStatusMarkup', () => {
         expect(linesOf({ ...live, state: 'vectorization-ahead', vectorizedCount: 52 })).toEqual([
             { tone: 'warning', text: 'This chat is shorter than what EventBase read.' },
             { tone: 'plain', text: 'Chat: 40 messages · read: 52 messages' },
-            { tone: 'plain', text: 'Messages were deleted, a summary replaced some, or the events came from a longer copy of this chat. Auto-sync goes on with the chat\'s new messages, and ghosting blanks nothing until the chat passes 52 messages. Sync chat on the Action page reads what EventBase has not read.' },
+            { tone: 'plain', text: 'Messages were deleted, a summary replaced some, or the events came from a longer copy of this chat. Auto-sync goes on with the chat\'s new messages, and ghosting takes nothing out until the chat passes 52 messages. Sync chat on the Action page reads what EventBase has not read.' },
         ]);
     });
 
