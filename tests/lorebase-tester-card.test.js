@@ -5,7 +5,7 @@
  * InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md): it lists the open chat's reports newest
  * first and draws the picked one, hiding the Reply list while there is none; it follows the newest report until the
  * user picks an older one; drawing the same report again keeps the parts the user opened; and it measures the report it
- * draws only while the card is shown.
+ * draws only while the card is shown, drawing it again when the card's tab opens.
  */
 /* global document -- this file runs under the jsdom environment */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -20,7 +20,8 @@ vi.mock('../src/features/lorebase/index.js', () => ({
 }));
 
 const { measureLoreBaseReport, tryLoreBasePick } = await import('../src/features/lorebase/index.js');
-const { worldInfoPageMarkup } = await import('../src/features/settings-panel/worldinfo-page-markup.js');
+const { WORLDINFO_TAB, WORLDINFO_TABS_ID, worldInfoPageMarkup } = await import('../src/features/settings-panel/worldinfo-page-markup.js');
+const { showSubTab } = await import('../src/shared/gui-dna/gene-behaviours.js');
 const { bindLoreBaseTester, refreshLoreBaseTester } = await import('../src/features/settings-panel/lorebase-tester-card.js');
 
 const lighthouse = {
@@ -79,6 +80,17 @@ describe('the LoreBase tester card', () => {
         refreshLoreBaseTester();
         expect(drawnTitle()).toBe('Lighthouse of Vell');
         expect(measureLoreBaseReport).not.toHaveBeenCalled();
+    });
+
+    it('draws the report again when its tab opens, measuring it now that the card shows, and not when another tab opens', () => {
+        host.reports = [report(112)];
+        refreshLoreBaseTester();
+        showCard();
+        const gene = document.querySelector(`[data-vfx-subtabs="${WORLDINFO_TABS_ID}"]`);
+        showSubTab(gene, WORLDINFO_TAB.entityLore);
+        expect(measureLoreBaseReport).not.toHaveBeenCalled();
+        showSubTab(gene, WORLDINFO_TAB.tester);
+        expect(measureLoreBaseReport).toHaveBeenCalledWith(host.reports[0]);
     });
 
     it('follows the newest report until an older one is picked, keeps that one, and follows again once the newest is picked', () => {

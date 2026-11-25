@@ -4,9 +4,10 @@
  * ============================================================================
  * Runs the StoryArc page on the settings panel's rail, and its three tabs: Main, with
  * the mode and its settings, LinkGraph, with the story web, and Entity, with the merged
- * names and the names it hides. The page reads the chat's events each time it shows,
- * and again when asked. The web is drawn when the LinkGraph tab shows, and stops while
- * that tab or the page is hidden.
+ * names and the names it hides. The tabs are GUI-DNA's Sub-tabs gene, which the
+ * panel's gene behaviours switch; the page hears each switch. The page reads the
+ * chat's events each time it shows, and again when asked. The web is drawn when the
+ * LinkGraph tab shows, and stops while that tab or the page is hidden.
  * ============================================================================
  */
 
@@ -275,17 +276,9 @@ function runWebAction(action) {
 
 // ---------------------------------------------------------------------------- Page
 
-function showTab(tab) {
+/** A tab shows (the gene's vfx-subtab-change): the web runs on its own tab only, and is drawn there when due. */
+function onTabShown(tab) {
     page.openTab = tab;
-    const root = elementOf(STORY_ARC_PAGE_ID);
-    for (const button of root.querySelectorAll('[data-story-arc-tab]')) {
-        const isShown = button.dataset.storyArcTab === tab;
-        button.classList.toggle('is-active', isShown);
-        button.setAttribute('aria-selected', String(isShown));
-    }
-    for (const panel of root.querySelectorAll('[data-story-arc-panel]')) {
-        panel.style.display = panel.dataset.storyArcPanel === tab ? '' : 'none';
-    }
     page.web?.setPaused(tab !== WEB_TAB);
     drawWebOnItsTab().catch(error => log.error('[VectFox-StoryArc] The story web could not be drawn:', error));
 }
@@ -331,10 +324,9 @@ export function wireStoryArcPage(settings) {
         log.error('[VectFox-StoryArc] The page markup is missing, so its handlers cannot be bound');
         return;
     }
+    root.addEventListener('vfx-subtab-change', event => onTabShown(event.detail.tab));
     root.addEventListener('click', (event) => {
         const target = event.target instanceof Element ? event.target : null;
-        const tabButton = target?.closest('[data-story-arc-tab]');
-        if (tabButton) showTab(tabButton.dataset.storyArcTab);
         const entityButton = target?.closest('[data-entity-action]');
         if (entityButton && !entityButton.disabled) {
             runEntityAction(entityButton.dataset.entityAction, entityButton.dataset.name)

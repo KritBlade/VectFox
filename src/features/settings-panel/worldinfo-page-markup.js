@@ -2,10 +2,12 @@
  * ============================================================================
  * WORLDINFO PAGE, STATIC MARKUP
  * ============================================================================
- * The settings panel's WorldInfo page on GUI-DNA: LoreBase's switch, its books
- * for the open chat, each with its state, with the door to its selection
- * screen and Add a lorebook; LoreBase's model with its setup notice, its
- * Accuracy and the embedding model that writes its vectors; and its tester.
+ * The settings panel's WorldInfo page on GUI-DNA, on three sub-tabs. Main holds
+ * LoreBase's switch, its books for the open chat, each with its state, with the
+ * door to its selection screen and Add a lorebook, and LoreBase's model with its
+ * setup notice, its Accuracy and the embedding model that writes its vectors.
+ * Entity-Lore holds its card, which says the feature is not built yet.
+ * LoreBase tester holds the tester.
  * Every control keeps the id settings-panel.js, lorebase-books-card.js,
  * lorebase-model-card.js, lorebase-tester-card.js or connection-rows.js wires
  * it by. The LoreBase book list and the tester's reports are built here as
@@ -16,7 +18,7 @@
 import { chatProviderOptions, connectionProfileRows, testConnectionButton } from '../../shared/connection-profile-rows-markup.js';
 import {
     button, controlRow, detail, emptyState, field, fieldLabel, groupTitle, hint, iconButton, listRow, notice, recordCard, resultList,
-    select, selectOption, stack, statusPill,
+    select, selectOption, stack, statusPill, subTabs,
 } from '../../shared/gui-dna/gui-dna-core.js';
 import { buttonWithId, cardHeader, sliderNumber, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
 import { inUseSwitcherMarkup } from './in-use-switcher-markup.js';
@@ -154,13 +156,33 @@ function loreBaseTesterCard() {
     </section>`;
 }
 
+// Entity-Lore's card (§3 of entity-lore.md): its switch, sliders, Run now and character list are not built yet.
+function entityLoreCard() {
+    return `<section id="VectFox_entity_lore_card" class="vfx-card">
+        ${cardHeader({ icon: 'fa-users-viewfinder', title: 'Entity-Lore', description: 'Writes a lorebook entry for each named character StoryArc counts often.' })}
+        <div class="vfx-card-body">${emptyState({ icon: 'fa-person-digging', text: 'Not built yet. Its switch and settings come in a later version.' })}</div>
+    </section>`;
+}
+
+/** The page's Sub-tabs gene, by its id, and its tabs (§2.2 of entity-lore.md). Main opens first. */
+export const WORLDINFO_TABS_ID = 'VectFox_worldinfo_tabs';
+export const WORLDINFO_TAB = Object.freeze({ main: 'main', entityLore: 'entity-lore', tester: 'tester' });
+
 /**
- * The WorldInfo page's cards: LoreBase books, LoreBase model, then the tester.
+ * The WorldInfo page's three tabs: Main, with the LoreBase books and LoreBase model cards; Entity-Lore, with its card;
+ * and LoreBase tester, with the tester card.
  *
  * @returns {string}
  */
 export function worldInfoPageMarkup() {
-    return loreBaseBooksCard() + loreBaseModelCard() + loreBaseTesterCard();
+    return subTabs({
+        id: WORLDINFO_TABS_ID,
+        tabs: [
+            { tab: WORLDINFO_TAB.main, icon: 'fa-sliders', text: 'Main', body: loreBaseBooksCard() + loreBaseModelCard() },
+            { tab: WORLDINFO_TAB.entityLore, icon: 'fa-users-viewfinder', text: 'Entity-Lore', body: entityLoreCard() },
+            { tab: WORLDINFO_TAB.tester, icon: 'fa-flask', text: 'LoreBase tester', body: loreBaseTesterCard() },
+        ],
+    });
 }
 
 const LOCK_PILLS = {

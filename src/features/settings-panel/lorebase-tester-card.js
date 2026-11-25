@@ -1,13 +1,14 @@
 /**
  * The WorldInfo page's LoreBase tester card (plan §5.10 of InternalProject/Vectfox/plans/
- * executed/lorebook-semantic-overhaul-passage-index.md): Try a pick, which runs the next reply's pick with no reply; this
- * session's reports for the open chat, the newest first in its Reply list, and the one picked there drawn in full. Picking the newest follows each new reply; picking an older one keeps
- * it. A report is measured once the card is shown, and drawn again on each change, with the parts and lists the user
- * opened kept open.
+ * executed/lorebook-semantic-overhaul-passage-index.md), on the page's LoreBase tester tab: Try a pick, which runs the
+ * next reply's pick with no reply; this session's reports for the open chat, the newest first in its Reply list, and the
+ * one picked there drawn in full. Picking the newest follows each new reply; picking an older one keeps it. A report is
+ * measured only while the card is shown, so opening its tab draws the report again; it is drawn again on each change
+ * too, with the parts and lists the user opened kept open.
  */
 import { setCollapsed, setShown } from '../../shared/gui-dna/gene-behaviours.js';
 import { loreBaseReports, measureLoreBaseReport, onLoreBaseReportsChange, tryLoreBasePick } from '../lorebase/index.js';
-import { loreBaseReportMarkup, loreBaseReportOptions } from './worldinfo-page-markup.js';
+import { WORLDINFO_TAB, WORLDINFO_TABS_ID, loreBaseReportMarkup, loreBaseReportOptions } from './worldinfo-page-markup.js';
 
 const FOLDED_BOXES = '[data-lorebase-parts], [data-lorebase-skipped]';
 // The report picked in the Reply list, or null to follow the newest.
@@ -55,10 +56,14 @@ async function tryPick(button, settings) {
 }
 
 /**
- * Follow the Reply list, Try a pick and each change to the reports. Called once, as the panel is mounted.
+ * Follow the Reply list, Try a pick, each change to the reports and the opening of the tester's tab. Called once, as
+ * the panel is mounted.
  * @param {object} settings - The settings panel's settings object, which Try a pick runs on
  */
 export function bindLoreBaseTester(settings) {
+    document.querySelector(`[data-vfx-subtabs="${WORLDINFO_TABS_ID}"]`)?.addEventListener('vfx-subtab-change', event => {
+        if (event.detail.tab === WORLDINFO_TAB.tester) refreshLoreBaseTester();
+    });
     document.getElementById('VectFox_lorebase_report')?.addEventListener('change', event => {
         const id = Number(event.currentTarget.value);
         pickedReportId = id === loreBaseReports()[0]?.id ? null : id;

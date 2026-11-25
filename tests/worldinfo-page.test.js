@@ -1,18 +1,20 @@
 /**
  * @vitest-environment jsdom
  *
- * The settings panel's WorldInfo page on GUI-DNA (src/features/settings-panel/worldinfo-page-markup.js): LoreBase's
- * three cards, its switch first, and nothing of the old vector search; every control keeps the id its wiring uses; the
- * page is drawn from GUI-DNA alone with none of the old debug tools; the LoreBase book list says what each book of
- * the open chat has selected and where it is locked, then Add a lorebook with the books it does not load; and the
- * tester's report says what LoreBase did on a reply (§5.10).
+ * The settings panel's WorldInfo page on GUI-DNA (src/features/settings-panel/worldinfo-page-markup.js): three tabs on
+ * the Sub-tabs gene, opening on Main, which holds LoreBase's books and model cards, LoreBase's switch first, then
+ * Entity-Lore, whose card says it is not built yet, and LoreBase tester; nothing of the old vector search; every
+ * control keeps the id its wiring uses; the page is drawn from GUI-DNA alone with none of the old debug tools; the
+ * LoreBase book list says what each book of the open chat has selected and where it is locked, then Add a lorebook
+ * with the books it does not load; and the tester's report says what LoreBase did on a reply (§5.10).
  */
 /* global document, Node -- this file runs under the jsdom environment */
 
 import { beforeEach, describe, expect, it } from 'vitest';
 
 const {
-    loreBaseBooksMarkup, loreBaseReportMarkup, loreBaseReportOptions, loreBaseSetupNoticeMarkup, loreBaseVectorsLineText, worldInfoPageMarkup,
+    WORLDINFO_TAB, WORLDINFO_TABS_ID, loreBaseBooksMarkup, loreBaseReportMarkup, loreBaseReportOptions, loreBaseSetupNoticeMarkup,
+    loreBaseVectorsLineText, worldInfoPageMarkup,
 } = await import('../src/features/settings-panel/worldinfo-page-markup.js');
 const { KEY_CALLS_AT_ONCE_MAX } = await import('../src/features/lorebase/lorebase-keys-core.js');
 const { FAST_AND_CHEAP, loreBaseAccuracyOf } = await import('../src/features/lorebase/lorebase-reply-core.js');
@@ -81,8 +83,8 @@ describe('WorldInfo page markup', () => {
         expect(new Set(ids).size).toBe(ids.length);
     });
 
-    it("holds LoreBase's three cards, its books always shown, with the list empty and the door to the selection screen", () => {
-        expect([...document.querySelectorAll('.vfx-card-title')].map(title => title.textContent)).toEqual(['LoreBase books', 'LoreBase model', 'LoreBase tester']);
+    it("holds its four cards in their tabs' order, LoreBase's books always shown, with the list empty and the door to the selection screen", () => {
+        expect([...document.querySelectorAll('.vfx-card-title')].map(title => title.textContent)).toEqual(['LoreBase books', 'LoreBase model', 'Entity-Lore', 'LoreBase tester']);
         const books = document.getElementById('VectFox_lorebase_books_card');
         expect(books.style.display).toBe('');
         expect(document.getElementById('VectFox_lorebase_books').innerHTML).toBe('');
@@ -136,6 +138,35 @@ describe('WorldInfo page markup', () => {
         for (const id of ['VectFox_wi_test_input', 'VectFox_wi_test_btn', 'VectFox_wi_dump_registry', 'VectFox_wi_apply_first', 'VectFox_enabled_for_all', 'VectFox_max_entries']) {
             expect(document.getElementById(id), id).toBeNull();
         }
+    });
+});
+
+describe('WorldInfo page tabs (§2.2 of entity-lore.md)', () => {
+    beforeEach(() => {
+        document.body.innerHTML = `<div id="VectFox_settings">${worldInfoPageMarkup()}</div>`;
+    });
+    const cardsOn = tab => [...document.querySelectorAll(`[data-vfx-subtab-panel="${tab}"] > .vfx-card`)].map(card => card.id);
+
+    it('are Main, Entity-Lore and LoreBase tester on the Sub-tabs gene, each with its icon, opening on Main', () => {
+        const gene = document.querySelector(`[data-vfx-subtabs="${WORLDINFO_TABS_ID}"]`);
+        expect([...gene.querySelectorAll('[data-vfx-subtab]')].map(tab => [tab.dataset.vfxSubtab, tab.textContent.trim(), tab.querySelector('i').className])).toEqual([
+            [WORLDINFO_TAB.main, 'Main', 'fa-solid fa-sliders'],
+            [WORLDINFO_TAB.entityLore, 'Entity-Lore', 'fa-solid fa-users-viewfinder'],
+            [WORLDINFO_TAB.tester, 'LoreBase tester', 'fa-solid fa-flask'],
+        ]);
+        expect([...gene.querySelectorAll('[data-vfx-subtab-panel]')].filter(panel => !panel.hidden).map(panel => panel.dataset.vfxSubtabPanel)).toEqual([WORLDINFO_TAB.main]);
+    });
+
+    it("hold LoreBase's books and model cards on Main, Entity-Lore's card on its tab and the tester on its own", () => {
+        expect(cardsOn(WORLDINFO_TAB.main)).toEqual(['VectFox_lorebase_books_card', 'VectFox_lorebase_model_card']);
+        expect(cardsOn(WORLDINFO_TAB.entityLore)).toEqual(['VectFox_entity_lore_card']);
+        expect(cardsOn(WORLDINFO_TAB.tester)).toEqual(['VectFox_lorebase_tester_card']);
+    });
+
+    it("say on Entity-Lore's card what it will do, and that it is not built yet", () => {
+        const card = document.getElementById('VectFox_entity_lore_card');
+        expect(card.querySelector('.vfx-card-desc').textContent).toBe('Writes a lorebook entry for each named character StoryArc counts often.');
+        expect(card.querySelector('.vfx-empty').textContent).toBe('Not built yet. Its switch and settings come in a later version.');
     });
 });
 

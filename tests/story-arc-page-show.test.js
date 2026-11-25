@@ -1,15 +1,18 @@
 /**
  * @vitest-environment jsdom
  *
- * StoryArc page: showing, hiding and showing again, and moving between its tabs, on the page's real code and markup.
+ * StoryArc page: showing, hiding and showing again, and moving between its tabs, on the page's real code and markup,
+ * with GUI-DNA's gene behaviours bound around it, as the panel binds them, so its Sub-tabs switch as they do there.
  * The rail shows and hides it (settings-panel/panel-shell.js). Its web is drawn when the LinkGraph tab shows, since a
  * web drawn in a hidden tab lays out at no size, and stops on any other tab. A web that finishes drawing after the page
  * hid is closed, so nothing is left running for the next show.
  */
-/* global document -- this file runs under the jsdom environment */
+/* global document, KeyboardEvent -- this file runs under the jsdom environment */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import $ from 'jquery';
 import { storyArcPageMarkup } from '../src/features/eventbase/story-arc-page-markup.js';
+import { bindGeneBehaviours } from '../src/shared/gui-dna/gene-behaviours.js';
 
 const host = vi.hoisted(() => ({ drawStoryWeb: vi.fn() }));
 
@@ -27,8 +30,8 @@ vi.mock('../src/features/eventbase/story-arc-entities.js', () => ({
 vi.mock('../src/features/eventbase/story-arc-retrieval.js', () => ({ findStoryWebEvents: async () => ({}) }));
 
 const madeUpWeb = () => ({ destroy: vi.fn(), setPaused: vi.fn() });
-const openTab = tab => document.querySelector(`[data-story-arc-tab="${tab}"]`).click();
-const isPanelShown = tab => document.querySelector(`[data-story-arc-panel="${tab}"]`).style.display !== 'none';
+const openTab = tab => document.querySelector(`[data-vfx-subtab="${tab}"]`).click();
+const isPanelShown = tab => !document.querySelector(`[data-vfx-subtab-panel="${tab}"]`).hidden;
 
 let showStoryArcPage;
 let hideStoryArcPage;
@@ -36,9 +39,12 @@ let hideStoryArcPage;
 beforeEach(async () => {
     vi.resetModules();
     vi.stubGlobal('matchMedia', () => ({ matches: false }));
+    vi.stubGlobal('$', $);
     host.drawStoryWeb.mockReset();
     host.drawStoryWeb.mockImplementation(async () => madeUpWeb());
-    document.body.innerHTML = storyArcPageMarkup();
+    // A new root each test, so the behaviours bound on it are bound once.
+    document.body.innerHTML = `<div id="panel">${storyArcPageMarkup()}</div>`;
+    bindGeneBehaviours(document.getElementById('panel'));
     let wireStoryArcPage;
     ({ showStoryArcPage, hideStoryArcPage, wireStoryArcPage } = await import('../src/features/eventbase/story-arc-page.js'));
     wireStoryArcPage({});
@@ -93,9 +99,18 @@ describe('StoryArc page on the rail, on the LinkGraph tab', () => {
 
 describe('StoryArc page tabs', () => {
     it('are Main, LinkGraph and Entity, with the story web only on LinkGraph', () => {
-        expect([...document.querySelectorAll('[data-story-arc-tab]')].map(tab => tab.textContent.trim())).toEqual(['Main', 'LinkGraph', 'Entity']);
+        expect([...document.querySelectorAll('[data-vfx-subtab]')].map(tab => tab.textContent.trim())).toEqual(['Main', 'LinkGraph', 'Entity']);
         const web = document.getElementById('VectFox_story_arc_web');
-        expect(web.closest('[data-story-arc-panel]').dataset.storyArcPanel).toBe('linkgraph');
+        expect(web.closest('[data-vfx-subtab-panel]').dataset.vfxSubtabPanel).toBe('linkgraph');
+    });
+
+    it('switch with the arrow keys too, drawing the web when the keys reach LinkGraph', async () => {
+        await showStoryArcPage();
+        document.querySelector('[data-vfx-subtab="main"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+
+        expect(isPanelShown('linkgraph')).toBe(true);
+        expect(document.activeElement.dataset.vfxSubtab).toBe('linkgraph');
+        await vi.waitFor(() => expect(host.drawStoryWeb).toHaveBeenCalledTimes(1));
     });
 
     it('open on Main, which draws no web', async () => {

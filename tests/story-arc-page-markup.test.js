@@ -4,6 +4,7 @@
  * Guards that:
  *   - the page holds every control the settings handlers find by id, so moving them to the page kept their wiring,
  *   - the story web has each action its handlers read,
+ *   - its tabs are the Sub-tabs gene, opening on Main,
  *   - only the DNA's own classes, state classes and Font Awesome icons are used,
  *   - the entity list pages, opens one panel under its row, and escapes names.
  */
@@ -49,7 +50,7 @@ describe('storyArcPageMarkup', () => {
     });
 
     it('offers the Block size slider from 0.4 to 1.0 on the Main tab, beside the number that owns its value', () => {
-        const mainPanel = markup.slice(markup.indexOf('data-story-arc-panel="main"'), markup.indexOf('data-story-arc-panel="linkgraph"'));
+        const mainPanel = markup.slice(markup.indexOf('data-vfx-subtab-panel="main"'), markup.indexOf('data-vfx-subtab-panel="linkgraph"'));
         const range = /<input type="range" class="vfx-range" data-vfx-slider-for="VectFox_story_arc_block_scale"[^>]*>/.exec(mainPanel)?.[0];
         expect(range).toContain('min="0.4"');
         expect(range).toContain('max="1.0"');
@@ -60,7 +61,7 @@ describe('storyArcPageMarkup', () => {
     });
 
     it('offers the Max tokens slider from 1,000 to 32,000 on the Main tab, right under Block size', () => {
-        const mainPanel = markup.slice(markup.indexOf('data-story-arc-panel="main"'), markup.indexOf('data-story-arc-panel="linkgraph"'));
+        const mainPanel = markup.slice(markup.indexOf('data-vfx-subtab-panel="main"'), markup.indexOf('data-vfx-subtab-panel="linkgraph"'));
         const range = /<input type="range" class="vfx-range" data-vfx-slider-for="VectFox_story_arc_max_tokens"[^>]*>/.exec(mainPanel)?.[0];
         expect(range).toContain('min="1000"');
         expect(range).toContain('max="32000"');
@@ -74,12 +75,15 @@ describe('storyArcPageMarkup', () => {
         for (const id of Object.values(STORY_ARC_ELEMENT_ID)) expect(markup).toContain(`id="${id}"`);
     });
 
-    it('has the Main, LinkGraph and Entity tabs, in that order, with the story web on LinkGraph', () => {
-        const tabs = [...markup.matchAll(/data-story-arc-tab="([^"]+)"/g)].map(match => match[1]);
+    it('has the Main, LinkGraph and Entity tabs, in that order, on the Sub-tabs gene, Main shown first, with the story web on LinkGraph', () => {
+        expect(markup).toContain('data-vfx-subtabs="VectFox_story_arc_tabs"');
+        const tabs = [...markup.matchAll(/data-vfx-subtab="([^"]+)"/g)].map(match => match[1]);
         expect(tabs).toEqual(['main', 'linkgraph', 'entity']);
-        const linkGraphPanel = markup.slice(markup.indexOf('data-story-arc-panel="linkgraph"'), markup.indexOf('data-story-arc-panel="entity"'));
+        const shownPanels = [...markup.matchAll(/data-vfx-subtab-panel="([^"]+)"(?! hidden)/g)].map(match => match[1]);
+        expect(shownPanels).toEqual(['main']);
+        const linkGraphPanel = markup.slice(markup.indexOf('data-vfx-subtab-panel="linkgraph"'), markup.indexOf('data-vfx-subtab-panel="entity"'));
         expect(linkGraphPanel).toContain(`id="${STORY_ARC_ELEMENT_ID.webCanvas}"`);
-        const mainPanel = markup.slice(markup.indexOf('data-story-arc-panel="main"'), markup.indexOf('data-story-arc-panel="linkgraph"'));
+        const mainPanel = markup.slice(markup.indexOf('data-vfx-subtab-panel="main"'), markup.indexOf('data-vfx-subtab-panel="linkgraph"'));
         expect(mainPanel).not.toContain(`id="${STORY_ARC_ELEMENT_ID.webCanvas}"`);
     });
 

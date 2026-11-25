@@ -8,7 +8,7 @@
  * ============================================================================
  */
 
-import { button, detail, fieldLabel, grid, hint, iconButton, resultList, selectOption, select, field } from '../../shared/gui-dna/gui-dna-core.js';
+import { button, detail, fieldLabel, grid, hint, iconButton, resultList, selectOption, select, field, subTabs } from '../../shared/gui-dna/gui-dna-core.js';
 import { cardHeader, pageHeader, sliderNumber, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
 import { counted } from '../../shared/counted.js';
 import { LINK_PARALLEL_CALLS_DEFAULT, LINK_PARALLEL_CALLS_MAX, STORY_LINK_STATE, USABLE_DECIDED_SHARE, storyLinkState } from './story-arc-links-core.js';
@@ -34,9 +34,8 @@ export const STORY_ARC_ELEMENT_ID = Object.freeze({
 
 const CHAT_CHIP = '<span class="vfx-chip"><i class="fa-solid fa-comments"></i><span>This chat</span></span>';
 
-function subnavButton({ tab, icon, text, isActive = false }) {
-    return `<button type="button" class="vfx-subnav-item${isActive ? ' is-active' : ''}" role="tab" aria-selected="${isActive}" data-story-arc-tab="${tab}"><i class="fa-solid ${icon}"></i><span>${text}</span></button>`;
-}
+/** The page's Sub-tabs gene, by its id. */
+const STORY_ARC_TABS_ID = 'VectFox_story_arc_tabs';
 
 function legendLinkType(text, typeClass) {
     return `<span class="vfx-story-web-key"><span class="vfx-story-web-line ${typeClass}"></span>${text}</span>`;
@@ -277,23 +276,13 @@ export function storyArcPageMarkup({ notice = '' } = {}) {
                 + '<span id="VectFox_story_arc_link_pill" class="vfx-pill is-accent" style="display:none;"></span>',
         })}
         ${notice}
-        <nav class="vfx-subnav" role="tablist">
-            ${subnavButton({ tab: 'main', icon: 'fa-sliders', text: 'Main', isActive: true })}
-            ${subnavButton({ tab: 'linkgraph', icon: 'fa-diagram-project', text: 'LinkGraph' })}
-            ${subnavButton({ tab: 'entity', icon: 'fa-users', text: 'Entity' })}
-        </nav>
-        <div class="vfx-page" data-story-arc-panel="main">
-            ${modeCard()}
-            ${blockSizeCard()}
-            ${maxTokensCard()}
-            ${debugCard()}
-            ${connectionCard()}
-        </div>
-        <div class="vfx-page" data-story-arc-panel="linkgraph" style="display:none;">
-            ${storyWebCard()}
-        </div>
-        <div class="vfx-page" data-story-arc-panel="entity" style="display:none;">
-            ${entityCard()}
-        </div>
+        ${subTabs({
+            id: STORY_ARC_TABS_ID,
+            tabs: [
+                { tab: 'main', icon: 'fa-sliders', text: 'Main', body: modeCard() + blockSizeCard() + maxTokensCard() + debugCard() + connectionCard() },
+                { tab: 'linkgraph', icon: 'fa-diagram-project', text: 'LinkGraph', body: storyWebCard() },
+                { tab: 'entity', icon: 'fa-users', text: 'Entity', body: entityCard() },
+            ],
+        })}
     </div>`;
 }
