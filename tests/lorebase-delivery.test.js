@@ -5,18 +5,24 @@
  * to the next scan in the same chat, and only to it; every scan blanks the keys of the entries LoreBase decides in the
  * books locked here (D11); while LoreBase does not act, with VectFox or its switch off or Vector Storage's World Info
  * search on (§5.9), the scan is left alone; and the tester's dry scan as SillyTavern alone (§5.10) is left alone too,
- * but never while a generation's scan is due, and never counted when an interceptor held during it.
+ * but never while a generation's scan is due, and never counted when an interceptor held during it. And the books added
+ * to the chat through LoreBase's Add to this chat (L1 of InternalProject/Vectfox/plans/entity-lore.md): added to every
+ * scan as chat lore before it is armed, only while LoreBase acts, each once, a book SillyTavern lacks or cannot load
+ * skipped and said.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { oneSelectionRecord } from './lorebase-book-record.js';
 
 const host = vi.hoisted(() => ({
     listeners: {},
+    addedListeners: {},
     readyListeners: [],
     chatId: 'chat-harbor',
     context: null,
     settings: { vectfox: {} },
     isWorldInfoSearchOn: false,
+    worldNames: [],
+    books: {},
 }));
 
 vi.mock('../src/sillytavern/chat.js', () => ({
@@ -25,6 +31,7 @@ vi.mock('../src/sillytavern/chat.js', () => ({
 }));
 vi.mock('../src/sillytavern/events.js', () => ({
     eventSource: {
+        on: vi.fn((event, listener) => { (host.addedListeners[event] ??= []).push(listener); }),
         once: vi.fn((event, listener) => { if (event === 'app_ready') host.readyListeners.push(listener); }),
         makeLast: vi.fn((event, listener) => { host.listeners[event] = listener; }),
         emit: vi.fn(async () => {}),
@@ -33,7 +40,13 @@ vi.mock('../src/sillytavern/events.js', () => ({
 }));
 vi.mock('../src/sillytavern/identifiers.js', () => ({ getCharaFilename: () => 'keeper-orrin' }));
 vi.mock('../src/sillytavern/world-info.js', () => ({
-    METADATA_KEY: 'world_info', getWorldInfoSettings: () => ({ world_info: { charLore: [] } }), characterLorebooks: () => [], selected_world_info: [], world_names: [],
+    METADATA_KEY: 'world_info', getWorldInfoSettings: () => ({ world_info: { charLore: [] } }), characterLorebooks: () => [], selected_world_info: [],
+    world_names: host.worldNames,
+    // SillyTavern hands out its cached book; a book set to an Error fails to load.
+    loadWorldInfo: vi.fn(async bookName => {
+        if (host.books[bookName] instanceof Error) throw host.books[bookName];
+        return host.books[bookName] ?? null;
+    }),
 }));
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: host.settings, saveSettingsDebounced: vi.fn() }));
 vi.mock('../src/sillytavern/vector-storage.js', () => ({ isVectorStorageWorldInfoOn: () => host.isWorldInfoSearchOn }));
@@ -42,6 +55,8 @@ vi.mock('../src/sillytavern/log.js', () => ({
 }));
 
 const { eventSource } = await import('../src/sillytavern/events.js');
+const { log } = await import('../src/sillytavern/log.js');
+const { loadWorldInfo } = await import('../src/sillytavern/world-info.js');
 const { holdLoreForNextScan, initializeLoreBaseDelivery, loreBasePicksCarriedBy, scanLeftToSillyTavern } = await import('../src/features/lorebase/lorebase-delivery.js');
 
 initializeLoreBaseDelivery();
@@ -245,5 +260,92 @@ describe("the tester's scan as SillyTavern alone (§5.10)", () => {
         await scanLeftToSillyTavern(async () => { innerResult = await scanLeftToSillyTavern(inner); });
         expect(innerResult).toBeNull();
         expect(inner).not.toHaveBeenCalled();
+    });
+});
+
+describe("the books added to the chat through LoreBase's Add to this chat (L1 of entity-lore.md)", () => {
+    const CORAL_INDEX = {
+        entries: {
+            4: { uid: 4, key: ['reef'], content: 'The reef breaks at low tide.' },
+            9: { uid: 9, key: ['coral'], content: 'Coral grows slowly.' },
+        },
+    };
+    const addedTo = (...bookNames) => { host.context.chatMetadata = { vectfox_chat_lorebooks: bookNames }; };
+    // As SillyTavern runs the listeners: those added as the extensions loaded, the added books' first, then the arming,
+    // which is made the last.
+    const loadAdded = async (loaded) => {
+        for (const listener of host.addedListeners.worldinfo_entries_loaded) await listener(loaded);
+        return loaded;
+    };
+    const fullScan = async (loaded = loadedScan()) => scan(await loadAdded(loaded));
+
+    beforeEach(() => {
+        host.worldNames.splice(0, host.worldNames.length, 'Harbor Atlas', 'Keeper Notes', 'Coral Index', 'Tide Tables');
+        host.books = { 'Coral Index': CORAL_INDEX, 'Tide Tables': { entries: { 1: { uid: 1, key: ['tide'], content: 'High tide at noon.' } } } };
+        host.settings.vectfox.lorebase_books['Coral Index'] = oneSelectionRecord({
+            selectedUids: ['4'], pinnedSections: [], lockedToChatIds: ['chat-harbor'], lockedToCharacterAvatars: [],
+        });
+    });
+
+    it('is added as the extensions load, before the scan is armed, which is made the last once the app is ready', () => {
+        expect(host.addedListeners.worldinfo_entries_loaded).toHaveLength(1);
+        expect(host.addedListeners.worldinfo_entries_loaded[0]).not.toBe(host.listeners.worldinfo_entries_loaded);
+    });
+
+    it("adds each book to the scan's chat lore, as SillyTavern adds its Chat Lorebook, and LoreBase then decides their selected entries", async () => {
+        addedTo('Coral Index', 'Tide Tables');
+        const loaded = await fullScan();
+        expect(loaded.chatLore.map(entry => [entry.world, entry.uid, entry.key])).toEqual([
+            // Selected and locked here, so LoreBase decides it: its keys go.
+            ['Coral Index', 4, []],
+            ['Coral Index', 9, ['coral']],
+            ['Tide Tables', 1, ['tide']],
+        ]);
+        expect(CORAL_INDEX.entries[4].key).toEqual(['reef']);
+        expect(keysOf(loaded)).toEqual([[], [], ['bell'], []]);
+    });
+
+    it("adds nothing while LoreBase does not act: VectFox off, LoreBase's switch off, or Vector Storage's World Info search on (D12)", async () => {
+        addedTo('Coral Index');
+        host.settings.vectfox.enabled = false;
+        expect((await loadAdded(loadedScan())).chatLore).toEqual([]);
+        host.settings.vectfox.enabled = true;
+        host.settings.vectfox.lorebase_enabled = false;
+        expect((await loadAdded(loadedScan())).chatLore).toEqual([]);
+        host.settings.vectfox.lorebase_enabled = true;
+        host.isWorldInfoSearchOn = true;
+        expect((await loadAdded(loadedScan())).chatLore).toEqual([]);
+        expect(loadWorldInfo).not.toHaveBeenCalled();
+    });
+
+    it("adds no book a list of SillyTavern's loaded already, so it is scanned once, as SillyTavern's", async () => {
+        addedTo('Harbor Atlas', 'Keeper Notes');
+        const loaded = await loadAdded(loadedScan());
+        expect(loaded.chatLore).toEqual([]);
+        expect(loaded.globalLore).toHaveLength(3);
+        expect(loadWorldInfo).not.toHaveBeenCalled();
+    });
+
+    it('adds nothing for a chat with no added books, nor for one whose field holds no book names', async () => {
+        expect((await loadAdded(loadedScan())).chatLore).toEqual([]);
+        host.context.chatMetadata = { vectfox_chat_lorebooks: 'Coral Index' };
+        expect((await loadAdded(loadedScan())).chatLore).toEqual([]);
+        host.context.chatMetadata = { vectfox_chat_lorebooks: [null, 7, ''] };
+        expect((await loadAdded(loadedScan())).chatLore).toEqual([]);
+        expect(loadWorldInfo).not.toHaveBeenCalled();
+    });
+
+    it('skips a book SillyTavern no longer has, saying so once, and a book that fails to load, saying why, and adds the rest', async () => {
+        const failure = new Error('The server is down.');
+        host.books['Tide Tables'] = failure;
+        addedTo('Lost Charts', 'Tide Tables', 'Coral Index');
+        const loaded = await loadAdded(loadedScan());
+        expect(loaded.chatLore.map(entry => [entry.world, entry.uid])).toEqual([['Coral Index', 4], ['Coral Index', 9]]);
+        expect(log.warn.mock.calls).toEqual([
+            ['LoreBase: lorebook "Lost Charts" was added to this chat, but SillyTavern no longer has it, so it sends nothing. Unlink it on the WorldInfo page.'],
+            ['LoreBase: lorebook "Tide Tables", added to this chat, could not be loaded, so this scan sends none of it:', failure],
+        ]);
+        await loadAdded(loadedScan());
+        expect(log.warn.mock.calls.filter(([message]) => message.includes('Lost Charts'))).toHaveLength(1);
     });
 });

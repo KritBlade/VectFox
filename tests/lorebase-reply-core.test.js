@@ -43,6 +43,14 @@ describe('the books taking part', () => {
         expect(activeBookNames({ globalBooks: ['Voyage Log'], characterBooks: [], chatBook: 'Voyage Log', personaBook: 'Voyage Log' })).toEqual(['Voyage Log']);
         expect(activeBookNames({ globalBooks: [], characterBooks: [], chatBook: null, personaBook: null })).toEqual([]);
     });
+
+    // LoreBase adds them to the scan after SillyTavern loaded its own (L1 of InternalProject/Vectfox/plans/entity-lore.md).
+    it("lists the books added to the chat through LoreBase last, each once, and one SillyTavern loads already where SillyTavern loads it", () => {
+        expect(activeBookNames({
+            globalBooks: ['Harbor Atlas'], characterBooks: ['Keeper Notes'], chatBook: 'Voyage Log', personaBook: null,
+            addedBooks: ['Coral Index', 'Harbor Atlas', 'Reef Charts', 'Coral Index'],
+        })).toEqual(['Harbor Atlas', 'Keeper Notes', 'Voyage Log', 'Coral Index', 'Reef Charts']);
+    });
 });
 
 describe('the entries LoreBase decides', () => {

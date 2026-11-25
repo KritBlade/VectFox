@@ -5,14 +5,16 @@
 // VectFox's generation interceptor asks it for each reply's lore beside its retrieval: the books taking part, the scene
 // read from the stored chat, the search, the pick and the reviews as the trials asked them, and a toast for lore a
 // failed call left out. The picks are held for SillyTavern's World Info scan, whose copy of the books LoreBase arms so
-// that a selected entry goes in only when picked, with the parts its review kept. All of
+// that a selected entry goes in only when picked, with the parts its review kept, after adding to it the books added to
+// the chat through LoreBase, which load only while it acts (L1 of InternalProject/Vectfox/plans/entity-lore.md). All of
 // it waits for LoreBase's switch on the WorldInfo page, off by default, and never runs beside the World Info search of
 // SillyTavern's Vector Storage: turning LoreBase on, or a reply that finds that search on again, asks the user which of
 // the two to keep. A book holds one or more selections of its entries, a chat using one of them, the one locked to it or
 // its character. The selection screen is where the user chooses a selection's entries, locks it to the chat or
 // character, pins section names, and makes, renames and deletes selections; the WorldInfo page lists the open chat's
 // books with the selection each uses here, which its switcher changes or makes anew, and their locks,
-// adds a book the chat does not load through SillyTavern's own lists, locked where it was added (Add a lorebook),
+// adds a book the chat does not load, to the chat's own books, any number of them, or through the character's
+// Additional Lorebooks, locked where it was added (Add a lorebook),
 // and opens the screen, and writes the keys, the vectors or both of every selected entry, or deletes them all, through
 // LoreBase's storage module, which every page that counts, writes or deletes them calls; the Database Browser lists
 // each book's keys and vectors as rows through it too, what LoreBase cannot use here among its leftovers, and exports,

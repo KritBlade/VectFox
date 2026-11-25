@@ -303,6 +303,9 @@ describe("Remove from LoreBase's words, the same on both pages, and Unlink's", (
         expect(files.describeRemovedLoreBook({ bookName: BOOK, keysDeleted: 2, partsDeleted: 5, unlinkedFrom: ['chatBook'], stillLoadedBy: [] }))
             .toBe('Unlinked "Harbor Atlas" from this chat\'s Chat Lorebook, and removed it from LoreBase, with the keys of 2 entries and the '
                 + 'vectors of 5 parts.');
+        // A book added to the chat through LoreBase's Add to this chat (L1 of entity-lore.md).
+        expect(files.describeRemovedLoreBook({ bookName: BOOK, keysDeleted: 0, partsDeleted: 0, unlinkedFrom: ['addedChatBooks'], stillLoadedBy: [] }))
+            .toBe('Unlinked "Harbor Atlas" from the lorebooks added to this chat, and removed it from LoreBase.');
         expect(files.describeRemovedLoreBook({ bookName: BOOK, keysDeleted: 2, partsDeleted: 0, unlinkedFrom: [], stillLoadedBy: ['characterOwnBook'] }))
             .toBe('Removed "Harbor Atlas" from LoreBase, with the keys of 2 entries. This chat still loads it through the character\'s '
                 + 'own lorebook: take it out there in SillyTavern.');

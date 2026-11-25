@@ -3,10 +3,9 @@
  *
  * Adding a lorebook through SillyTavern's own controls (src/sillytavern/world-info.js, §6 of
  * InternalProject/Vectfox/plans/executed/lorebook-multi-vector.md): to a character's Additional Lorebooks through
- * charUpdateAddAuxWorld, by the character's avatar file name; and as the open chat's Chat Lorebook, as SillyTavern's
- * Chat Lorebook popup does: the metadata naming it, the Chat Lore buttons marked and the metadata saved, a book
- * SillyTavern lacks refused. Taking a lorebook out again: the character's Additional Lorebooks set without it through
- * charSetAuxWorlds, by the character's file name; the global list every chat loads through the World Info panel's own
+ * charUpdateAddAuxWorld, by the character's avatar file name. Taking a lorebook out again: the character's Additional
+ * Lorebooks set without it through charSetAuxWorlds, by the character's file name; the global list every chat loads
+ * through the World Info panel's own
  * list, whose change handler sets the global books, the other books kept on; and the Chat Lorebook off the chat, the
  * metadata without it, the Chat Lore buttons unmarked and the metadata saved, another book left as it is.
  * Saving one entry's title and text as SillyTavern's World Info commands do: the loaded copy changed, saved at once,
@@ -44,7 +43,7 @@ vi.mock('../../../../world-info.js', () => ({
 const { charSetAuxWorlds, charUpdateAddAuxWorld, reloadEditor, saveWorldInfo } = await import('../../../../world-info.js');
 const { saveMetadata } = await import('../../../../../script.js');
 const {
-    addCharacterLorebook, addChatLorebook, removeCharacterLorebook, removeChatLorebook, removeGlobalLorebook, saveLorebookEntry,
+    addCharacterLorebook, removeCharacterLorebook, removeChatLorebook, removeGlobalLorebook, saveLorebookEntry,
 } = await import('../src/sillytavern/world-info.js');
 
 let changeCount = 0;
@@ -74,24 +73,6 @@ describe('addCharacterLorebook', () => {
     it("adds the book to the character's Additional Lorebooks by the character's avatar file name", async () => {
         await addCharacterLorebook('keeper-orrin.png', 'Voyage, Log');
         expect(charUpdateAddAuxWorld).toHaveBeenCalledWith('keeper-orrin.png', 'Voyage, Log');
-    });
-});
-
-describe('addChatLorebook', () => {
-    it("names the book in the chat's metadata, whatever its name holds, marks every Chat Lore button, then saves the metadata", async () => {
-        host.chatMetadata = { integrity: 'harbor-uuid' };
-        document.body.innerHTML = '<div class="chat_lorebook_button"></div><div class="chat_lorebook_button"></div>';
-        await addChatLorebook('The <b>Old</b> "Keep"');
-        expect(host.chatMetadata).toEqual({ integrity: 'harbor-uuid', world_info: 'The <b>Old</b> "Keep"' });
-        expect(document.querySelectorAll('.chat_lorebook_button.world_set')).toHaveLength(2);
-        expect(saveMetadata).toHaveBeenCalledTimes(1);
-    });
-
-    it('refuses a book SillyTavern lacks, changing and saving nothing', async () => {
-        host.chatMetadata = {};
-        await expect(addChatLorebook('Lost Charts')).rejects.toThrow('SillyTavern has no lorebook named "Lost Charts".');
-        expect(host.chatMetadata).toEqual({});
-        expect(saveMetadata).not.toHaveBeenCalled();
     });
 });
 

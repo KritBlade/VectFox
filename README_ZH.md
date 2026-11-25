@@ -535,7 +535,7 @@ VectFox 使用 SillyTavern 的連線設定檔（connection profile）運作。�
 9. **保持同步。** 想要自動的話，在 **AutoSync** 頁面開啟 **Auto-sync this chat**。**Turns** 決定每次執行包含幾個回合。或者在 **Action** 頁面按 **Sync chat** 手動補上。
 10. （選用）讓 LoreBase 為你挑選世界書條目。在 **WorldInfo** 頁面開啟 **Use LoreBase**，設定 **LoreBase model** 卡片：還缺什麼，卡片上的提示會告訴你。按 **Choose entries**，開啟你想交給 LoreBase 決定的條目，然後關閉畫面。VectFox 會問你要不要寫入它們的關鍵字與向量，關鍵字寫好後，這本書就會鎖定到你的聊天。該畫面每個按鈕的說明，以及兩種選擇各自怎麼挑，見 [Doc/lorebase-choose-entries.md](Doc/lorebase-choose-entries.md)（英文）。
    - LoreBase 把每個條目的關鍵字與向量存在 Qdrant，所以向量後端要用 Qdrant，也要設定 VectFox 的嵌入模型。預設的 **Fast and Cheap [Jev]** 還需要一個給 Jev 用的 SillyTavern 設定檔。Jev 是一個小模型，每次回覆都會替每個條目評分。**High Accuracy** 則由 LoreBase model 自己挑條目，並把每個條目刪減到回覆需要的部分。
-   - 你的聊天還沒載入那本書？用書單下方的 **Add a lorebook**，把它加到這個角色或所有聊天。
+   - 你的聊天還沒載入那本書？用書單下方的 **Add a lorebook**，把它加到這個聊天或這個角色。這個聊天可以加任意多本書，加進來的書只在這個聊天、而且只在 LoreBase 開著時載入。
    - 如果 SillyTavern 的 **Vector Storage** 開著 **Enabled for World Info**，VectFox 會問你要不要關掉它。Vector Storage 會用自己的搜尋送出世界書條目，所以就算 LoreBase 把條目排除了，它還是會把你交給 LoreBase 的條目整條送出。如果你選擇保留它，LoreBase 就會維持關閉。Vector Storage 的聊天與檔案搜尋不受影響。
    - 同一頁的 **LoreBase tester** 卡片會顯示 LoreBase 在每次回覆中做了什麼。你可以看到挑了什麼、為什麼挑，每個條目送出了哪些部分，以及用了多少 token，並和 SillyTavern 的關鍵字會送出的量並排比較。如果回覆漏掉了什麼，你可以查看是不是 LoreBase 把它排除了。這些記錄會保留到你重新載入頁面為止。
    - 在提示詞中，LoreBase 送出的內容都放在 `<VectLorebook>` 區塊裡，每個條目放在以它命名的標籤中，所以你和 AI 都能把它和 SillyTavern 自己的條目分開。

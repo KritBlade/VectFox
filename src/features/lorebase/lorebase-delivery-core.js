@@ -4,8 +4,9 @@
  * it. In the scan's copy of the books, every entry LoreBase decides loses its keys, so SillyTavern's keyword step skips
  * it, and the picks go in as one <VectLorebook> block for each place in the prompt they take, so the prompt shows what
  * LoreBase sent: each pick inside a tag of its own, and the block force-activated as its most needed pick, which
- * SillyTavern loaded, so it goes where that entry goes. The book file is never changed. Pure: no SillyTavern, no
- * network.
+ * SillyTavern loaded, so it goes where that entry goes. The book file is never changed. And which books added to the
+ * chat through LoreBase a scan still lacks, with their entries as SillyTavern's chat lore holds them (L1 of
+ * InternalProject/Vectfox/plans/entity-lore.md). Pure: no SillyTavern, no network.
  */
 import { withoutDecoratorLines } from './lorebase-decorators-core.js';
 import { isDecidedEntry } from './lorebase-reply-core.js';
@@ -19,6 +20,31 @@ const SCAN_LISTS = ['globalLore', 'characterLore', 'chatLore', 'personaLore'];
 // role, and an outlet, by its name.
 const AT_DEPTH_POSITION = 4;
 const OUTLET_POSITION = 7;
+
+/**
+ * The books added to the chat through LoreBase that a scan still lacks (L1 of entity-lore.md): each once, in the order
+ * they were added, less those a list of SillyTavern's loaded already, so a book the user also binds in SillyTavern is
+ * scanned once, as SillyTavern's.
+ * @param {string[]} addedBookNames - The chat's added books, addedChatBookNames in lorebase-chat-books.js
+ * @param {{[list: string]: object[]}} loaded - WORLDINFO_ENTRIES_LOADED's data
+ * @returns {string[]}
+ */
+export function addedBooksToLoad(addedBookNames, loaded) {
+    const loadedBooks = new Set(SCAN_LISTS.flatMap(list => loaded[list] ?? []).map(entry => entry.world));
+    return [...new Set(addedBookNames)].filter(bookName => !loadedBooks.has(bookName));
+}
+
+/**
+ * A book's entries as a scan's chat lore holds them, built as SillyTavern's getChatLore builds its Chat Lorebook's
+ * (world-info.js): a copy of each entry, its uid first and its book as its world, so the scan reads them as it reads
+ * SillyTavern's, and the book is never changed.
+ * @param {string} bookName
+ * @param {{entries?: Record<string, object>}|null} book - As loadWorldInfo gives it
+ * @returns {object[]}
+ */
+export function chatLoreEntriesOf(bookName, book) {
+    return Object.values(book?.entries ?? {}).map(({ uid, ...rest }) => ({ uid, world: bookName, ...rest }));
+}
 
 /**
  * How SillyTavern's scan names an entry, in its forced activations and in what it activated.

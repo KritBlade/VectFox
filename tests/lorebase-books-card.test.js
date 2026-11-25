@@ -471,12 +471,12 @@ describe('Add a lorebook', () => {
         expect(status().hidden).toBe(false);
     });
 
-    it('adds the chosen book to this chat as its Chat Lorebook, locked to this chat, a line that goes once another chat is open', async () => {
+    it('adds the chosen book to this chat, locked to this chat, saying it loads while LoreBase is on, a line that goes once another chat is open', async () => {
         host.added = { chatId: 'chat-harbor' };
         await refreshLoreBaseBooks();
         addTo('chat', 'Tide Tables');
         expect(addLoreBookToChat).toHaveBeenCalledWith('Tide Tables', 'chat');
-        await vi.waitFor(() => expect(status().textContent).toBe('Added "Tide Tables" to this chat as its Chat Lorebook, and locked it to this chat.'));
+        await vi.waitFor(() => expect(status().textContent).toBe('Added "Tide Tables" to this chat, and locked it to this chat. It loads while LoreBase is on.'));
         host.screen.resolve(null);
         await vi.waitFor(() => expect(chatBookLocks).toHaveBeenCalledTimes(3));
 

@@ -212,6 +212,40 @@ describe('loreBaseBooksMarkup', () => {
         expect(unlinkers[0].nextElementSibling.dataset.lorebaseRemove).toBe('Harbor Atlas');
     });
 
+    // The books added to the chat through LoreBase's Add to this chat (L1 of InternalProject/Vectfox/plans/entity-lore.md).
+    it("says on a book only the chat's added books load that it loads while LoreBase is on alone, under what is selected", () => {
+        document.body.innerHTML = loreBaseBooksMarkup({
+            hasChat: true,
+            books: [
+                listedBook({ bookName: 'Coral Index', selectedCount: 3, isLockedToChat: true, isLockedToCharacter: false, canUnlink: true, isAddedToChat: true }),
+                listedBook({ bookName: 'Tide Tables', selectedCount: 0, isLockedToChat: false, isLockedToCharacter: false, canUnlink: true }),
+            ],
+        });
+        const subsOf = row => [...row.querySelectorAll('.vfx-row-sub')].map(sub => sub.textContent);
+        const [coral, tide] = document.querySelectorAll('.vfx-row');
+        expect(subsOf(coral)).toEqual(['3 selected', 'Added to this chat: loads only while LoreBase is on']);
+        expect(subsOf(tide)).toEqual(['Nothing selected']);
+        expect(coral.querySelector('[data-lorebase-unlink]').dataset.lorebaseUnlink).toBe('Coral Index');
+    });
+
+    it('draws a book added here that SillyTavern no longer has as missing, its one action Unlink', () => {
+        document.body.innerHTML = loreBaseBooksMarkup({
+            hasChat: true,
+            books: [listedBook({
+                bookName: 'Lost <b>Charts</b>', selectedCount: 0, isLockedToChat: false, isLockedToCharacter: false, canUnlink: true, isAddedToChat: true,
+                isMissing: true, canRemove: true,
+            })],
+        });
+        const row = document.querySelector('.vfx-row');
+        expect(row.querySelector('.vfx-row-name').textContent).toBe('Lost <b>Charts</b>');
+        expect(row.querySelector('.vfx-row-sub').textContent).toBe('Added to this chat, but SillyTavern no longer has it, so it sends nothing');
+        expect([...row.querySelectorAll('.vfx-pill')].map(pill => [pill.textContent.trim(), pill.classList.contains('is-warning')]))
+            .toEqual([['Missing from SillyTavern', true]]);
+        const actions = [...row.querySelectorAll('.vfx-row-actions button, .vfx-row-actions select')];
+        expect(actions.map(action => [action.title, action.dataset.lorebaseUnlink])).toEqual([['Unlink from this chat, and remove from LoreBase', 'Lost <b>Charts</b>']]);
+        expect(document.querySelector('.vfx-row b')).toBeNull();
+    });
+
     it('gives the trash of a book with 2 or more selections the one in use here to delete, its dropdown showing it; else Remove from LoreBase', () => {
         const TWO = [{ id: 'first', name: 'Harbor Atlas' }, { id: 'night', name: 'Night <b>watch</b>' }];
         document.body.innerHTML = loreBaseBooksMarkup({
@@ -357,12 +391,12 @@ describe('loreBaseBooksMarkup', () => {
             label: 'Add a lorebook',
             options: [['', 'Choose a lorebook'], ['Tide Tables', 'Tide Tables'], ['The <b>Old</b> "Keep"', 'The <b>Old</b> "Keep"']],
             buttons: [['chat', 'Add to this chat'], ['character', 'Add to this character']],
-            hint: 'This chat: as its Chat Lorebook, locked here. This character: its chats, locked to it.',
+            hint: 'This chat: here only, while LoreBase is on, locked here. This character: its chats, locked to it.',
         });
         expect(document.body.textContent).toContain('This chat loads no lorebook.');
         expect(addRow({ bookNames: ['Tide Tables'], canAddToCharacter: false })).toMatchObject({
             buttons: [['chat', 'Add to this chat']],
-            hint: 'A group chat has no one character, so a book goes to this chat, locked here.',
+            hint: 'A group chat has no one character, so a book goes to this chat only, while LoreBase is on, locked here.',
         });
         expect(addRow({ bookNames: [], canAddToCharacter: true })).toEqual({ label: null, options: null, buttons: [], hint: 'This chat loads every lorebook you have.' });
     });

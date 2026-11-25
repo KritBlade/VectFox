@@ -1,10 +1,10 @@
 // world-info.js — SillyTavern's lorebooks: their names (`world_names`, a live binding), the globally selected books
 // (`selected_world_info`, a live binding) and the chat metadata key of a chat's book, loading one, the entries in
 // activation order, a scan of the books (`checkWorldInfo`) and whether it reads each message with its speaker's name
-// (`world_info_include_names`, a live binding), and the World Info settings. And adding a book, or taking one out, the
-// way SillyTavern's own controls do: a character's Additional Lorebooks and a chat's Chat Lorebook, its Chat Lore button's;
-// taking one out of the global list every chat loads too; and saving one entry's title and text the way its World Info
-// commands do.
+// (`world_info_include_names`, a live binding), and the World Info settings. And adding a book to a character's
+// Additional Lorebooks, and taking one out of them, the way SillyTavern's own controls do; taking one off a chat as its
+// Chat Lorebook, as its Chat Lore button does, and out of the global list every chat loads; and saving one entry's title
+// and text the way its World Info commands do.
 // The rest of VectFox imports these here, never from SillyTavern (tools/check-host-imports.mjs).
 import {
     METADATA_KEY, charSetAuxWorlds, charUpdateAddAuxWorld, getWorldInfoSettings, loadWorldInfo, reloadEditor, saveWorldInfo,
@@ -72,21 +72,6 @@ function setGlobalLorebooks(bookNames) {
  */
 export function removeGlobalLorebook(bookName) {
     setGlobalLorebooks(selected_world_info.filter(name => name !== bookName));
-}
-
-/**
- * Make a lorebook the open chat's Chat Lorebook, as choosing it in SillyTavern's Chat Lorebook popup does
- * (assignLorebookToChat): the chat's metadata naming it in place of any book it named, the Chat Lore buttons marked as
- * set, and the chat's metadata saved. The chat then loads it, and only this chat.
- * @param {string} bookName - A book SillyTavern has
- * @returns {Promise<void>}
- * @throws {Error} When SillyTavern has no such book
- */
-export async function addChatLorebook(bookName) {
-    if (!world_names.includes(bookName)) throw new Error(`SillyTavern has no lorebook named "${bookName}".`);
-    chat_metadata[METADATA_KEY] = bookName;
-    for (const button of document.querySelectorAll('.chat_lorebook_button')) button.classList.add('world_set');
-    await saveMetadata();
 }
 
 /**

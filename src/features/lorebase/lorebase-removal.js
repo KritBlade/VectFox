@@ -4,9 +4,9 @@
  * both name and delete the same, and the WorldInfo page's Unlink runs too. The confirm names what the book holds now
  * (loreBookHoldings, removalConfirmLines) and opens on Cancel; then its vectors, its keys and its record go, with its
  * selected entries, pinned sections and locks (removeLoreBook). Remove leaves the book where SillyTavern loads it.
- * Unlink's confirm says it deletes all of that too and names the open chat's lists it takes the book out of, the
- * character's Additional Lorebooks, the global list and the chat's Chat Lorebook, which it does once LoreBase holds
- * nothing of the book (unlinkLoreBookFromChat). Each page says how it went, with describeRemovedLoreBook, and draws its
+ * Unlink's confirm says it deletes all of that too and names the open chat's lists it takes the book out of, the chat's
+ * books added through LoreBase, the character's Additional Lorebooks, the global list and the chat's Chat Lorebook,
+ * which it does once LoreBase holds nothing of the book (unlinkLoreBookFromChat). Each page says how it went, with describeRemovedLoreBook, and draws its
  * list again. And the one delete of a single selection (§3.7), which Choose entries' Delete and the WorldInfo page's
  * trash on a book row showing one of several selections both run (deleteLoreSelectionAfterConfirm).
  */

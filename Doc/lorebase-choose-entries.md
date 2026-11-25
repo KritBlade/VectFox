@@ -23,14 +23,18 @@ LoreBase only decides books your chat loads. If the book you want isn't in the *
 
 Pick the book, then one of the 2 buttons:
 
-- **Add to this chat** makes it this chat's Chat Lorebook, the one SillyTavern's Chat Lore button sets. It loads in this chat only, and LoreBase locks it to this chat.
+- **Add to this chat** adds it to this chat only. You can add as many books as you like this way, and LoreBase locks each one to this chat.
 - **Add to this character** puts it in the character's Additional Lorebooks. It loads in every chat with this character, and LoreBase locks it to the character.
 
-A chat has only 1 Chat Lorebook. If yours already has one, **Add to this chat** names it and adds nothing, so the one you set never gets swapped out behind your back. Add the book to the character instead, or take the other one off first.
+A book you add to this chat belongs to LoreBase, not to SillyTavern. So it only loads while **Use LoreBase** is on. Turn LoreBase off, and nothing from it goes into your prompt. Whatever you set up in SillyTavern itself keeps working exactly like before, LoreBase on or off.
 
-Both use SillyTavern's own places, so SillyTavern shows the book there too. To take it out again, press **Unlink**, the broken-link button on the book's row. After asking, it takes the book back out of where it went AND deletes what LoreBase keeps for it. Taking it out in SillyTavern works too, like any other book, but then LoreBase keeps what it had for the book.
+Why not SillyTavern's Chat Lorebook? Because a chat only gets 1 of those, and a lot of you already use it. I didn't want **Add to this chat** to kick your book out of that slot, or to leave you stuck at 1 book. And it doesn't use **Active World(s) for all chats** either. That one loads a book in EVERY chat, so a book for this story would show up in all your other stories too.
 
-Right after, this screen opens on the new book, with nothing turned on. You pick its entries like any other book's.
+To take a book out again, press **Unlink**, the broken-link button on the book's row. After asking, it takes the book back out of where it went AND deletes what LoreBase keeps for it. A book you added to the character can also be taken out in SillyTavern, like any other book, but then LoreBase keeps what it had for the book.
+
+If you rename or delete a book in SillyTavern after adding it to this chat, its row says **Missing from SillyTavern**, and it sends nothing. Press **Unlink** on it to clear it out, then add the book again under its new name.
+
+Right after you add a book, this screen opens on it, with nothing turned on. You pick its entries like any other book's.
 
 A group chat has no one character, so it only gets **Add to this chat**.
 

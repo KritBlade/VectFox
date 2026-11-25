@@ -18,8 +18,8 @@
  * one of 2 or more selections in use here, runs LoreBase's one selection delete on it alone
  * (deleteLoreSelectionAfterConfirm), and else Remove from LoreBase, LoreBase's one confirm and removal of the book
  * (removeLoreBookAfterConfirm), its record, keys and vectors, leaving the book in the chat; Unlink, on the row of a book
- * the chat loads through its Chat Lorebook, the character's Additional Lorebooks or the global list, confirms and
- * removes it the same, then takes it out of those lists. Selection in use here, leading a book's row, puts the
+ * the chat loads through its added books, its Chat Lorebook, the character's Additional Lorebooks or the global list,
+ * confirms and removes it the same, then takes it out of those lists. Selection in use here, leading a book's row, puts the
  * selection chosen in use in this chat, or makes a new one and opens the selection screen on it (§1.2 and §3.7 of
  * InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md). Each goes through LoreBase's storage module. The card's status line says how each went, and shows every writing run on the progress panel,
  * whichever started it: the entries being written, then what was written and the books the run locked to its chat
@@ -437,9 +437,9 @@ async function chooseEntries(bookName, selectionId = null) {
 }
 
 /**
- * Add a lorebook (§6 of lorebook-multi-vector.md): the book chosen in the card's list, to this chat as its Chat
- * Lorebook or to this character as the button pressed says, locked there; then draw the list again, so its row shows,
- * and open the selection screen on it. The status line says where it went, a line that stays when the screen closes
+ * Add a lorebook (§6 of lorebook-multi-vector.md, L1 of InternalProject/Vectfox/plans/entity-lore.md): the book chosen
+ * in the card's list, to this chat on LoreBase's own list of its books or to this character as the button pressed
+ * says, locked there; then draw the list again, so its row shows, and open the selection screen on it. The status line says where it went, a line that stays when the screen closes
  * with nothing to say of the selection, or that no book was chosen, or why it was not added. The Add buttons wait while
  * it is added.
  * @param {HTMLElement} button - The Add button pressed, carrying the place addLoreBookToChat takes
@@ -466,7 +466,7 @@ async function addBook(button) {
     }
     const addedText = lock.characterAvatar
         ? `Added "${bookName}" to this character, and locked it to the character.`
-        : `Added "${bookName}" to this chat as its Chat Lorebook, and locked it to this chat.`;
+        : `Added "${bookName}" to this chat, and locked it to this chat. It loads while LoreBase is on.`;
     showBooksStatus(addedText, { lockChatId: chatId });
     void refreshLoreBaseBooks();
     await chooseEntries(bookName);

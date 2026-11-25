@@ -205,17 +205,41 @@ function bookStatePill(book) {
     return statusPill({ name: needLine(book), icon: 'fa-key', status: 'warning' });
 }
 
+// A book row's Unlink: out of the lists that load the book in this chat, and out of LoreBase.
+const unlinkButton = bookName => iconButton({
+    icon: 'fa-link-slash', title: 'Unlink from this chat, and remove from LoreBase', isDanger: true, data: { 'lorebase-unlink': bookName },
+});
+
+/**
+ * The row of a book added to this chat that SillyTavern no longer has, as renamed or deleted there (L1 of
+ * InternalProject/Vectfox/plans/entity-lore.md): it loads nothing, and Unlink takes it off the chat's books.
+ * @param {{bookName: string}} book
+ * @returns {string}
+ */
+function missingBookRow({ bookName }) {
+    return listRow({
+        icon: 'fa-book',
+        name: bookName,
+        sub: [{ text: 'Added to this chat, but SillyTavern no longer has it, so it sends nothing' }],
+        pills: [statusPill({ text: 'Missing from SillyTavern', icon: 'fa-triangle-exclamation', status: 'warning' })],
+        actions: [unlinkButton(bookName)],
+    });
+}
+
 /**
  * One book's row in the LoreBase books card's list, as loreBaseBooksMarkup draws it, for the card to draw again alone
- * as a writing run moves through the book.
+ * as a writing run moves through the book. A book only the chat's added books load says it loads while LoreBase is on
+ * alone (L1 of entity-lore.md); one SillyTavern no longer has draws missingBookRow.
  * @param {object} book - One of loreBaseBooksMarkup's books
  * @returns {string}
  */
 export function loreBaseBookRow(book) {
+    if (book.isMissing) return missingBookRow(book);
     const { bookName, selectedCount, isLockedToChat, isLockedToCharacter, keyCount, vectorCount, readyCount, failedCount, firstFailure } = book;
     const locks = [isLockedToChat ? LOCK_PILLS.chat : '', isLockedToCharacter ? LOCK_PILLS.character : ''].filter(Boolean);
     const isStateShown = Boolean(selectedCount) && (Boolean(book.writing) || readyCount !== undefined);
     const sub = selectedCount ? [{ name: selectedLine(selectedCount, keyCount, vectorCount) }] : [{ text: 'Nothing selected' }];
+    if (book.isAddedToChat) sub.push({ text: 'Added to this chat: loads only while LoreBase is on' });
     if (isStateShown && failedCount && !book.writing) sub.push({ text: 'First failure', name: String(firstFailure ?? '').slice(0, FAILURE_CHARACTERS) });
     return listRow({
         icon: 'fa-book',
@@ -232,9 +256,7 @@ export function loreBaseBookRow(book) {
                 data: { 'lorebase-in-use': bookName },
             }),
             iconButton({ icon: 'fa-list-check', title: 'Choose entries', data: { 'lorebase-choose': bookName } }),
-            book.canUnlink
-                ? iconButton({ icon: 'fa-link-slash', title: 'Unlink from this chat, and remove from LoreBase', isDanger: true, data: { 'lorebase-unlink': bookName } })
-                : '',
+            book.canUnlink ? unlinkButton(bookName) : '',
             bookTrashButton(book),
         ].filter(Boolean),
     });
@@ -273,10 +295,10 @@ function readyLine(books) {
     return hint({ text: `${lockedBooks}: ${entries(ready)} ready${waiting ? `, ${entries(waiting)} waiting for keys or vectors` : ''}.` });
 }
 
-// Add a lorebook (§6 and §7.1 of lorebook-multi-vector.md): the books the chat does not load, then a button for each
-// place, Add to this chat, as its Chat Lorebook, and Add to this character, which a group chat with no one character
-// lacks. Each button carries the place addLoreBookToChat takes (ADD_TO_CHAT and ADD_TO_CHARACTER in
-// lorebase-chat-books.js).
+// Add a lorebook (§6 and §7.1 of lorebook-multi-vector.md, L1 of InternalProject/Vectfox/plans/entity-lore.md): the
+// books the chat does not load, then a button for each place, Add to this chat, on LoreBase's own list of the chat's
+// books, loaded only while LoreBase is on, and Add to this character, which a group chat with no one character lacks.
+// Each button carries the place addLoreBookToChat takes (ADD_TO_CHAT and ADD_TO_CHARACTER in lorebase-chat-books.js).
 function addBookMarkup({ bookNames, canAddToCharacter }) {
     if (!bookNames.length) return hint({ text: 'This chat loads every lorebook you have.' });
     const options = [selectOption({ value: '', text: 'Choose a lorebook' }), ...bookNames.map(bookName => selectOption({ value: bookName, name: bookName }))];
@@ -289,28 +311,31 @@ function addBookMarkup({ bookNames, canAddToCharacter }) {
         ]),
         hint({
             text: canAddToCharacter
-                ? 'This chat: as its Chat Lorebook, locked here. This character: its chats, locked to it.'
-                : 'A group chat has no one character, so a book goes to this chat, locked here.',
+                ? 'This chat: here only, while LoreBase is on, locked here. This character: its chats, locked to it.'
+                : 'A group chat has no one character, so a book goes to this chat only, while LoreBase is on, locked here.',
         }),
     ]);
 }
 
 /**
- * The LoreBase books card's list for the open chat: each book SillyTavern loads here, how many entries are selected
- * in it and, once read, how many of those have keys and vectors and its one state (§7.1 of lorebook-multi-vector.md),
- * and whether it is locked to this chat or its character, where LoreBase decides them (D11), each row with Selection in
+ * The LoreBase books card's list for the open chat: each book a scan loads here, how many entries are selected in it
+ * and, once read, how many of those have keys and vectors and its one state (§7.1 of lorebook-multi-vector.md), and
+ * whether it is locked to this chat or its character, where LoreBase decides them (D11), each row with Selection in
  * use here (inUseSwitcherMarkup, §1.2 of vectfox-multi-collection-per-chat.md), None in use here and New selection
  * alone on a book with no selection, Choose entries, Unlink on a book a list Unlink takes books out of loads here, and
  * the trash (bookTrashButton): the selection in use here on a book of several, else Remove from LoreBase on a book
  * LoreBase has a record of; the counts and locks are those of the selection in use here,
- * or with none, the counts of every entry the book's selections hold; under the list, the ready entries of the books
- * locked here and those waiting; then, given what to add, Add a lorebook.
+ * or with none, the counts of every entry the book's selections hold; a book only the chat's added books load saying
+ * it loads while LoreBase is on alone, and a book added here that SillyTavern no longer has, missing, with Unlink alone
+ * (L1 of entity-lore.md); under the list, the ready entries of the books locked here and those waiting; then, given what
+ * to add, Add a lorebook.
  *
  * @param {{hasChat: boolean, books: Array<{bookName: string, selectedCount: number, isLockedToChat: boolean,
  *   isLockedToCharacter: boolean, selections: Array<{id: string, name: string}>, selectionInUseId: string|null,
- *   canRemove?: boolean, canUnlink?: boolean, keyCount?: number, vectorCount?: number, readyCount?: number,
- *   missingKeyCount?: number, missingVectorCount?: number, otherModelCount?: number, failedCount?: number,
- *   firstFailure?: string|null, writing?: {isKeys: boolean, done: number, total: number}|null}>,
+ *   canRemove?: boolean, canUnlink?: boolean, isAddedToChat?: boolean, isMissing?: boolean, keyCount?: number,
+ *   vectorCount?: number, readyCount?: number, missingKeyCount?: number, missingVectorCount?: number,
+ *   otherModelCount?: number, failedCount?: number, firstFailure?: string|null,
+ *   writing?: {isKeys: boolean, done: number, total: number}|null}>,
  *   add?: {bookNames: string[], canAddToCharacter: boolean}|null}} status - LoreBase's chatBookLocks, with
  *   storedCountsOfBooks's counts, the writing run's place in the book it writes now, and booksToAdd's books
  * @returns {string}

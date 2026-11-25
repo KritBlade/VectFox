@@ -332,13 +332,15 @@ export function describeDelete(row) {
 
 const listWords = new Intl.ListFormat('en', { type: 'conjunction' });
 
-// The places SillyTavern loads a book from for the open chat, in words, by their names in lorebase-chat-books.js.
+// The places a book loads from for the open chat, in words, by their names in lorebase-chat-books.js: SillyTavern's,
+// and the books added to the chat through LoreBase's Add to this chat.
 const CHAT_BOOK_PLACE_WORDS = Object.freeze({
     globalList: 'the global list every chat loads',
     characterBooks: "this character's Additional Lorebooks",
     characterOwnBook: "the character's own lorebook",
     chatBook: "this chat's Chat Lorebook",
     personaBook: "your persona's lorebook",
+    addedChatBooks: 'the lorebooks added to this chat',
 });
 const placesInWords = places => listWords.format(places.map(place => CHAT_BOOK_PLACE_WORDS[place]));
 const stillLoadedSentence = places => `This chat still loads it through ${placesInWords(places)}: take it out there in SillyTavern.`;

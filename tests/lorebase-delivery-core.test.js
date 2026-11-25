@@ -6,11 +6,49 @@
  * place in the prompt they take, each pick in a tag of its own.
  */
 import { describe, expect, it } from 'vitest';
-import { armScan, scanDeliveries, scanKey } from '../src/features/lorebase/lorebase-delivery-core.js';
+import { addedBooksToLoad, armScan, chatLoreEntriesOf, scanDeliveries, scanKey } from '../src/features/lorebase/lorebase-delivery-core.js';
 
 const passage = text => ({ section: '(intro)', text, tokens: 5 });
 const reviewed = (uid, sentParts, { frame = null, texts = ['The lamp burns all night.', 'The keeper sleeps by day.', 'Gulls nest on the roof.'] } = {}) => ({
     bookName: 'Harbor Atlas', uid, title: `entry ${uid}`, uses: sentParts.length ? 'some' : 'none', frame, passages: texts.map(passage), sentParts,
+});
+
+// The books added to the chat through LoreBase's Add to this chat (L1 of InternalProject/Vectfox/plans/entity-lore.md).
+describe('addedBooksToLoad', () => {
+    const loaded = () => ({
+        globalLore: [{ uid: 0, world: 'Harbor Atlas' }],
+        characterLore: [{ uid: 7, world: 'Keeper Notes' }],
+        chatLore: [{ uid: 3, world: 'Voyage Log' }],
+        personaLore: [],
+    });
+
+    it('keeps the added books the scan lacks, each once, in the order they were added', () => {
+        expect(addedBooksToLoad(['Tide Tables', 'Coral Index', 'Tide Tables'], loaded())).toEqual(['Tide Tables', 'Coral Index']);
+    });
+
+    it("leaves out a book any list of SillyTavern's loaded already, so it is scanned once, as SillyTavern's", () => {
+        expect(addedBooksToLoad(['Harbor Atlas', 'Keeper Notes', 'Voyage Log', 'Tide Tables'], loaded())).toEqual(['Tide Tables']);
+        expect(addedBooksToLoad([], loaded())).toEqual([]);
+    });
+});
+
+describe('chatLoreEntriesOf', () => {
+    it("copies each entry as SillyTavern's chat lore holds it, its uid first and the book as its world, the book left as it was", () => {
+        const book = { entries: { 4: { uid: 4, key: ['reef'], content: 'The reef breaks at low tide.' }, 9: { uid: 9, key: [], content: 'Coral grows slowly.' } } };
+        const entries = chatLoreEntriesOf('Coral Index', book);
+        expect(entries).toEqual([
+            { uid: 4, world: 'Coral Index', key: ['reef'], content: 'The reef breaks at low tide.' },
+            { uid: 9, world: 'Coral Index', key: [], content: 'Coral grows slowly.' },
+        ]);
+        expect(Object.keys(entries[0])).toEqual(['uid', 'world', 'key', 'content']);
+        entries[0].key = [];
+        expect(book.entries[4]).toEqual({ uid: 4, key: ['reef'], content: 'The reef breaks at low tide.' });
+    });
+
+    it('gives nothing for a book with no entries, or none at all', () => {
+        expect(chatLoreEntriesOf('Coral Index', { entries: {} })).toEqual([]);
+        expect(chatLoreEntriesOf('Coral Index', null)).toEqual([]);
+    });
 });
 
 describe('scanKey', () => {

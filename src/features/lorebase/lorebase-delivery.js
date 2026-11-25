@@ -20,12 +20,18 @@
  * The tester (§5.10) scans as SillyTavern alone, dry, to learn what SillyTavern's keys would send: that scan is left
  * alone, and what is held stays held. It runs only while no generation's scan is due, from an interceptor run to the
  * scan that follows it, and counts only when no interceptor ran meanwhile; any scan after one is armed as ever.
+ *
+ * Before any scan is armed, the books added to the chat through LoreBase's Add to this chat go into it as chat lore
+ * (loadAddedChatBooks, L1 of InternalProject/Vectfox/plans/entity-lore.md), every scan's, the tester's included, but
+ * only while LoreBase acts: with LoreBase off, nothing set up in LoreBase reaches the prompt (D12), and SillyTavern's
+ * own places load as SillyTavern makes them, LoreBase on or off (D10).
  */
 import { getCurrentChatId } from '../../sillytavern/chat.js';
 import { eventSource, event_types } from '../../sillytavern/events.js';
 import { log } from '../../sillytavern/log.js';
-import { selectionInUseHere } from './lorebase-chat-books.js';
-import { LOREBOOK_TAG, armScan, scanDeliveries, scanKey } from './lorebase-delivery-core.js';
+import { loadWorldInfo, world_names } from '../../sillytavern/world-info.js';
+import { addedChatBookNames, selectionInUseHere } from './lorebase-chat-books.js';
+import { LOREBOOK_TAG, addedBooksToLoad, armScan, chatLoreEntriesOf, scanDeliveries, scanKey } from './lorebase-delivery-core.js';
 import { isLoreBaseActive } from './lorebase-switch.js';
 
 // The picks of the last reply's interceptor, until a scan takes them: {chatId, deliveries}, or null.
@@ -40,6 +46,8 @@ let holdCount = 0;
 let isScanDue = false;
 // While the tester scans as SillyTavern alone: the hold count when it began; null otherwise.
 let scanAloneAtHold = null;
+// The books added to a chat that SillyTavern no longer has, each said once in the console this session.
+const missingAddedBooksSaid = new Set();
 
 /** Make the scan listener SillyTavern's last, after every listener added before now. */
 function makeScanListenerLast() {
@@ -94,6 +102,35 @@ function takingPartLookup() {
     };
 }
 
+/**
+ * Add the books added to the open chat through LoreBase (addedChatBookNames) to the scan that fired
+ * WORLDINFO_ENTRIES_LOADED, as SillyTavern adds a chat's Chat Lorebook: their entries go in its chat lore
+ * (chatLoreEntriesOf), which SillyTavern then scans by its own rules, keys, scan depth, budget and recursion, and puts
+ * first, with its Chat Lorebook's. Only while LoreBase acts (D12). A book a place of SillyTavern's loaded already is
+ * skipped (addedBooksToLoad); a book SillyTavern no longer has is skipped, said once; a book that fails to load is
+ * skipped for this scan, and the console says why. Added as a listener before the scan's arming, which is made the
+ * last, so LoreBase decides their selected entries as in any book, and extensions that run after VectFox read them as
+ * chat lore.
+ * @param {{chatLore?: object[]}} loaded - WORLDINFO_ENTRIES_LOADED's data; its chat lore is added to in place
+ */
+async function loadAddedChatBooks(loaded) {
+    if (!isLoreBaseActive() || !Array.isArray(loaded?.chatLore)) return;
+    for (const bookName of addedBooksToLoad(addedChatBookNames(), loaded)) {
+        if (!world_names.includes(bookName)) {
+            if (!missingAddedBooksSaid.has(bookName)) {
+                missingAddedBooksSaid.add(bookName);
+                log.warn(`LoreBase: lorebook "${bookName}" was added to this chat, but SillyTavern no longer has it, so it sends nothing. Unlink it on the WorldInfo page.`);
+            }
+            continue;
+        }
+        try {
+            loaded.chatLore.push(...chatLoreEntriesOf(bookName, await loadWorldInfo(bookName)));
+        } catch (error) {
+            log.warn(`LoreBase: lorebook "${bookName}", added to this chat, could not be loaded, so this scan sends none of it:`, error);
+        }
+    }
+}
+
 /** Arm the scan that fired WORLDINFO_ENTRIES_LOADED, taking the picks held for it. */
 async function armLoadedScan(loaded) {
     // The tester's scan as SillyTavern alone, with no interceptor run since it began: left as SillyTavern loaded it.
@@ -132,8 +169,12 @@ export function loreBasePicksCarriedBy(activatedEntry) {
     return lastScanBlocks.get(scanKey(activatedEntry?.world, activatedEntry?.uid)) ?? null;
 }
 
-/** Arm every World Info scan from now on, after the listeners SillyTavern's extensions added as they loaded. */
+/**
+ * Add the chat's added books to every World Info scan from now on (loadAddedChatBooks), and arm every scan once the app
+ * is ready, after the listeners SillyTavern's extensions added as they loaded, so the books are in before it is armed.
+ */
 export function initializeLoreBaseDelivery() {
+    eventSource.on(event_types.WORLDINFO_ENTRIES_LOADED, loadAddedChatBooks);
     eventSource.once(event_types.APP_READY, () => {
         isArmingScans = true;
         makeScanListenerLast();
