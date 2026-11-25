@@ -12,7 +12,9 @@
         "src/**/*.js!",
         "tests/**/*.{js,mjs}",
         "scripts/**/*.mjs",
-        "tools/**/*.mjs"
+        "tools/**/*.mjs",
+        // The public API's sample consumer, page code another extension would ship (Doc/public-api.md).
+        "tools/public-api-sample/**/*.js"
     ],
     // An export used inside its own file is not dead; only one that nothing uses is.
     "ignoreExportsUsedInFile": true,

@@ -14,6 +14,7 @@
  */
 
 import { getCurrentChatId, getContext } from '../../sillytavern/chat.js';
+import { storyMessages } from '../../shared/chat-messages.js';
 import { getChatUUID, buildEventBaseCollectionId, buildRegistryKey, getRegistryBackend, parseCollectionId, parseRegistryKey, COLLECTION_PREFIXES } from '../../shared/collection-ids.js';
 import {
     getCollectionListing,
@@ -77,8 +78,7 @@ export async function findEventBaseForkSource(settings) {
     const chatId = getCurrentChatId();
     if (!chatUUID || !chatId) return nothing;
 
-    const messages = (Array.isArray(context.chat) ? context.chat : [])
-        .filter(m => m.mes && m.mes.trim().length > 0);
+    const messages = storyMessages();
     const branchHashes = messages.map(hashSourceMessage);
     const backend = getRegistryBackend(settings?.vector_backend);
     // An EventBase collection of a chat other than this one, its first or a later one.

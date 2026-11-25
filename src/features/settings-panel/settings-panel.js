@@ -10,9 +10,10 @@
  */
 
 import { saveSettingsDebounced, extension_settings } from '../../sillytavern/settings.js';
-import { getCurrentChatId, getContext } from '../../sillytavern/chat.js';
+import { getCurrentChatId } from '../../sillytavern/chat.js';
 import { eventSource, event_types } from '../../sillytavern/events.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
+import { storyMessages } from '../../shared/chat-messages.js';
 import { clearKeyBox, OPENROUTER_KEY_BOX, QDRANT_KEY_BOX, VLLM_KEY_BOX, wireKeyBox } from './api-key-boxes.js';
 import {
     getOpenRouterApiKey,
@@ -455,7 +456,7 @@ function bindSettingsEvents(settings, callbacks) {
                     const { FAR_BEHIND_WINDOW_COUNT, countWindowsBehind, getAutoSyncWindowSize, getVectorizationTip } = await import('../eventbase/index.js');
                     const chatMsgCount = typeof status.chatMessageCount === 'number'
                         ? status.chatMessageCount
-                        : (getContext()?.chat || []).filter(m => m.mes && m.mes.trim().length > 0).length;
+                        : storyMessages().length;
                     const tip = getVectorizationTip(lockKey) ?? 0;
                     const windowSize = Math.max(1, getAutoSyncWindowSize(settings));
                     // Clamp the backlog to the commit boundary — the active last turn is

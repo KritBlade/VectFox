@@ -9,8 +9,8 @@
  * SillyTavern profile, none chosen, and an existing install keeps the provider it saved
  * (connection plan §1, §3); that start-up schedules the one-time notice on manual
  * OpenRouter and vLLM with the store itself, unshown on an install that never saw it (row N1);
- * and that it hands the LLM calls the public API's marker for VectFox's own requests, its switch off on a new install
- * (U1).
+ * that it hands the LLM calls the public API's marker for VectFox's own requests, its switch off on a new install
+ * (U1); and that it hands story order the public API's message sources (H4).
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -88,9 +88,11 @@ vi.mock('../src/features/public-api/index.js', () => ({
     announceLlmCallFinished: vi.fn(),
     announcePublicApiReady: vi.fn(async () => {}),
     announcePurgedCollection: vi.fn(),
+    askMessageSources: vi.fn(),
     markOwnRequestWhenSwitchedOn: vi.fn(),
     publishPublicApi: vi.fn(),
 }));
+vi.mock('../src/shared/chat-messages.js', async importOriginal => ({ ...(await importOriginal()), setMessageSource: vi.fn() }));
 vi.mock('../src/features/database-browser/index.js', () => ({
     initializeDatabaseBrowser: vi.fn(),
 }));
@@ -281,5 +283,18 @@ describe('the mark on VectFox\'s own requests at start-up', () => {
     it('starts the switch off on a new install, and keeps an install\'s saved switch', async () => {
         expect((await loadPage({})).extension_settings.vectfox.own_request_mark_enabled).toBe(false);
         expect((await loadPage({ own_request_mark_enabled: true })).extension_settings.vectfox.own_request_mark_enabled).toBe(true);
+    });
+});
+
+describe('the message sources at start-up', () => {
+    beforeEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it('hands story order the public API\'s message sources, so a summary another extension answers for reads as its messages', async () => {
+        await loadPage({});
+        const { setMessageSource } = await import('../src/shared/chat-messages.js');
+        const { askMessageSources } = await import('../src/features/public-api/index.js');
+        expect(setMessageSource).toHaveBeenCalledWith(askMessageSources);
     });
 });

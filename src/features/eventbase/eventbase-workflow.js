@@ -12,7 +12,8 @@
  */
 
 import { setExtensionPrompt, extension_prompts } from '../../sillytavern/prompt-injection.js';
-import { getCurrentChatId, substituteParams, getContext } from '../../sillytavern/chat.js';
+import { getCurrentChatId, substituteParams } from '../../sillytavern/chat.js';
+import { storyMessages } from '../../shared/chat-messages.js';
 import { getChatUUID, COLLECTION_PREFIXES, buildRegistryKey } from '../../shared/collection-ids.js';
 import { isCollectionEnabled } from '../collections/index.js';
 import { getSavedHashes, UNBOUNDED_RUN } from '../vector-backend/index.js';
@@ -1220,7 +1221,8 @@ export async function runEventBaseRetrieval({ chat, searchText, settings, chatUU
     const { events, debug, storyArcShape, storyArcEntityNames } = await retrieveEventsForTurn({
         searchText: effectiveSearchText,
         keywordQuery,
-        chatLength: getContext().chat?.length || chat?.length || 0,
+        // The story's length, in the message numbers the events' windows hold, for recency and "already in context".
+        chatLength: storyMessages().length,
         settings,
         // Canonical routing (Doc/collection_helper.md): the registry-key form
         // ("backend:id") searches each locked collection on the backend it was
@@ -1440,10 +1442,7 @@ export async function getChatAutoSyncStatus(settings, { shouldProbeBackend = tru
         return { state: 'none-locked', collections: inUse.collections, noneInUseText };
     }
 
-    const ctx = getContext();
-    const messages = Array.isArray(ctx?.chat)
-        ? ctx.chat.filter(m => m.mes && m.mes.trim().length > 0)
-        : [];
+    const messages = storyMessages();
     const chatMessageCount = messages.length;
 
     // The auto-sync marker (the collection's message-index threshold): the count the page shows while no tip is known.

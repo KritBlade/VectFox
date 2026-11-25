@@ -16,6 +16,8 @@ const state = vi.hoisted(() => ({
     prompts: {},
     turn: null,
     archive: null,
+    // The open chat, which story order reads (src/shared/chat-messages.js).
+    chat: [],
 }));
 
 /** A promise and the function that settles it, so the test decides when a search answers. */
@@ -30,7 +32,7 @@ vi.mock('../../../../../script.js', () => ({
     extension_prompts: {}, getCurrentChatId: () => 'late-memory-chat', substituteParams: (s) => s,
     saveSettingsDebounced: vi.fn(), getRequestHeaders: () => ({}),
 }));
-vi.mock('../../../../extensions.js', () => ({ extension_settings: state.extensionSettings, getContext: () => ({ chat: [] }) }));
+vi.mock('../../../../extensions.js', () => ({ extension_settings: state.extensionSettings, getContext: () => ({ chat: state.chat, chatMetadata: {} }) }));
 vi.mock('../src/shared/collection-ids.js', () => ({
     getChatUUID: () => 'late-memory-uuid', parseRegistryKey: (k) => ({ collectionId: k }),
     COLLECTION_PREFIXES: { VECTFOX_ARCHIVE_EVENT: 'vf_archiveevent_', VECTFOX_EVENTBASE: 'vf_eventbase_' },
@@ -221,5 +223,23 @@ describe('a preview, as the Query Tester runs it', () => {
         expect(preview).toMatchObject({ injectionText: '- the duel at the mill', eventCount: 1 });
         expect(state.prompts).toEqual({});
         expect(toastsShown().success).toEqual([]);
+    });
+});
+
+// H4 of InternalProject/Vectfox/plans/vectfox-public-api.md: the events' message numbers count the story, so recency
+// and "already in context" measure the story's length, each summary a message source answers for as its messages.
+describe('the length a retrieval measures the events by', () => {
+    it('is the story\'s, the messages with text in story order', async () => {
+        const { setMessageSource } = await import('../src/shared/chat-messages.js');
+        const fought = { mes: 'They fought at the mill.', stands: [{ mes: 'Draw.' }, { mes: 'Strike.' }, { mes: 'Yield.' }] };
+        state.chat = [fought, { mes: '' }, { is_user: true, mes: 'who won the duel' }];
+        setMessageSource(message => (message.stands ? { owner: 'Mill Summaries', originals: message.stands } : null));
+        try {
+            await runEventBaseRetrieval({ chat: CHAT, searchText: 'who won the duel', settings: SETTINGS, dryRun: true });
+        } finally {
+            setMessageSource(null);
+            state.chat = [];
+        }
+        expect(retrieveEventsForTurn.mock.calls[0][0].chatLength).toBe(4);
     });
 });

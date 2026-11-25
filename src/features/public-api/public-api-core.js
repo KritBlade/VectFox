@@ -1,15 +1,16 @@
 /**
  * The public API's pure parts: its version, the events it emits, the groups it serves, the reasons, settings and
- * EventBase events its calls answer with, the mark on VectFox's own requests, readiness and the shape of the
- * `VectFox` object (§4, §5.2 and §5.3 of InternalProject/Vectfox/plans/vectfox-public-api.md). No host imports:
- * public-api.js publishes the object, answers its calls and emits the events.
+ * EventBase events its calls answer with, what a message source's answer says, the mark on VectFox's own requests,
+ * readiness and the shape of the `VectFox` object (§4, §5.2, §5.3 and §5.4 of
+ * InternalProject/Vectfox/plans/vectfox-public-api.md). No host imports: public-api.js publishes the object, answers its
+ * calls, asks the message sources and emits the events.
  */
 
 /**
  * The API's version, semver. A minor version only adds a method, event, field or reason; a removed, renamed or changed
  * name raises the major version at once, and no code keeps the old name working. A reader compares the major only.
  */
-export const PUBLIC_API_VERSION = '1.3.0';
+export const PUBLIC_API_VERSION = '1.4.0';
 
 /** The events VectFox emits on SillyTavern's eventSource, by name. */
 export const PUBLIC_EVENTS = Object.freeze({
@@ -21,7 +22,7 @@ export const PUBLIC_EVENTS = Object.freeze({
 });
 
 /** The groups this build serves, so a consumer checks once instead of probing each method. */
-export const PUBLIC_API_CAPABILITIES = Object.freeze(['events', 'chat', 'settings', 'eventbase.read']);
+export const PUBLIC_API_CAPABILITIES = Object.freeze(['events', 'chat', 'settings', 'eventbase.read', 'chat.messageSource']);
 
 /**
  * Why a call answered no (§4.2): VectFox has not finished starting up; no chat is open, or not the one named; the chat
@@ -233,6 +234,27 @@ export function settingsSnapshotAnswer(settings, { isEnabled }) {
 }
 
 /**
+ * What a message source's answer for one message says (§5.4): null for an ordinary message, else the messages a
+ * summary stands for, none for a summary of messages still in the chat or of none. Anything else is no answer, and
+ * `problem` says what it was, for the console. The messages are the source's own, so nothing here copies or freezes
+ * them.
+ * @param {unknown} answer - What originalsOf returned
+ * @returns {{originals: object[]|null}|{problem: string}}
+ */
+export function messageSourceAnswerOf(answer) {
+    if (answer === null) return { originals: null };
+    if (typeof answer?.then === 'function') return { problem: 'answered a promise, where it must answer at once' };
+    if (!Array.isArray(answer)) {
+        const kind = answer === undefined ? 'undefined' : `${/^[aeiou]/.test(typeof answer) ? 'an' : 'a'} ${typeof answer}`;
+        return { problem: `answered ${kind}, where null or a list of messages was expected` };
+    }
+    if (answer.some(original => !original || typeof original !== 'object' || Array.isArray(original))) {
+        return { problem: 'answered a list holding something that is not a message' };
+    }
+    return { originals: answer };
+}
+
+/**
  * One event of the feed by its public names, frozen, its lists copied and frozen too.
  * @param {object} event - As the feed gives it (features/eventbase/eventbase-feed.js)
  * @returns {Readonly<object>}
@@ -292,14 +314,15 @@ export function createReadiness() {
 }
 
 /**
- * The frozen `VectFox` object (§4.1, §5.2, §5.3). `extensionVersion` is read when asked: the manifest's version once
- * start-up has read it, null before then or when it could not be read.
+ * The frozen `VectFox` object (§4.1, §5.2, §5.3, §5.4). `extensionVersion` is read when asked: the manifest's version
+ * once start-up has read it, null before then or when it could not be read.
  * @param {object} parts
  * @param {ReturnType<typeof createReadiness>} parts.readiness
  * @param {() => (string|null)} parts.readExtensionVersion
  * @param {(name: string, handler: Function) => (() => void)} parts.on - Subscribes; returns its own unsubscribe
  * @param {(name: string, handler: Function) => void} parts.off
- * @param {{getChatId: () => object, getCollectionInUse: () => object}} parts.chat - The `chat` group's calls
+ * @param {{getChatId: () => object, getCollectionInUse: () => object,
+ *   registerMessageSource: (source: object) => (() => void)}} parts.chat - The `chat` group's calls
  * @param {() => object} parts.getSettingsSnapshot
  * @param {{listEvents: (request?: object) => Promise<object>}} parts.eventBase - The `eventBase` group's calls
  * @returns {Readonly<object>}
@@ -315,7 +338,11 @@ export function buildPublicApi({ readiness, readExtensionVersion, on, off, chat,
         whenReady: readiness.whenReady,
         on,
         off,
-        chat: Object.freeze({ getChatId: chat.getChatId, getCollectionInUse: chat.getCollectionInUse }),
+        chat: Object.freeze({
+            getChatId: chat.getChatId,
+            getCollectionInUse: chat.getCollectionInUse,
+            registerMessageSource: chat.registerMessageSource,
+        }),
         getSettingsSnapshot,
         eventBase: Object.freeze({ listEvents: eventBase.listEvents }),
     });

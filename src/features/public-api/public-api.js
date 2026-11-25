@@ -3,11 +3,12 @@
  * answers its calls and emits its events on SillyTavern's eventSource. src/index.js publishes the object when it is
  * evaluated, so it exists before VectFox's initialization ends, and announces readiness when that ends, handing over
  * the settings store the calls answer from (§5.2): until then every call answers `not-ready`. `eventBase.listEvents`
- * reads EventBase's feed, the events written and removed after a change number (§5.3). It also hands the other
- * features' listeners the announcements below, which send EventBase's runs, removals and collection in use, and each
- * LLM call, on as `vectfox_*` events, and the LLM calls the marker that marks their requests while the PublicAPI
- * page's switch is on. VectFox never awaits its own events: SillyTavern's emit awaits each listener in turn, so a
- * listener that never resolves would hold VectFox up.
+ * reads EventBase's feed, the events written and removed after a change number (§5.3). `chat.registerMessageSource`
+ * keeps the message sources story order asks about each message it reads (§5.4), which src/index.js hands
+ * src/shared/chat-messages.js as askMessageSources. It also hands the other features' listeners the announcements
+ * below, which send EventBase's runs, removals and collection in use, and each LLM call, on as `vectfox_*` events, and
+ * the LLM calls the marker that marks their requests while the PublicAPI page's switch is on. VectFox never awaits its
+ * own events: SillyTavern's emit awaits each listener in turn, so a listener that never resolves would hold VectFox up.
  */
 import { eventSource } from '../../sillytavern/events.js';
 import { log } from '../../sillytavern/log.js';
@@ -18,8 +19,8 @@ import { openChatCollectionInUse, readEventFeed } from '../eventbase/index.js';
 import {
     PUBLIC_API_REASONS, PUBLIC_EVENTS, buildPublicApi, chatIdAnswer, collectionInUseAnswer, createReadiness,
     eventBaseCollectionChangedPayload, eventBaseEventsDeletedPayload, eventBaseSyncedPayload, eventFeedAnswer,
-    isOwnRequestMarkOn, isPublicEventName, llmCallFinishedPayload, markOwnRequest, readyPayload, refusal,
-    settingsSnapshotAnswer,
+    isOwnRequestMarkOn, isPublicEventName, llmCallFinishedPayload, markOwnRequest, messageSourceAnswerOf, readyPayload,
+    refusal, settingsSnapshotAnswer,
 } from './public-api-core.js';
 
 const readiness = createReadiness();
@@ -29,6 +30,13 @@ let extensionVersion = null;
 
 /** VectFox's settings, the store itself, handed over as start-up ends, before VectFox turns ready. */
 let settingsStore = null;
+
+/**
+ * The message sources other extensions registered, in the order they did (§5.4), each with what the console was
+ * already told of it.
+ * @type {Array<{owner: string, originalsOf: Function, problemsSaid: Set<string>}>}
+ */
+const messageSources = [];
 
 /**
  * `chat.getChatId()`: the ID VectFox keys the open chat's EventBase collections by.
@@ -46,6 +54,79 @@ function getChatId() {
 function getCollectionInUse() {
     if (!readiness.isReady()) return refusal(PUBLIC_API_REASONS.notReady);
     return collectionInUseAnswer(openChatCollectionInUse(settingsStore));
+}
+
+/**
+ * `chat.registerMessageSource()`: a function VectFox asks about each message it reads in story order, which tells it
+ * the messages a summary stands for (§5.4). It counts from VectFox's next read, ready or not, and keeps counting until
+ * its unregister is called.
+ * @param {{owner: string, originalsOf: (message: object, asked: {chatMetadata: object}) => (object[]|null)}} source -
+ *   owner: who registered it, as the console names it; originalsOf: null for an ordinary message, else the messages
+ *   the summary stands for, none for a summary of messages still in the chat or of none
+ * @returns {() => void} Its own unregister
+ * @throws {TypeError} When the source cannot be right, a bug in the calling code
+ */
+function registerMessageSource(source) {
+    if (!source || typeof source !== 'object' || Array.isArray(source)) {
+        throw new TypeError('VectFox.chat.registerMessageSource(): pass an object, { owner, originalsOf }');
+    }
+    const { owner, originalsOf } = source;
+    if (typeof owner !== 'string' || !owner.trim()) {
+        throw new TypeError('VectFox.chat.registerMessageSource(): owner must name your extension, as the console names it when your source fails');
+    }
+    if (typeof originalsOf !== 'function') {
+        throw new TypeError(`VectFox.chat.registerMessageSource(): ${owner}'s originalsOf is not a function`);
+    }
+    const registered = { owner, originalsOf, problemsSaid: new Set() };
+    messageSources.push(registered);
+    return () => {
+        const index = messageSources.indexOf(registered);
+        if (index > -1) messageSources.splice(index, 1);
+    };
+}
+
+/**
+ * Says once in the console, for a source and a kind of problem, that it gave no answer for a message. Once, as the
+ * source is asked about every message on every read: each failure after the first would repeat the same line.
+ * @param {{owner: string, problemsSaid: Set<string>}} source
+ * @param {string} problem - What it did, the same text for the same kind of problem
+ * @param {unknown} [error] - What it threw
+ */
+function sayMessageSourceProblemOnce(source, problem, error) {
+    if (source.problemsSaid.has(problem)) return;
+    source.problemsSaid.add(problem);
+    const said = `VectFox public API: ${source.owner} hook failed: its message source ${problem}, so VectFox reads that message as an ordinary one`;
+    if (error === undefined) log.warn(said);
+    else log.warn(`${said}:`, error);
+}
+
+/**
+ * What the registered message sources answer for one message, for story order (src/shared/chat-messages.js, which
+ * src/index.js hands this): each source in the order it registered, until one answers for it as a summary. A source
+ * that throws, or answers anything but null or a list of messages, counts as answering null, and the console says so
+ * once for each source and kind of problem.
+ * @param {object} message - A message of the chat, or one a summary stands for
+ * @param {{chatMetadata: object}} asked - The chat's metadata as it is now
+ * @returns {{owner: string, originals: object[]}|null} The owner of the source that answered and the messages the
+ *   summary stands for, or null for an ordinary message
+ */
+export function askMessageSources(message, asked) {
+    for (const source of messageSources) {
+        let answer;
+        try {
+            answer = source.originalsOf(message, asked);
+        } catch (error) {
+            sayMessageSourceProblemOnce(source, 'threw', error);
+            continue;
+        }
+        const read = messageSourceAnswerOf(answer);
+        if ('problem' in read) {
+            sayMessageSourceProblemOnce(source, read.problem);
+            continue;
+        }
+        if (read.originals) return { owner: source.owner, originals: read.originals };
+    }
+    return null;
 }
 
 /**
@@ -159,8 +240,8 @@ function emitWithoutWaiting(name, payload) {
 export function publishPublicApi() {
     if (globalThis.VectFox) log.warn('VectFox public API: globalThis.VectFox was already set, by another copy of VectFox loaded in this page; this copy replaces it');
     globalThis.VectFox = buildPublicApi({
-        readiness, readExtensionVersion: () => extensionVersion, on, off, chat: { getChatId, getCollectionInUse }, getSettingsSnapshot,
-        eventBase: { listEvents },
+        readiness, readExtensionVersion: () => extensionVersion, on, off, chat: { getChatId, getCollectionInUse, registerMessageSource },
+        getSettingsSnapshot, eventBase: { listEvents },
     });
 }
 

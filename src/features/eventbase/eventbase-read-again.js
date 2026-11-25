@@ -13,9 +13,9 @@
  * ============================================================================
  */
 
-import { getContext } from '../../sillytavern/chat.js';
 import { log } from '../../sillytavern/log.js';
 import { getTokenCountAsync } from '../../sillytavern/tokenizers.js';
+import { storyMessages } from '../../shared/chat-messages.js';
 import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
 import { describeChatConnectionProfile, readOpenRouterModelPrice } from '../llm-provider/index.js';
@@ -86,7 +86,7 @@ export async function describeReadingAgain({ settings, startFromMessage, endAtMe
     if (!collection) {
         return { problem: noCollectionInUseText(inUse, 'there is nothing to read again') ?? 'This chat has no EventBase collection yet, so there is nothing to read again.' };
     }
-    const messages = (getContext().chat ?? []).filter(message => message.mes && message.mes.trim().length > 0);
+    const messages = storyMessages();
     const overlap = Math.max(0, Math.min(windowSize - 1, settings.eventbase_window_overlap ?? 0));
     const step = windowSize - overlap;
     const windows = windowsInStretch(chatWindowsOf({ messageCount: messages.length, windowSize, step }), { startFromMessage, endAtMessage });

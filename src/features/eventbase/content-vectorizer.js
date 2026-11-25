@@ -20,6 +20,8 @@ import { choicePopup, closePanelPopup, confirmPopup, noticePopup, openPanelPopup
 import { log } from '../../sillytavern/log.js';
 import { validateLLMConfig } from '../llm-provider/index.js';
 import { getSavedHashes } from '../vector-backend/index.js';
+import { storyMessages } from '../../shared/chat-messages.js';
+import { hasText } from '../../shared/chat-messages-core.js';
 import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
 import { getOpenRouterApiKey } from '../../shared/api-keys.js';
 import { buildArchiveEventCollectionId, buildRegistryKey, getChatUUID, parseRegistryKey } from '../../shared/collection-ids.js';
@@ -69,11 +71,11 @@ let activeRun = null;
 
 // ── Opening and closing ─────────────────────────────────────────────────────────────────────────────────
 
-/** The open chat as the Chat page shows it, or null. */
+/** The open chat as the Chat page shows it, its messages counted as EventBase reads them, or null. */
 function currentChatView() {
     const context = getContext();
     if (!context?.chatId) return null;
-    return { messageCount: context.chat?.length || 0, characterName: context.name2 || 'Unknown', chatId: getChatUUID() || 'unknown' };
+    return { messageCount: storyMessages().length, characterName: context.name2 || 'Unknown', chatId: getChatUUID() || 'unknown' };
 }
 
 /**
@@ -225,7 +227,7 @@ function sourceOfPage() {
     if (session.sourceData) return { source: session.sourceData, problem: '' };
     if (sourceChoice() === 'file') return { source: null, problem: 'Choose a file first.' };
     const context = getContext();
-    if (!context?.chatId || !context.chat?.length) return { source: null, problem: 'The open chat has no messages.' };
+    if (!context?.chatId || !storyMessages().length) return { source: null, problem: 'The open chat has no messages.' };
     return { source: { type: 'current', id: context.chatId, name: context.name2 || 'Chat' }, problem: '' };
 }
 
@@ -599,7 +601,7 @@ async function runEventBaseBackfill({ source, startFromMessage, endAtMessage = n
 
         let result = null;
         if (source?.type === 'file') {
-            const messages = (source.messages || []).filter(message => message.mes && message.mes.trim().length > 0);
+            const messages = (source.messages || []).filter(hasText);
             if (!messages.length) {
                 toastr.warning('The chat file holds no messages EventBase can read.', 'EventBase');
                 return null;
@@ -682,8 +684,8 @@ async function runEventBaseBackfill({ source, startFromMessage, endAtMessage = n
  */
 async function runOpenChat(signal, { startFromMessage, endAtMessage, parallelWindows, resetCaches, windowSize, collectionIdOverride, readAgainPlan }) {
     const settings = extension_settings.vectfox || {};
-    const context = getContext();
-    if (!Array.isArray(context.chat) || !context.chat.length) {
+    const messageCount = storyMessages().length;
+    if (!messageCount) {
         toastr.warning('The open chat has no messages to read.', 'EventBase');
         return null;
     }
@@ -694,7 +696,6 @@ async function runOpenChat(signal, { startFromMessage, endAtMessage, parallelWin
     // tip in Qdrant.
     if (resetCaches && registryKey) await prepareForFreshExtraction(registryKey);
 
-    const messageCount = context.chat.filter(message => message.mes && message.mes.trim().length > 0).length;
     return runEventBaseOnOpenChat(settings, signal, {
         startFromMessage,
         endAtMessage,

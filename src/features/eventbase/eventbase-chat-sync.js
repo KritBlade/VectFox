@@ -2,9 +2,10 @@
  * Running EventBase over the open chat: auto-sync after chat events (synchronizeChat, which src/index.js runs through
  * SillyTavern's module worker) and the Vectorize Content dialog's runs (runEventBaseOnOpenChat).
  */
-import { getContext, getCurrentChatId } from '../../sillytavern/chat.js';
+import { getCurrentChatId } from '../../sillytavern/chat.js';
 import { is_send_press } from '../../sillytavern/generation.js';
 import { log } from '../../sillytavern/log.js';
+import { storyMessages } from '../../shared/chat-messages.js';
 import { getChatUUID } from '../../shared/collection-ids.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 import { isInvalidModelConfigError, notifyInvalidModel } from '../../shared/model-config-notifier.js';
@@ -64,13 +65,9 @@ export async function synchronizeChat(settings, triggerEvent = null) {
         return;
     }
 
-    const context = getContext();
-    if (!Array.isArray(context.chat)) {
-        log.lifecycle('[AutoSync] BAIL: context.chat is not an array');
-        return;
-    }
-
-    const messages = context.chat.filter(message => message.mes && message.mes.trim().length > 0);
+    // Story order: a summary a message source answers for reads as the messages it stands for, so the chat's message
+    // numbers and its windows stay where they were when a summarizer replaces messages.
+    const messages = storyMessages();
     log.lifecycle(`[AutoSync] calling runEventBaseIngestion: messages=${messages.length}`);
     let result;
     try {
@@ -157,11 +154,8 @@ export async function runEventBaseOnOpenChat(settings, abortSignal = null, {
         return null;
     }
 
-    const context = getContext();
-    if (!Array.isArray(context.chat)) return null;
-
     const result = await runEventBaseIngestion({
-        messages: context.chat.filter(message => message.mes && message.mes.trim().length > 0),
+        messages: storyMessages(),
         startFromMessage,
         endAtMessage,
         isReadingAgain,

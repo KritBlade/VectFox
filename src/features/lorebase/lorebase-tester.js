@@ -10,12 +10,13 @@
  * with no reply: measured at once, it has no World Info scan, so what SillyTavern's keys would send is not measured.
  * Reports live in page memory only, the newest 20; a reload clears them.
  */
-import { getCharacterCardFields, getContext, getCurrentChatId } from '../../sillytavern/chat.js';
+import { getCharacterCardFields, getCurrentChatId } from '../../sillytavern/chat.js';
 import { eventSource, event_types } from '../../sillytavern/events.js';
 import { itemizedPrompts } from '../../sillytavern/itemized-prompts.js';
 import { log } from '../../sillytavern/log.js';
 import { getTokenCountAsync } from '../../sillytavern/tokenizers.js';
 import { checkWorldInfo, world_info_include_names } from '../../sillytavern/world-info.js';
+import { chatMessages } from '../../shared/chat-messages.js';
 import { scanLeftToSillyTavern } from './lorebase-delivery.js';
 import { pickTokens, replyReport, selectedTextsSentByKeys } from './lorebase-tester-core.js';
 
@@ -152,7 +153,7 @@ function tieReportToReply(chatLength) {
     reportUnderWay = null;
     if (!report) return;
     const messageIndex = Number(chatLength) - 1;
-    const message = getContext()?.chat?.[messageIndex];
+    const message = chatMessages()[messageIndex];
     report.isUnderWay = false;
     report.messageIndex = messageIndex >= 0 ? messageIndex : null;
     report.swipeId = Number.isInteger(message?.swipe_id) ? message.swipe_id : null;

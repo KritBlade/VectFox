@@ -2,25 +2,29 @@
  * A chat shorter than what EventBase read, as after messages are deleted or a summarizer replaces some with a summary:
  * auto-sync moves its start marker back to the chat's unread end and reads the turn it held back with the new
  * messages, and a run checks each window against the window record instead of recording every window below the stale
- * tip as read.
+ * tip as read. Beside a summarizer that registered a message source, a summary or a restore moves no message, so
+ * nothing is read again, and a story that still gets shorter keeps auto-sync reading.
  *
- * Drives the real runEventBaseIngestion with the real window record, tip and marker; only ST, the LLM extractor and
- * the vector backend are stubbed. The stub backend keeps its points in `state.points`.
+ * Drives the real runEventBaseIngestion with the real window record, tip and marker, and the real story order of the
+ * open chat; only ST, the LLM extractor and the vector backend are stubbed. The stub backend keeps its points in
+ * `state.points`.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const state = vi.hoisted(() => ({
     extensionSettings: { vectfox: {} },
     points: [],
     clock: 1000,
+    // The open chat, which story order reads (src/shared/chat-messages.js).
+    chat: [],
 }));
 
 vi.mock('../../../../../script.js', () => ({
     setExtensionPrompt: vi.fn(), extension_prompts: {}, getCurrentChatId: () => 'shorter-chat', substituteParams: (s) => s,
     saveSettingsDebounced: vi.fn(), getRequestHeaders: () => ({}),
 }));
-vi.mock('../../../../extensions.js', () => ({ extension_settings: state.extensionSettings, getContext: () => ({ chat: [] }) }));
+vi.mock('../../../../extensions.js', () => ({ extension_settings: state.extensionSettings, getContext: () => ({ chat: state.chat, chatMetadata: {} }) }));
 vi.mock('../src/shared/collection-ids.js', () => ({
     getChatUUID: () => 'shorter-chat-uuid', parseRegistryKey: (k) => ({ collectionId: k }),
     COLLECTION_PREFIXES: { VECTFOX_ARCHIVE_EVENT: 'vf_archiveevent_', VECTFOX_EVENTBASE: 'vf_eventbase_' },
@@ -104,6 +108,8 @@ const { runEventBaseIngestion } = await import('../src/features/eventbase/eventb
 const { capAutoSyncMarker, clearWindowCache, getAutoSyncMarker, getVectorizationTip, stampAutoSyncMarker, windowFingerprint, writeEventBaseProgress } = await import('../src/features/eventbase/eventbase-store.js');
 const { hashSourceMessage } = await import('../src/features/eventbase/eventbase-message-hash.js');
 const { extractEvents } = await import('../src/features/eventbase/eventbase-extractor.js');
+const { setMessageSource, storyMessages } = await import('../src/shared/chat-messages.js');
+const { inlineSummaryOriginals } = await import('../tools/public-api-sample/message-source.js');
 
 // Vectorize Content reads windows of 2; auto-sync reads windows of 2 too (one turn) and holds back the latest turn.
 const SETTINGS = { eventbase_window_size: 2, eventbase_window_overlap: 0, eventbase_min_importance_store: 1, eventbase_autosync_window_turns: 1 };
@@ -136,6 +142,7 @@ beforeEach(() => {
     state.points = [];
     state.clock = 1000;
     state.extensionSettings.vectfox = {};
+    state.chat = [];
     vi.clearAllMocks();
 });
 
@@ -236,5 +243,73 @@ describe('a run on a chat shorter than its tip', () => {
         await vectorize([SUMMARY, ...story(5, 11)], chatUUID);
 
         expect(windowsSent()).toEqual([0, 2, 4, 6]);
+    });
+});
+
+// H4 of InternalProject/Vectfox/plans/vectfox-public-api.md: with a summarizer's message source registered, every run
+// reads the open chat in story order (storyMessages), each summary as the messages it stands for.
+describe('beside a summarizer that registered a message source', () => {
+    /** The sample's message source for InlineSummary, as the public API answers with it. */
+    const askInlineSummary = (message, asked) => {
+        const originals = inlineSummaryOriginals(message, asked);
+        return originals ? { owner: 'InlineSummary message source', originals } : null;
+    };
+    /** InlineSummary's summary of these messages, holding them since 1.2.0. */
+    const inlineSummaryOf = originals => ({ name: 'Summary', is_user: false, mes: `Summary of ${originals.length} messages.`, ILS_Data: { OriginalMessages: originals } });
+
+    beforeEach(() => {
+        setMessageSource(askInlineSummary);
+    });
+
+    afterEach(() => {
+        setMessageSource(null);
+    });
+
+    it('reads nothing again after a summary or a restore, and reads the next messages at their story numbers', async () => {
+        const chatUUID = newChatUUID();
+        state.chat = story(0, 9);
+        await vectorize(storyMessages(), chatUUID);
+        expect(await stampAutoSyncMarker(collectionKeyOf(chatUUID), SETTINGS)).toBe(10);
+        extractEvents.mockClear();
+
+        // InlineSummary replaces messages 0 to 4 with one summary holding them: 6 messages in the chat, 10 in the story.
+        state.chat = [inlineSummaryOf(story(0, 4)), ...story(5, 9)];
+        expect(await stampAutoSyncMarker(collectionKeyOf(chatUUID), SETTINGS, { floor: 'chatLength' })).toBe(10);
+        await autoSync(storyMessages(), chatUUID);
+        await vectorize(storyMessages(), chatUUID);
+        expect(getAutoSyncMarker(collectionKeyOf(chatUUID))).toBe(10);
+        expect(getVectorizationTip(collectionKeyOf(chatUUID))).toBe(10);
+        expect(windowsSent()).toEqual([]);
+
+        // Messages 10 to 13 follow: auto-sync reads the settled window, messages 10 and 11, by their story numbers.
+        state.chat = [inlineSummaryOf(story(0, 4)), ...story(5, 13)];
+        await autoSync(storyMessages(), chatUUID);
+        expect(windowsSent()).toEqual([10]);
+        expect(extractEvents.mock.calls[0][0].messages.map(message => message.mes)).toEqual(['message 10', 'message 11']);
+        extractEvents.mockClear();
+
+        // A restore puts the messages back where the summary was: nothing is read again.
+        state.chat = story(0, 13);
+        await autoSync(storyMessages(), chatUUID);
+        expect(windowsSent()).toEqual([]);
+    });
+
+    it('keeps auto-sync reading when the story gets shorter, as a summary whose originals are gone reads as itself', async () => {
+        const chatUUID = newChatUUID();
+        state.chat = story(0, 9);
+        await vectorize(storyMessages(), chatUUID);
+        expect(await stampAutoSyncMarker(collectionKeyOf(chatUUID), SETTINGS)).toBe(10);
+        extractEvents.mockClear();
+
+        // A fork's Flatten deleted the summary's originals, and message 10 is sent: 7 messages, fewer than the marker's 10.
+        const flattened = { name: 'Summary', is_user: false, mes: 'Summary of messages 0 to 4.', extra: { ILS_Data: { Ref: 'ils-ref-flattened' } } };
+        state.chat = [flattened, ...story(5, 10)];
+        await autoSync(storyMessages(), chatUUID);
+        expect(getAutoSyncMarker(collectionKeyOf(chatUUID))).toBe(6);
+
+        state.chat = [flattened, ...story(5, 13)];
+        await autoSync(storyMessages(), chatUUID);
+        expect(windowsSent()).toEqual([6]);
+        expect(extractEvents.mock.calls[0][0].messages.map(message => message.mes)).toEqual(['message 10', 'message 11']);
     });
 });

@@ -2,18 +2,19 @@
  * The public API's contract (A3 of InternalProject/Vectfox/plans/vectfox-public-api.md): every name another extension
  * reads, pinned in CONTRACT. The test goes red when a member of the `VectFox` object or of one of its groups, an event, a
  * payload field, a capability, a reason, a field of a call's answer, a setting of the snapshot, a field of an EventBase
- * event listEvents gives, a value an LLM call's report names, or the key, place, fields or label of the mark on
- * VectFox's own requests is renamed, removed or added, when `apiVersion` differs from the contract's, and when the
- * developer page (Doc/public-api.md) leaves a name out or names an event VectFox does not emit. A change to CONTRACT
- * follows the version rule (§4.4, D3): an added name raises apiVersion's minor version; a removed, renamed or changed one
- * raises its major version.
+ * event listEvents gives, a value an LLM call's report names, a field of a message source or of what it is asked with,
+ * how deep story order opens summaries, or the key, place, fields or label of the mark on VectFox's own requests is
+ * renamed, removed or added, when `apiVersion` differs from the contract's, and when the developer page
+ * (Doc/public-api.md) leaves a name out or names an event VectFox does not emit. A change to CONTRACT follows the version
+ * rule (§4.4, D3): an added name raises apiVersion's minor version; a removed, renamed or changed one raises its major
+ * version.
  */
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const CONTRACT = Object.freeze({
-    apiVersion: '1.3.0',
+    apiVersion: '1.4.0',
     // Each member of globalThis.VectFox and what it is.
     members: {
         apiVersion: 'string',
@@ -29,10 +30,13 @@ const CONTRACT = Object.freeze({
     },
     // Each group's members.
     groups: {
-        chat: { getChatId: 'method', getCollectionInUse: 'method' },
+        chat: { getChatId: 'method', getCollectionInUse: 'method', registerMessageSource: 'method' },
         eventBase: { listEvents: 'method' },
     },
-    capabilities: ['events', 'chat', 'settings', 'eventbase.read'],
+    capabilities: ['events', 'chat', 'settings', 'eventbase.read', 'chat.messageSource'],
+    // A message source (§5.4): the fields registerMessageSource takes, the fields of what originalsOf is asked with
+    // beside the message, and how many summaries deep story order opens.
+    messageSource: { registration: ['owner', 'originalsOf'], asked: ['chatMetadata'], maxSummaryDepth: 64 },
     // Why a call answers no (§4.2).
     reasons: ['not-ready', 'no-chat', 'no-collection', 'backend-unsupported', 'read-failed'],
     // The fields of each answer: a refusal, and each call's answer of yes.
@@ -74,7 +78,7 @@ const CONTRACT = Object.freeze({
     ownRequestMark: { key: 'vectfox.internal-request', readFrom: 'init.signal', fields: ['label'], label: 'VectFox <feature>' },
 });
 
-const host = vi.hoisted(() => ({ listeners: {}, chatMetadata: {}, inUse: { chatId: null, collectionId: null }, feed: null, feedError: null }));
+const host = vi.hoisted(() => ({ listeners: {}, chatMetadata: {}, context: {}, inUse: { chatId: null, collectionId: null }, feed: null, feedError: null }));
 
 vi.mock('../src/sillytavern/events.js', () => ({
     eventSource: {
@@ -93,7 +97,7 @@ vi.mock('../src/sillytavern/events.js', () => ({
 vi.mock('../src/sillytavern/log.js', () => ({ log: { warn: vi.fn(), error: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn() } }));
 vi.mock('../src/shared/extension-manifest.js', () => ({ loadExtensionManifest: async () => ({ version: '3.6.300' }) }));
 // The real collection IDs read a chat's UUID from an ID, and the open chat's from its metadata.
-vi.mock('../src/sillytavern/chat.js', () => ({ getContext: () => ({}), getCurrentChatId: () => null, chat_metadata: host.chatMetadata }));
+vi.mock('../src/sillytavern/chat.js', () => ({ getContext: () => host.context, getCurrentChatId: () => null, chat_metadata: host.chatMetadata }));
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: {} }));
 vi.mock('../src/features/eventbase/index.js', () => ({
     openChatCollectionInUse: () => host.inUse,
@@ -156,6 +160,7 @@ const sorted = names => [...names].sort();
 beforeEach(() => {
     host.listeners = {};
     delete host.chatMetadata.integrity;
+    host.context = {};
     host.inUse = { chatId: null, collectionId: null };
     host.feed = null;
     host.feedError = null;
@@ -281,6 +286,40 @@ describe('the contract of the events', () => {
     });
 });
 
+describe('the contract of a message source', () => {
+    it('takes exactly the contract\'s fields, gives its own unregister, and is asked with the message and exactly the contract\'s fields, frozen', async () => {
+        const { api, publicApi } = await loadPublishedApi();
+        const { setMessageSource, storyMessages } = await import('../src/shared/chat-messages.js');
+        const { MAX_SUMMARY_DEPTH } = await import('../src/shared/chat-messages-core.js');
+        setMessageSource(publicApi.askMessageSources);
+        const lamp = { name: 'Wren', mes: 'Wren trims the lantern wick.' };
+        const summary = { name: 'Summary', mes: 'Wren keeps the lighthouse.', fields: [lamp] };
+        host.context = { chat: [summary], chatMetadata: { integrity: LANTERN_UUID } };
+        const asked = [];
+        const registration = {
+            owner: 'Lantern summaries',
+            originalsOf: (message, context) => {
+                asked.push({ message, context });
+                return message.fields ?? null;
+            },
+        };
+        expect(sorted(Object.keys(registration))).toEqual(sorted(CONTRACT.messageSource.registration));
+
+        const unregister = api.chat.registerMessageSource(registration);
+        expect(typeof unregister).toBe('function');
+        expect(storyMessages()).toEqual([lamp]);
+        expect(asked.map(({ message }) => message)).toEqual([summary, lamp]);
+        for (const { context } of asked) {
+            expect(sorted(Object.keys(context))).toEqual(sorted(CONTRACT.messageSource.asked));
+            expect(context.chatMetadata).toBe(host.context.chatMetadata);
+            expect(Object.isFrozen(context)).toBe(true);
+        }
+        expect(MAX_SUMMARY_DEPTH).toBe(CONTRACT.messageSource.maxSummaryDepth);
+        expect(unregister()).toBeUndefined();
+        expect(storyMessages()).toEqual([summary]);
+    });
+});
+
 describe('the contract of the mark on VectFox\'s own requests', () => {
     it('writes exactly the contract\'s mark for each feature on the request\'s signal: under its key, frozen, not enumerable', async () => {
         const { core } = await loadPublishedApi();
@@ -305,12 +344,14 @@ describe('the developer page', () => {
     const escaped = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const isNamed = name => inlineCode.some(code => new RegExp(`(^|[^A-Za-z0-9_])${escaped(name)}($|[^A-Za-z0-9_])`).test(code));
 
-    it('names every member, group member, capability, reason, answer field, setting, event field, event, payload field, value and mark of the contract', () => {
+    it('names every member, group member, capability, reason, answer field, setting, event field, event, payload field, value, message source field and mark of the contract', () => {
         const quoted = value => `'${value}'`;
         const names = [
             ...Object.keys(CONTRACT.members),
             ...Object.values(CONTRACT.groups).flatMap(members => Object.keys(members)),
             ...CONTRACT.capabilities.map(quoted),
+            ...CONTRACT.messageSource.registration,
+            ...CONTRACT.messageSource.asked,
             ...CONTRACT.reasons.map(quoted),
             ...Object.values(CONTRACT.answers).flat(),
             ...CONTRACT.settings,

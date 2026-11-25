@@ -44,6 +44,7 @@ import {
     AGENTIC_MAX_TOKENS_DEFAULT,
     STORY_ARC_MAX_TOKENS_DEFAULT,
 } from './shared/constants.js';
+import { setMessageSource } from './shared/chat-messages.js';
 import { isVectFoxEnabled } from './shared/feature-gate.js';
 import { followGenerations } from './shared/last-generation.js';
 import { runNetworkStartup } from './app/network-startup.js';
@@ -55,15 +56,16 @@ import { KEY_CALLS_AT_ONCE_DEFAULT, LORE_BUDGET_DEFAULT, initializeLoreBase, pre
 import { initializeReplyLore } from './features/reply-lore/index.js';
 import {
     announceCollectionInUseChanged, announceEventBaseEventsRemoved, announceEventBaseRunEnded, announceLlmCallFinished,
-    announcePublicApiReady, announcePurgedCollection, markOwnRequestWhenSwitchedOn, publishPublicApi,
+    announcePublicApiReady, announcePurgedCollection, askMessageSources, markOwnRequestWhenSwitchedOn, publishPublicApi,
 } from './features/public-api/index.js';
 import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from './features/keyword-search/index.js';
 
 // Calls a lower layer makes into a higher one, wired here before anything can delete or insert.
 setDeletedOrImportedCollectionCleanup(clearCachesForDeletedOrImportedCollection);
 setInsertedCollectionRegistrar(registerCollection);
-// What EventBase, the vector backend and the LLM calls tell the public API, which sends it on as vectfox_* events, and
-// the public API's mark on the signal of each LLM call's request, written while the PublicAPI page's switch is on.
+// What EventBase, the vector backend and the LLM calls tell the public API, which sends it on as vectfox_* events, the
+// public API's mark on the signal of each LLM call's request, written while the PublicAPI page's switch is on, and the
+// message sources other extensions register, which story order asks about each message it reads.
 setEventBaseListeners({
     onRunEnded: announceEventBaseRunEnded,
     onEventsRemoved: announceEventBaseEventsRemoved,
@@ -72,6 +74,7 @@ setEventBaseListeners({
 setPurgedCollectionListener(announcePurgedCollection);
 setLlmCallFinishedListener(announceLlmCallFinished);
 setOwnRequestMarker(markOwnRequestWhenSwitchedOn);
+setMessageSource(askMessageSources);
 
 // Default settings
 const defaultSettings = {

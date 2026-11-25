@@ -18,15 +18,14 @@ export async function runQueryTest(testMessage) {
     // Loaded on the first test, so the retrieval feature stays out of the dialog's own load.
     const [
         { extension_settings },
-        { getContext },
+        { chatMessages },
         { runEventBaseRetrieval },
     ] = await Promise.all([
         import('../../sillytavern/settings.js'),
-        import('../../sillytavern/chat.js'),
+        import('../../shared/chat-messages.js'),
         import('../eventbase/index.js'),
     ]);
     const settings = extension_settings.vectfox;
-    const { chat } = getContext();
-    const eventBase = await runEventBaseRetrieval({ chat, searchText: testMessage, settings, dryRun: true, testMessage });
+    const eventBase = await runEventBaseRetrieval({ chat: chatMessages(), searchText: testMessage, settings, dryRun: true, testMessage });
     return { eventBase, eventBaseThreshold: Number(settings.eventbase_score_threshold) || 0 };
 }

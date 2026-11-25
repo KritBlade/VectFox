@@ -54,6 +54,23 @@ beforeEach(() => {
     mocks.chat.splice(0, mocks.chat.length, { mes: 'The gate is shut.' }, { mes: 'Open it.' });
 });
 
+describe('the messages auto-sync reads', () => {
+    it('are the open chat in story order: those with text, a summary a message source answers for as its messages', async () => {
+        const { setMessageSource } = await import('../src/shared/chat-messages.js');
+        const inUse = { ...FIRST, isLockedHere: true };
+        mocks.inUse = { collection: inUse, reason: null, collections: [inUse], lockedElsewhere: [] };
+        const kept = [{ mes: 'The gate is shut.' }, { mes: 'Open it.' }];
+        mocks.chat.splice(0, mocks.chat.length, { mes: 'They argued at the gate.', stands: kept }, { mes: '' }, { mes: 'It opens.' });
+        setMessageSource(message => (message.stands ? { owner: 'Gate Summaries', originals: message.stands } : null));
+        try {
+            await synchronizeChat(SETTINGS, 'MESSAGE_RECEIVED');
+        } finally {
+            setMessageSource(null);
+        }
+        expect(mocks.runEventBaseIngestion.mock.calls[0][0].messages).toEqual([...kept, { mes: 'It opens.' }]);
+    });
+});
+
 describe('auto-sync and the collection in use', () => {
     it('asks the one route for the open chat, and writes the collection it gives while that one has auto-sync on', async () => {
         const inUse = { ...LATER, isAutoSyncOn: true, isLockedHere: true };

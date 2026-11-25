@@ -6,6 +6,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('../src/sillytavern/chat.js', () => ({ getContext: vi.fn(), substituteParams: vi.fn(text => text.replaceAll('{{user}}', 'Wren')) }));
+vi.mock('../src/sillytavern/log.js', () => ({ log: { warn: vi.fn() } }));
 vi.mock('../src/features/text-cleaning/index.js', () => ({
     cleanText: vi.fn(text => `clean(${text})`),
     stripReasoningBlocks: vi.fn(text => `reasoning(${text})`),

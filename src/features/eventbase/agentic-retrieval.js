@@ -20,7 +20,7 @@
  * ============================================================================
  */
 
-import { getContext } from '../../sillytavern/chat.js';
+import { chatMessages } from '../../shared/chat-messages.js';
 import { isDuplicateEvent, removeEventsVisibleInContext, retrieveEvents } from './eventbase-retrieval.js';
 import { seatPlannerHits } from './planner-seats-core.js';
 import { searchEventCollection } from './eventbase-search.js';
@@ -268,7 +268,7 @@ async function _searchPlannedQueries(params) {
         userMessage: keywordQuery || '',
     });
     // The searches are written in the story's language, as its events are.
-    const plannerPromptMode = readStoryLanguage(getContext().chat || [], settings ?? {}).promptMode;
+    const plannerPromptMode = readStoryLanguage(chatMessages(), settings ?? {}).promptMode;
 
     if (isAgentDebugOn) {
         // Prompt size only — the full prompt is intentionally NOT dumped to keep
@@ -778,13 +778,12 @@ function _raceWithTimeout(promise, ms) {
 const RECENT_TURN_CHARACTERS = 3500;
 
 /**
- * Read recent non-system chat turns from getContext().chat, as the planner and the
+ * Read recent non-system chat turns from the chat as the model reads it, a summary as itself, as the planner and the
  * StoryArc router see them. Independent from the embedding search's searchText parameter.
  */
 function _getRecentChatTurns(settings) {
-    const chat = getContext().chat || [];
     const depth = Math.max(1, Math.min(50, settings.agentic_retrieval_chat_depth || 3));
-    return chat
+    return chatMessages()
         .filter(m => !m.is_system)
         .slice(-depth)
         .map(m => ({

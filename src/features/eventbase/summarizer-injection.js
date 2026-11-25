@@ -24,6 +24,7 @@
 import { setExtensionPrompt } from '../../sillytavern/prompt-injection.js';
 import { getContext } from '../../sillytavern/chat.js';
 import { getWorldInfoSettings, getSortedEntries } from '../../sillytavern/world-info.js';
+import { chatMessages, openChatStoryOrder } from '../../shared/chat-messages.js';
 import { getBackend, UNBOUNDED_RUN } from '../vector-backend/index.js';
 import { NOT_IN_USE_REASON, collectionInUse, noCollectionInUseText } from './eventbase-chat-collections.js';
 import { getVectorizationTip } from './eventbase-store.js';
@@ -91,8 +92,8 @@ export async function refreshWorldInfoEntryDepthCache(settings) {
 
 /**
  * How many of the most-recent messages World Info will scan — i.e. how many MUST stay raw
- * for keyword triggers to keep firing. Ghosting wipes `coreChat` BEFORE ST scans WI from
- * that same array, so any message WI would look at must not be wiped.
+ * for keyword triggers to keep firing. Ghosting takes messages out of `coreChat` BEFORE ST
+ * scans WI from that same array, so any message WI would look at must stay.
  *
  *   - Base = global `world_info_depth` (the standard scan window, default 2).
  *   - Per-entry `scanDepth` overrides: an entry can scan deeper than the global window, so we
@@ -100,7 +101,7 @@ export async function refreshWorldInfoEntryDepthCache(settings) {
  *   - If `min_activations` is on, the scan advances deeper until the minimum is met, capped
  *     by `min_activations_depth_max` — or by the END OF CHAT when that cap is 0. So an
  *     uncapped min-activations scan can reach the whole chat → return Infinity, which makes
- *     ghosting back off entirely (wipe nothing) rather than risk breaking WI.
+ *     ghosting back off entirely (take nothing out) rather than risk breaking WI.
  *
  * @returns {number} message count that must remain raw for WI (may be Infinity)
  */
@@ -121,73 +122,85 @@ function worldInfoScanFloor() {
 }
 
 /**
- * Build a prompt-only wiped clone of a message: empty text AND stripped of every
- * content-bearing field ST folds into the outgoing prompt independently of `.mes` —
- * images/files (`extra.media`), tool-call args+results (`extra.tool_invocations`), and
- * model reasoning (`extra.reasoning` / `reasoning_signature`). The caller also flags this
- * clone with ST's IGNORE_SYMBOL to drop it entirely; the blank here is the "bulletproof"
- * fallback for any code path that doesn't honor the symbol — and
- * it stops media/reasoning leaking on builds where the symbol is unavailable.
- *
- * We shallow-copy (not structuredClone): we only overwrite top-level `.mes` and a fresh
- * `.extra`, so a shallow spread is sufficient, can't throw on an unclonable nested value,
- * and never touches the LIVE message object — the UI + saved chat keep their media/
- * reasoning intact. (ST already hands the interceptor detached copies, but cloning keeps
- * us correct regardless of ST version.)
- *
- * @param {object} m - source message
- * @returns {object} prompt clone with no recoverable content
+ * How many of the chat's messages, from its first, are in memory for ghosting: each up to the last one whose places in
+ * story order all lie below the tip. A message with no text takes no place, so it counts only below one that is in
+ * memory. A summary whose originals all lie below the tip is in memory too, and ghosting keeps it (applyGhosting).
+ * @param {Array<{isSummary: boolean, start: number, end: number}>} places - Each chat message's places in story order
+ *   (openChatStoryOrder)
+ * @param {number} tip - The story's messages EventBase has read, from its first
+ * @returns {number}
  */
-function blankPromptClone(m) {
-    const clone = { ...m, mes: '' };
-    if (m.extra && typeof m.extra === 'object') {
-        clone.extra = { ...m.extra };
-        delete clone.extra.media;               // images / files (heaviest leak)
-        delete clone.extra.tool_invocations;    // tool-call arguments + results
-        delete clone.extra.reasoning;           // model reasoning text
-        delete clone.extra.reasoning_signature;
+function chatMessagesInMemory(places, tip) {
+    let count = 0;
+    for (const [index, place] of places.entries()) {
+        if (place.end > tip) break;
+        if (place.end > place.start) count = index + 1;
     }
-    return clone;
+    return count;
 }
 
 /**
- * Ephemeral "ghosting": keep the most recent N messages verbatim and blank ALL older
- * already-vectorized messages from the OUTGOING prompt only. The chat array we get is
- * ST's interceptor working copy; we replace each wiped slot with a sanitized clone
- * (see blankPromptClone), so the saved chat + UI never change and the whole effect
+ * The chat message each message of the prompt copies, as its index in the chat, or -1 for one that copies none.
+ * SillyTavern builds the prompt from the chat less its hidden messages, keeping a hidden one with tool calls while tool
+ * calling is on, and numbers each copy by its place in that list (`index`). The interceptors that run before VectFox's
+ * may take copies out or add their own, as Vector Storage and other memory extensions do, so a copy is found by its
+ * number, never by its place in the prompt. A copy whose sender, name or date differ from the message its number points
+ * to copies none.
+ * @param {object[]} prompt - The interceptor's chat array (coreChat)
+ * @param {object[]} chat - The chat as SillyTavern holds it (chatMessages)
+ * @param {boolean} isToolCallingOn - Whether SillyTavern keeps a hidden message with tool calls in the prompt
+ * @returns {number[]}
+ */
+function chatIndicesOfPrompt(prompt, chat, isToolCallingOn) {
+    const promptSources = [];
+    for (const [index, message] of chat.entries()) {
+        if (!message.is_system || (isToolCallingOn && Array.isArray(message.extra?.tool_invocations))) promptSources.push(index);
+    }
+    return prompt.map((copy) => {
+        const chatIndex = Number.isInteger(copy?.index) ? promptSources[copy.index] : undefined;
+        const message = chatIndex === undefined ? undefined : chat[chatIndex];
+        const isCopy = message !== undefined && copy.is_user === message.is_user && copy.name === message.name
+            && copy.send_date === message.send_date;
+        return isCopy ? chatIndex : -1;
+    });
+}
+
+/**
+ * Ephemeral "ghosting": keep the most recent N messages verbatim and take ALL older
+ * already-vectorized messages out of the OUTGOING prompt only. The chat array we get is
+ * ST's interceptor working copy, so the saved chat + UI never change and the whole effect
  * resets on the next generation (nothing to un-ghost, branch-safe).
  *
- * Wipe boundary `cutoff`: `rollingCutoff = min(vectorizedInCore, chat.length - keepFloor)`,
+ * Boundary `cutoff`: `rollingCutoff = min(inMemoryInPrompt, chat.length - keepFloor)`,
  * snapped DOWN to a multiple of the batch size (`eventbase_ghost_batch_size`):
- *   - `vectorizedInCore` — the vectorization tip translated from FULL-chat index space
- *     into the coreChat space we actually receive (see below). Messages below it are in
- *     EventBase; nothing above it (not yet vectorized) is ever wiped.
+ *   - `inMemoryInPrompt` — the prompt's messages, from its first, that copy a chat message in
+ *     memory: the vectorization tip counts the story's messages in story order, mapped back to
+ *     the chat's messages (chatMessagesInMemory), and each prompt message to the chat message it
+ *     copies (chatIndicesOfPrompt). Nothing above the tip (not yet vectorized) is ever taken out.
  *   - `chat.length - keepFloor` — keeps the last `keepRecent` messages raw, with a hard
- *     floor of 1 so the current outgoing turn is NEVER blanked (even at keepRecent=0).
+ *     floor of 1 so the current outgoing turn is NEVER taken out (even at keepRecent=0).
  *   - the snap — at a batch size above 1 the boundary moves only once a whole batch can
  *     go, so the prompt's opening stays byte-identical between moves and a provider's
  *     prompt cache can reuse it. The raw window then spans keepFloor to keepFloor +
- *     batch size - 1 messages. Snapping down only wipes fewer, so both bounds above hold.
- * Messages [0, cutoff) are wiped. "Keep last N" auto-scales to any chat length.
+ *     batch size - 1 messages. Snapping down only takes out fewer, so both bounds above hold.
+ * The messages before the boundary are taken out, all but two kinds, which stay where they are: a summary a message
+ * source answers for (D6 of InternalProject/Vectfox/plans/vectfox-public-api.md), and a message that copies none of the
+ * chat's, as another extension's interceptor adds. "Keep last N" auto-scales to any chat length.
  *
- * Wipe mechanism : flag each wiped message
- * with ST's IGNORE_SYMBOL (drops it from the prompt entirely — no empty turn left behind,
- * which some chat-completion APIs reject) AND blank its clone as a bulletproof fallback.
- * CONTIGUITY IS MANDATORY: setOpenAIMessages leaves an *unassigned slot* per ignored
- * message — a contiguous ignored block [0, cutoff) just shortens the array (safe), but
- * leaving any message raw INSIDE the span punches an interior `undefined` hole that crashes
- * prompt building ("Message role not set" → `chatPrompt.media` on undefined → "An unknown
- * error occurred while counting tokens"). So we wipe EVERY message in the span — including
- * empty and tool/system ones — and skip only null slots.
+ * Taken out, not flagged: a message taken out of the array leaves no empty turn, which some chat-completion APIs
+ * reject, and SillyTavern builds the prompt from whatever the interceptors leave, as Vector Storage takes messages out
+ * of the same array. SillyTavern's ignore flag would not do: Chat Completion's message list (setOpenAIMessages) leaves
+ * a hole for a flagged message after a sent one, so flagged messages must run from the first, and a summary that stays
+ * would end the run.
  *
- * Gated to Summarizer Injection (forces auto-sync window=1 → the tip stays current). A tip past the chat's end, as
- * after messages are deleted or a summary replaces some, wipes nothing.
+ * Gated to Summarizer Injection (forces auto-sync window=1 → the tip stays current). A tip past the story's end, as
+ * after messages are deleted, or a summary no message source answers for replaces some, takes nothing out.
  *
- * World Info safety: ST scans WI from this same chat array AFTER us, so the wipe is floored
+ * World Info safety: ST scans WI from this same chat array AFTER us, so the boundary is floored
  * to keep WI's full scan window raw (see worldInfoScanFloor) — keyword triggers keep firing
  * at any slider value, and ghosting auto-pauses if WI could scan the whole chat.
  *
- * @param {Array} chat - ST interceptor chat array (coreChat; mutated by slot replacement)
+ * @param {Array} chat - ST interceptor chat array (coreChat; the messages taken out are spliced from it)
  * @param {object} settings - extension_settings.vectfox
  * @param {object|null} [inUse] - The chat's collection in use (collectionInUse), as the reply step resolved it
  * @returns {{ wiped: number, charsRemoved: number }}
@@ -205,46 +218,41 @@ export function applyGhosting(chat, settings, inUse = null) {
     const keepRecent = Math.max(0, Math.floor(Number(settings.eventbase_ghost_keep_recent) || 0));
     // A missing or unreadable batch size moves the boundary every turn, as 1 does.
     const batchSize = Math.max(1, Math.floor(Number(settings.eventbase_ghost_batch_size) || 1));
-    // tip = highest extracted message index + 1, in FULL-chat index space: the tip of the chat's collection in
-    // use, unless it is paused, as no reply then reads its events. A collection of another chat locked in here
-    // counts that chat's messages, so it never sets the tip.
+    // tip = the tip of the chat's collection in use, unless it is paused, as no reply then reads its events. A
+    // collection of another chat locked in here counts that chat's messages, so it never sets the tip.
     const { collection } = inUse ?? collectionInUse(settings);
     const ownCollection = collection && !collection.isPaused ? collection : null;
     const tip = ownCollection ? getVectorizationTip(ownCollection.registryKey) : undefined;
-    const fullChat = getContext()?.chat;
-    // A tip past the chat's end was read on a longer chat (messages deleted, or a summary replacing some), so it
-    // cannot say which messages here are in memory: nothing is blanked until the chat passes it again.
-    const isTipPastChatEnd = typeof tip === 'number' && Array.isArray(fullChat) && tip > fullChat.length;
+    // The tip counts the story's messages in story order (storyMessages), so it is mapped back to the chat below.
+    const storyOrder = typeof tip === 'number' ? openChatStoryOrder() : null;
+    const storyLength = storyOrder?.messages.length ?? 0;
+    // A tip past the story's end was read on a longer chat (messages deleted, or a summary no message source answers
+    // for replacing some), so it cannot say which messages here are in memory: nothing is taken out until the chat
+    // passes it again.
+    const isTipPastChatEnd = typeof tip === 'number' && tip > storyLength;
     if (isTipPastChatEnd) {
-        log.domain('injection', 'verbose', `[Ghost] Blanking nothing: the tip (${tip}) is past the chat's ${fullChat.length} messages`);
+        log.domain('injection', 'verbose', `[Ghost] Taking nothing out: the tip (${tip}) is past the chat's ${storyLength} messages in story order`);
     }
 
     if (!isTipPastChatEnd && Array.isArray(chat) && chat.length > 0 && typeof tip === 'number' && tip > 0) {
-        // INDEX-SPACE FIX: `tip` indexes the full chat (incl. is_system messages), but the
-        // interceptor hands us coreChat — ST filters is_system OUT before calling us. Using
-        // `tip` directly as a coreChat cutoff over-reaches whenever system/narrator messages
-        // sit below the tip, wiping into the kept-recent tail. Translate by counting how many
-        // full-chat messages below the tip survive coreChat's filter (non-system). Conservative:
-        // a system message kept only via tool_invocations isn't counted, so we under-wipe rather
-        // than risk a not-yet-vectorized message. Falls back to raw `tip` if the live chat is
-        // unavailable (the keepFloor below still caps the reach).
-        let vectorizedInCore = tip;
-        if (Array.isArray(fullChat)) {
-            vectorizedInCore = 0;
-            const end = Math.min(tip, fullChat.length);
-            for (let k = 0; k < end; k++) {
-                if (fullChat[k] && !fullChat[k].is_system) vectorizedInCore++;
-            }
+        const inMemoryCount = chatMessagesInMemory(storyOrder.places, tip);
+        const chatIndices = chatIndicesOfPrompt(chat, chatMessages(), getContext()?.isToolCallingSupported?.() === true);
+        const uncopiedCount = chatIndices.filter(chatIndex => chatIndex < 0).length;
+        if (uncopiedCount > 0) {
+            log.domain('injection', 'verbose', `[Ghost] ${uncopiedCount} prompt message(s) copy no chat message, so they stay`);
         }
+        // The prompt's messages in memory, from its first; one that copies no chat message is passed, and stays.
+        let inMemoryInPrompt = 0;
+        while (inMemoryInPrompt < chat.length && chatIndices[inMemoryInPrompt] < inMemoryCount) inMemoryInPrompt++;
 
         // keepFloor = how many recent messages stay raw no matter the slider:
-        //   - >= 1      → never blank the current outgoing turn (prompt is never left empty).
-        //   - >= WI reach → never blank a message World Info will scan, so ghosting can't
+        //   - >= 1      → never take out the current outgoing turn (prompt is never left empty).
+        //   - >= WI reach → never take out a message World Info will scan, so ghosting can't
         //                   break keyword triggers at ANY slider value. If WI may scan the
         //                   whole chat (uncapped min-activations), the floor is Infinity →
-        //                   cutoff clamps to 0 → ghosting wipes nothing this turn.
+        //                   cutoff clamps to 0 → ghosting takes nothing out this turn.
         const keepFloor = Math.max(keepRecent, 1, worldInfoScanFloor());
-        const rollingCutoff = Math.max(0, Math.min(vectorizedInCore, chat.length - keepFloor));
+        const rollingCutoff = Math.max(0, Math.min(inMemoryInPrompt, chat.length - keepFloor));
         // Snap down to the batch grid; at batch size 1 the boundary stays where it is.
         const cutoff = Math.floor(rollingCutoff / batchSize) * batchSize;
         // No readout while World Info could scan the whole chat: ghosting is paused, so no batch is coming.
@@ -253,30 +261,23 @@ export function applyGhosting(chat, settings, inUse = null) {
             messagesUntilNextBatch = cutoff + batchSize - rollingCutoff;
         }
 
-        // ST's ignore flag: drop the message from the prompt entirely. Optional — falls back
-        // to the blanked clone alone when this ST build doesn't expose it.
-        const ignoreSymbol = getContext()?.symbols?.ignore ?? null;
-
-        for (let i = 0; i < cutoff; i++) {
-            const m = chat[i];
-            if (!m) continue;                          // null slot: can't wipe (pre-existing ST issue upstream)
-            try {
-                const hadContent = !!(m.mes && m.mes.trim());
-                const clone = blankPromptClone(m);     // never mutate the live message object
-                if (ignoreSymbol) {
-                    clone.extra = clone.extra || {};
-                    clone.extra[ignoreSymbol] = true;
-                }
-                chat[i] = clone;
-                // Count only content-bearing messages for the readout; empty/system ones are
-                // still wiped (to preserve contiguity) but represent no real token saving.
-                if (hadContent) { charsRemoved += m.mes.length; wiped++; }
-            } catch (err) {
-                // A failure here leaves this slot raw → breaks contiguity → hole. Shallow-clone
-                // of a plain message effectively never throws, but log loudly if it ever does.
-                log.domain('injection', 'verbose', `[Ghost] could not wipe idx ${i}: ${err?.message || err}`);
+        // Before the boundary every message in memory goes, empty ones and hidden ones with tool calls too, but for a
+        // summary and a message that copies none of the chat's, which stay where they are.
+        const staying = [];
+        for (let index = 0; index < cutoff; index++) {
+            const chatIndex = chatIndices[index];
+            if (chatIndex < 0 || storyOrder.places[chatIndex].isSummary) {
+                staying.push(chat[index]);
+                continue;
+            }
+            // Only messages with text count for the readout: an empty one saves nothing.
+            const text = chat[index].mes;
+            if (typeof text === 'string' && text.trim()) {
+                charsRemoved += text.length;
+                wiped++;
             }
         }
+        chat.splice(0, cutoff, ...staying);
     }
 
     // Always publish the latest outcome while the feature is enabled — so the on-screen
@@ -288,7 +289,7 @@ export function applyGhosting(chat, settings, inUse = null) {
         const batchNote = keptVerbatimCount === null
             ? ''
             : `; batches of ${batchSize}: ${keptVerbatimCount} message(s) kept verbatim, ${messagesUntilNextBatch} message(s) until the next batch`;
-        log.domain('injection', 'lifecycle', `[Ghost] Wiped ${wiped} vectorized message(s) from prompt — ~${charsRemoved} chars (~${approxTokens} tokens) saved${batchNote}`);
+        log.domain('injection', 'lifecycle', `[Ghost] Took ${wiped} vectorized message(s) out of the prompt — ~${charsRemoved} chars (~${approxTokens} tokens) saved${batchNote}`);
     }
     return { wiped, charsRemoved };
 }

@@ -148,6 +148,23 @@ describe('getChatAutoSyncStatus — the collection it reports on', () => {
     });
 });
 
+describe('getChatAutoSyncStatus — the messages it counts', () => {
+    it('counts the chat in story order, a summary a message source answers for as the messages it stands for', async () => {
+        const { getContext } = await import('../../../../extensions.js');
+        const { setMessageSource } = await import('../src/shared/chat-messages.js');
+        // Messages m0 to m4 under one summary, then m5: 2 messages in the chat, 6 in the story, past the tip of 4.
+        const summary = { mes: 'Summary of m0 to m4.', stands: ['m0', 'm1', 'm2', 'm3', 'm4'].map(mes => ({ mes })) };
+        getContext.mockReturnValue({ chat: [summary, { mes: 'm5' }] });
+        setMessageSource(message => (message.stands ? { owner: 'Harbor Summaries', originals: message.stands } : null));
+        try {
+            expect(await getChatAutoSyncStatus({})).toMatchObject({ state: 'partial', chatMessageCount: 6, commitBoundary: 4 });
+        } finally {
+            setMessageSource(null);
+            getContext.mockReturnValue({ chat: [{ mes: 'm0' }, { mes: 'm1' }, { mes: 'm2' }, { mes: 'm3' }] });
+        }
+    });
+});
+
 describe('getChatAutoSyncStatus — the windows it counts', () => {
     it('counts auto-sync\'s windows from its start marker, as an auto-sync run does', async () => {
         const { autoSyncFirstWindowStart, isLastWindowExtracted } = await import('../src/features/eventbase/eventbase-store.js');

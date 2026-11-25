@@ -11,7 +11,7 @@
 import { insertVectorItems, deleteVectorItems, getSavedHashes, updateChunkMetadata, qdrantTarget } from '../vector-backend/index.js';
 import { saveSettingsDebounced, extension_settings } from '../../sillytavern/settings.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
-import { getContext } from '../../sillytavern/chat.js';
+import { storyMessages } from '../../shared/chat-messages.js';
 import { getRegistryBackend, COLLECTION_PREFIXES, parseCollectionId, parseRegistryKey } from '../../shared/collection-ids.js';
 import {
     registerCollection,
@@ -620,9 +620,9 @@ export function autoSyncFirstWindowStart(registryKey, step) {
  * regardless of existing coverage — used by the auto-sync enable flow's "Just keep
  * up from here" choice, where the user explicitly declines backfilling the gap.
  *
- * The chat's length counts its messages as a run does, those with text, the positions its windows and stored events
- * use. Auto-sync's windows start at the marker (autoSyncFirstWindowStart), so the window holding the next message
- * starts with it.
+ * The chat's length counts its messages as a run does, those with text in story order (storyMessages), the positions
+ * its windows and stored events use. Auto-sync's windows start at the marker (autoSyncFirstWindowStart), so the window
+ * holding the next message starts with it.
  *
  * @param {string} registryKey - The collection's registry key ("backend:id")
  * @param {object} settings
@@ -631,7 +631,7 @@ export function autoSyncFirstWindowStart(registryKey, step) {
  */
 export async function stampAutoSyncMarker(registryKey, settings, options = {}) {
     if (!registryKey) return 0;
-    const chatLength = (getContext()?.chat ?? []).filter(message => message.mes && message.mes.trim().length > 0).length;
+    const chatLength = storyMessages().length;
 
     // Explicit "from now on" — skip the coverage scan entirely.
     if (options.floor === 'chatLength') {

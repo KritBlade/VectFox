@@ -34,14 +34,14 @@ Once you have the object, `await VectFox.whenReady()` does the same wait as a pr
 
 | Name | What it gives you |
 |---|---|
-| `apiVersion` | The API's version, like `'1.3.0'`. See Versions below |
+| `apiVersion` | The API's version, like `'1.4.0'`. See Versions below |
 | `extensionVersion` | VectFox's own version from its manifest, like `'3.6.245'`, once VectFox is ready. `null` before that, or when VectFox could not read its manifest (the console says why) |
 | `isReady()` | `true` once VectFox has finished starting up |
 | `whenReady()` | A promise that resolves when VectFox has finished starting up. It's the same promise every time you ask |
-| `capabilities` | The groups of the API this VectFox serves, like `['events', 'chat', 'settings', 'eventbase.read']` |
+| `capabilities` | The groups of the API this VectFox serves, like `['events', 'chat', 'settings', 'eventbase.read', 'chat.messageSource']` |
 | `on(name, handler)` | Calls your handler every time VectFox sends that event. Returns a function that stops it |
 | `off(name, handler)` | Stops calling your handler for that event |
-| `chat` | The open chat: `chat.getChatId()` and `chat.getCollectionInUse()`. See The chat, its collection and the settings below |
+| `chat` | The open chat: `chat.getChatId()` and `chat.getCollectionInUse()`, see The chat, its collection and the settings below. And `chat.registerMessageSource()`, for a summarizer, see Message sources below |
 | `getSettingsSnapshot()` | A frozen copy of the settings that decide what VectFox does to the prompt, and whether it marks its LLM requests. Also below |
 | `eventBase` | The events VectFox reads out of a chat: `eventBase.listEvents()`. See Reading EventBase below |
 
@@ -256,7 +256,7 @@ One answer holds up to 100 changes, which is what `hasMore` is for. A full read,
 | `importance` | How much it matters to the story, from 1 to 10 |
 | `storyTime` | When it happened in the story, as an ISO date and time, `null` when the story gave no date |
 | `sceneTime` | The same moment in the story's own words, like `'the third night of the harvest festival'`, `''` when none |
-| `windowStart` / `windowEnd` | The first and last chat message VectFox read it from, by message number, as the chat was then |
+| `windowStart` / `windowEnd` | The first and last chat message VectFox read it from, by message number in story order: the messages with text, counted from 0, and a summary a message source answers for counted as the messages it stands for (see Message sources below) |
 | `cursor` | The change number it was stored or last edited under, `0` when it was stored before change numbers existed |
 
 Everything in an answer is frozen.
@@ -323,6 +323,87 @@ The events only come in the tab that did the work. So treat `vectfox_eventbase_s
 `'read-failed'` means the read didn't get through, like Qdrant being down, or SillyTavern having just restarted. The console says why, and asking again in a bit usually works.
 
 `listEvents` only rejects for a call that can't be right, with a `TypeError`: a request that isn't an object, a `collectionId` that isn't an EventBase collection's ID, a `chatId` that isn't a chat's ID, or an `after` that isn't a whole number of 0 or more.
+
+## Message sources
+
+A summarizer swaps a stretch of messages for one summary. A message source tells VectFox which messages that summary stands for, so VectFox keeps reading the chat as the story it was. `capabilities` has `'chat.messageSource'` when this VectFox has it.
+
+Why does VectFox care? Because EventBase numbers the messages it reads. Say EventBase has read messages 0 to 99, and a summarizer swaps messages 0 to 49 for one summary. Without a source, VectFox now sees 51 messages where it read 100. It takes the summary for a new message, and reads the same story out of it a second time.
+
+Think of a book where someone tore out pages 30 to 211 and put a one-page recap in their place. Your notes say "page 212", but that page is now page 31. A message source is the sticky note on the recap that says "this stands for pages 30 to 211", so every note still lands on the right page.
+
+### Registering one
+
+`chat.registerMessageSource({ owner, originalsOf })` registers your function, and gives you back a function that unregisters it. `owner` names your extension, and the console uses that name if your function ever fails. You can register any time, before VectFox is ready too, and it counts from VectFox's next read.
+
+```js
+const stop = VectFox.chat.registerMessageSource({
+    owner: 'Hearth Summaries',
+    originalsOf: (message) => message.extra?.hearth?.replaced ?? null,
+});
+// Later, when your extension turns off:
+stop();
+```
+
+A call that can't be right throws a `TypeError`: no object, an `owner` that isn't a name, or an `originalsOf` that isn't a function.
+
+### What originalsOf answers
+
+VectFox calls `originalsOf(message, { chatMetadata })` for every message it reads. `chatMetadata` is the chat's `chat_metadata` as it is right now. Your function answers one of 3 things:
+
+| Answer | What VectFox does |
+|---|---|
+| `null` | It's an ordinary message, so VectFox reads it as itself |
+| A list of messages | It's a summary of those. VectFox reads them in its place, in that order, and asks you about each of them too, so a summary inside a summary works |
+| `[]` | It's a summary of messages still in the chat, or of nothing. VectFox skips it |
+
+Use `[]` when your summarizer hides the old messages and adds a summary. The hidden messages are still in the chat and VectFox reads them anyway, so reading them through the summary would read them twice.
+
+The messages in your list are message objects like the chat's, with `name`, `is_user` and `mes`. VectFox reads them exactly the way it reads the chat's.
+
+### The rules
+
+Your function runs every single time VectFox reads the chat, once per message. So keep it to 3 rules:
+- Answer at once, no promise and no `await`.
+- Give the same answer for the same message every time.
+- Change nothing you're handed, not the message and not `chatMetadata`.
+
+If your function throws, or answers anything but `null` or a list of messages, VectFox reads that message as an ordinary one and says so in the console, once.
+
+With several sources registered, VectFox asks them in the order they registered, and the first one that answers with a list decides. A source that throws counts as `null`, so the next one still gets asked.
+
+VectFox opens summaries 64 levels deep. A summary deeper than that, or one whose list holds a summary it sits inside, is read as itself, and the console says so.
+
+### What VectFox does with it
+
+Everything that reads the chat into EventBase reads it in story order, each summary as its messages: auto-sync, Vectorize Content, a branch's copied events, and the message counts on VectFox's pages. So the message numbers stay put. Summarize 50 messages, and message 500 is still message 500 to EventBase. Restore them, and nothing moves either. `windowStart` and `windowEnd` count the same way.
+
+The search text, LoreBase's scene and Agent Mode's planner read the chat as the model does, the summary as itself. That's what the model is about to read, so that's what they search with.
+
+Ghosting never blanks a summary. It takes the messages EventBase has read out of the prompt on both sides of it, and the summary stays where it is. So beside a summarizer whose summaries open the chat, the model gets the summaries first, then the latest messages, and VectFox's memory covers the read messages in between.
+
+A chat that was summarized and read into EventBase BEFORE your source registered was read from the summary's text. Read it again once, from its first message, and from then on it's right.
+
+### A worked example: InlineSummary
+
+[`tools/public-api-sample/message-source.js`](../tools/public-api-sample/message-source.js) is a message source for InlineSummary. InlineSummary swaps a range of messages for one summary and keeps the originals in one of 3 places, and the sample reads all 3:
+- On the summary itself, `ILS_Data.OriginalMessages`, since InlineSummary 1.2.0.
+- In the summary's `extra`, before 1.2.0.
+- In brasen56's fork, in `chat_metadata.ILS_Originals`, under the `Ref` the summary holds.
+
+```js
+export function inlineSummaryOriginals(message, { chatMetadata }) {
+    const data = message.ILS_Data ?? message.extra?.ILS_Data;
+    if (!data) return null;                                 // an ordinary message
+    if (Array.isArray(data.OriginalMessages)) return data.OriginalMessages;
+    const kept = chatMetadata?.ILS_Originals?.[data.Ref];   // brasen56's fork keeps them here
+    return Array.isArray(kept) ? kept : null;               // originals gone: read the summary as it is
+}
+```
+
+When the originals are gone, like after a fork's Flatten deleted them, it answers `null`, and VectFox reads the summary as it is.
+
+`registerInlineSummarySource()` in the same file registers it, right away when VectFox's object is there, or on `vectfox_ready` when VectFox loads after it. Put it in InlineSummary itself, in a fork of it, or in a small extension of your own that runs beside it. As its own extension it keeps working even while InlineSummary is off, so a summarized chat still reads right.
 
 ## VectFox's own LLM calls
 

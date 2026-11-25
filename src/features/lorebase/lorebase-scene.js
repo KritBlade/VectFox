@@ -1,8 +1,10 @@
 /**
  * This turn's scene, read from SillyTavern's stored chat (plan §5.5 of InternalProject/Vectfox/plans/
- * executed/lorebook-semantic-overhaul-passage-index.md), never the interceptor's working copy, which ghosting edits.
+ * executed/lorebook-semantic-overhaul-passage-index.md), never the interceptor's working copy, which ghosting edits. It
+ * reads the chat as the model does, a summary as itself.
  */
-import { getContext, substituteParams } from '../../sillytavern/chat.js';
+import { substituteParams } from '../../sillytavern/chat.js';
+import { chatMessages } from '../../shared/chat-messages.js';
 import { cleanText, stripGameSystemBlocks, stripReasoningBlocks } from '../text-cleaning/index.js';
 import { sceneMessages } from './lorebase-scene-core.js';
 
@@ -21,5 +23,5 @@ function sceneMessageText(text) {
  * @returns {Array<{name: string, text: string}>|null} Null when the chat holds no user message with text
  */
 export function sceneMessagesFromChat() {
-    return sceneMessages(getContext().chat ?? [], sceneMessageText);
+    return sceneMessages(chatMessages(), sceneMessageText);
 }

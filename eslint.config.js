@@ -54,6 +54,17 @@ export default [
         rules: { 'no-unused-vars': ['error', { ...unusedVariablesRule[1], args: 'none' }] },
     },
 
+    // ── the public API's sample consumer: page code another extension would ship ──
+    {
+        files: ['tools/public-api-sample/**/*.js'],
+        languageOptions: {
+            ecmaVersion: 2023,
+            sourceType: 'module',
+            globals: { ...globals.browser, SillyTavern: 'readonly' },
+        },
+        rules: runtimeRules,
+    },
+
     // ── Node tooling and config files ───────────────────────────────────────────
     {
         files: ['scripts/**/*.mjs', 'tools/**/*.mjs', '*.config.js'],
