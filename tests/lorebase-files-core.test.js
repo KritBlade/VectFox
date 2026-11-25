@@ -5,7 +5,8 @@
  * a tenant's vectors file of one embedding model; a vectors file's import matching each point's hash, made again, to a
  * part of an entry selected or not, counting the unselected entries' parts, and embedding a selected entry's again when
  * the file's model is not the one set now; a damaged or another kind's file; the Database Browser's words for each; and
- * Remove from LoreBase's confirm and outcome, which the Database Browser and the WorldInfo page both show.
+ * Remove from LoreBase's confirm and outcome, which the Database Browser and the WorldInfo page both show, Unlink's too,
+ * each saying whether the book stays in SillyTavern or SillyTavern no longer has it.
  */
 import { describe, expect, it, vi } from 'vitest';
 
@@ -290,6 +291,27 @@ describe("Remove from LoreBase's words, the same on both pages, and Unlink's", (
         ]);
         expect(sentencesOf(files.removalConfirmLines(holdingsOf(), { unlinkedFrom: [], stillLoadedBy: ['characterOwnBook'] })).slice(3, 5))
             .toEqual(['Unlinked from:', 'none']);
+    });
+
+    it('says SillyTavern no longer has the book, in place of what stays there, as Unlink on an added book renamed or deleted there finds', () => {
+        const links = { unlinkedFrom: ['addedChatBooks'], stillLoadedBy: [] };
+        const missing = { isInSillyTavern: false };
+        expect(sentencesOf(files.removalConfirmLines(holdingsOf(), links, missing))).toContain(
+            'SillyTavern no longer has this lorebook. Export its keys and vectors in the Database Browser first to keep a copy.',
+        );
+        const blank = holdingsOf({ selectedCount: 0, pinnedCount: 0, keyCount: 0, tenants: [] });
+        expect(sentencesOf(files.removalConfirmLines(blank, links, missing))).toEqual([
+            'Unlink this lorebook? Unlinking also deletes ALL of it from LoreBase: its vectors, keys, selections and locks.',
+            'Lorebook:', BOOK,
+            'Unlinked from:', 'the lorebooks added to this chat',
+            'Selection:', 'none',
+            'Locked to:', '1 chat',
+            'Keys:', 'none',
+            'Vectors:', 'none',
+            'SillyTavern no longer has this lorebook.',
+            'Unlink deletes all of it. Cancel keeps it.',
+        ]);
+        expect(sentencesOf(files.removalConfirmLines(blank, null, missing))).toContain('SillyTavern no longer has this lorebook.');
     });
 
     it('says what was removed, each count with its unit, and with Unlink what the book was unlinked from first', () => {

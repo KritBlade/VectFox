@@ -1,21 +1,23 @@
 /**
  * Remove from LoreBase's one confirm and removal (removeLoreBookAfterConfirm in src/features/lorebase/lorebase-removal.js,
  * §3.6 of InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md), which the Database Browser's lorebook
- * row and the WorldInfo page's book row both run: what the book holds read first, then the confirm naming it, which
- * opens on Cancel; Remove deleting it all and unlinking nothing, Cancel nothing; and a refusal before the confirm, as
- * while LoreBase writes, showing none. The WorldInfo page's Unlink runs them too: its confirm, whose button is Unlink,
- * also names the chat's lists the book is unlinked from, and once removed from LoreBase it is unlinked from them. And
- * the one delete of a single selection (deleteLoreSelectionAfterConfirm, §3.7), which Choose entries' Delete and the
- * WorldInfo row's trash on one of several selections both run: Choose entries' confirm, opening on Cancel, then the
- * selection deleted and, on Qdrant, the vectors no other selection holds pruned; the book itself never removed. The
- * storage module, the record, the vectors, the chat's lists and the dialog are stubbed; the words are the real
- * lorebase-files-core.js's and lorebase-selection-markup.js's.
+ * row and the WorldInfo page's book row both run: what the book holds read first, then the confirm naming it and
+ * whether SillyTavern still has it, which opens on Cancel; Remove deleting it all and unlinking nothing, Cancel nothing;
+ * and a refusal before the confirm, as while LoreBase writes, showing none. The WorldInfo page's Unlink runs them too:
+ * its confirm, whose button is Unlink, also names the chat's lists the book is unlinked from, and once removed from
+ * LoreBase it is unlinked from them. And the one delete of a single selection (deleteLoreSelectionAfterConfirm, §3.7),
+ * which Choose entries' Delete and the WorldInfo row's trash on one of several selections both run: Choose entries'
+ * confirm, opening on Cancel, then the selection deleted and, on Qdrant, the vectors no other selection holds pruned;
+ * the book itself never removed. The storage module, the record, the vectors, the chat's lists, SillyTavern's lorebook
+ * names and the dialog are stubbed; the words are the real lorebase-files-core.js's and lorebase-selection-markup.js's.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const host = vi.hoisted(() => ({ answer: true }));
+const host = vi.hoisted(() => ({ answer: true, worldNames: [] }));
 
 vi.mock('../src/sillytavern/popup.js', () => ({ confirmPopup: vi.fn(async () => host.answer) }));
+// SillyTavern's lorebook names, a live list it replaces in place here.
+vi.mock('../src/sillytavern/world-info.js', () => ({ world_names: host.worldNames }));
 // SillyTavern modules the ID module behind LoreBase's words reaches; nothing this test runs uses them.
 vi.mock('../src/sillytavern/chat.js', () => ({ getContext: vi.fn(() => ({})), getCurrentChatId: vi.fn(), chat_metadata: {} }));
 vi.mock('../src/sillytavern/log.js', () => ({ log: { error: vi.fn(), warn: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn() } }));
@@ -46,6 +48,7 @@ const UNLINKED = { unlinkedFrom: ['characterBooks'], stillLoadedBy: [] };
 beforeEach(() => {
     vi.clearAllMocks();
     host.answer = true;
+    host.worldNames.splice(0, host.worldNames.length, 'Tide Tables', 'Harbor Atlas');
     loreBookHoldings.mockResolvedValue(HOLDINGS);
     removeLoreBook.mockResolvedValue(REMOVED);
     chatBookLinks.mockReturnValue(LINKS);
@@ -102,6 +105,14 @@ describe('Remove from LoreBase', () => {
         expect(removeLoreBook).toHaveBeenCalledWith('Harbor Atlas', SETTINGS);
         expect(unlinkLoreBookFromChat).toHaveBeenCalledWith('Harbor Atlas');
         expect(removeLoreBook.mock.invocationCallOrder[0]).toBeLessThan(unlinkLoreBookFromChat.mock.invocationCallOrder[0]);
+    });
+
+    it('tells the confirm that SillyTavern no longer has the book, as on an added book renamed or deleted there', async () => {
+        host.worldNames.splice(0, host.worldNames.length, 'Tide Tables');
+        expect(await removeLoreBookAfterConfirm('Harbor Atlas', SETTINGS, { shouldUnlink: true })).toEqual({ ...REMOVED, ...UNLINKED });
+        const [lines] = confirmPopup.mock.calls[0];
+        expect(lines).toEqual(removalConfirmLines(HOLDINGS, LINKS, { isInSillyTavern: false }));
+        expect(lines.map(line => line.text)).toContain('SillyTavern no longer has this lorebook.');
     });
 
     it("Unlink unlinks the book from no list when it cannot be removed from LoreBase, nor on Cancel", async () => {

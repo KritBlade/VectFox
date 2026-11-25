@@ -604,7 +604,7 @@ export async function loreBookHoldings(bookName, settings) {
  * removeLoreBookAfterConfirm: its vectors in every collection holding them, the cheapest to write again, then its keys,
  * those edited by hand included, then its record, with every selection's selected entries, pinned sections and locks,
  * so a delete that fails leaves the book listed with what it still holds. What this session knew of its keys and
- * vectors goes with them. The lorebook stays in SillyTavern.
+ * vectors goes with them. It never changes the lorebook in SillyTavern.
  * @param {string} bookName
  * @param {object} settings - VectFox settings
  * @returns {Promise<{bookName: string, keysDeleted: number, partsDeleted: number}>}

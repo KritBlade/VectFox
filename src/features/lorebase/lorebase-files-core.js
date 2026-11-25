@@ -351,15 +351,20 @@ const stillLoadedSentence = places => `This chat still loads it through ${places
  * that unlinking deletes the whole book too. With more than one selection, Remove's green line naming Choose entries,
  * which deletes one. Then the book, with Unlink the open chat's lists it is unlinked from, each part of it that goes
  * (its selections, when it has more than one, the entries they select and their pinned sections, their locks, its keys
- * and its vectors in every collection holding them), and what stays, with Unlink the places that still load it there.
+ * and its vectors in every collection holding them), and what stays: the book in SillyTavern, or that SillyTavern no
+ * longer has it, as Unlink on a book added to the chat and then renamed or deleted there finds; with Unlink the places
+ * that still load it there.
  * @param {{bookName: string, selectionCount: number, selectedCount: number, pinnedCount: number, chatLockCount: number,
  *   characterLockCount: number, keyCount: number, tenants: Array<{pointCount: number}>}} holdings - From loreBookHoldings
  *   in lorebase-storage.js
  * @param {{unlinkedFrom: string[], stillLoadedBy: string[]}|null} [links] - chatBookLinks in lorebase-chat-books.js,
  *   for Unlink; null for Remove
+ * @param {{isInSillyTavern?: boolean}} [options] - isInSillyTavern: whether SillyTavern has a lorebook of this name now
  * @returns {object[]} confirmPopup's lines
  */
-export function removalConfirmLines({ bookName, selectionCount, selectedCount, pinnedCount, chatLockCount, characterLockCount, keyCount, tenants }, links = null) {
+export function removalConfirmLines(
+    { bookName, selectionCount, selectedCount, pinnedCount, chatLockCount, characterLockCount, keyCount, tenants }, links = null, { isInSillyTavern = true } = {},
+) {
     const partCount = tenants.reduce((sum, tenant) => sum + tenant.pointCount, 0);
     const listOrNone = parts => (parts.length ? listWords.format(parts) : 'none');
     const countedIfAny = (count, singular, plural) => (count ? counted(count, singular, plural) : '');
@@ -372,6 +377,9 @@ export function removalConfirmLines({ bookName, selectionCount, selectedCount, p
     const locks = [countedIfAny(chatLockCount, 'chat'), countedIfAny(characterLockCount, 'character')].filter(Boolean);
     const collections = tenants.length > 1 ? ` in ${counted(tenants.length, 'collection')}` : '';
     const keepCopy = keyCount || partCount ? ' Export its keys and vectors in the Database Browser first to keep a copy.' : '';
+    const whatStays = isInSillyTavern
+        ? `The lorebook stays in SillyTavern${isUnlink ? '' : ', where every entry fires by its keys, as SillyTavern does'}.`
+        : 'SillyTavern no longer has this lorebook.';
     return [
         isUnlink
             ? { text: 'Unlink this lorebook? Unlinking also deletes ALL of it from LoreBase: its vectors, keys, selections and locks.', status: 'danger' }
@@ -383,7 +391,7 @@ export function removalConfirmLines({ bookName, selectionCount, selectedCount, p
         { text: 'Locked to:', name: listOrNone(locks) },
         { text: 'Keys:', name: keyCount ? `the keys of ${counted(keyCount, 'entry', 'entries')}, those edited by hand included` : 'none' },
         { text: 'Vectors:', name: partCount ? `${counted(partCount, 'part')}${collections}` : 'none' },
-        { text: `The lorebook stays in SillyTavern${isUnlink ? '' : ', where every entry fires by its keys, as SillyTavern does'}.${keepCopy}` },
+        { text: `${whatStays}${keepCopy}` },
         links?.stillLoadedBy.length ? { text: stillLoadedSentence(links.stillLoadedBy) } : null,
         { text: `${isUnlink ? 'Unlink' : 'Remove'} deletes all of it. Cancel keeps it.` },
     ].filter(Boolean);
