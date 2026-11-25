@@ -3,8 +3,9 @@
  *
  * shared/gui-dna/gene-behaviours.js: setCollapsed folds a card as its chevron does, leaving a card inside it alone;
  * scrollPageToTop opens a page the nav switches to at its top, whichever box of its dialog scrolls it, while nothing
- * outside the dialog moves; and a split's divider moves with the keys within each pane's minimum, writing the width
- * into a stylesheet rule and never onto the split.
+ * outside the dialog moves; a split's divider moves with the keys within each pane's minimum, writing the width into a
+ * stylesheet rule and never onto the split; and sub-tabs, on the synced builder's markup, show the panel of the tab
+ * clicked or reached with the keys, move the one tab stop with it, and tell the page.
  */
 
 /* global document, Element, KeyboardEvent -- this file runs under the jsdom environment */
@@ -17,10 +18,13 @@ import {
     bindGeneBehaviours,
     scrollPageToTop,
     setCollapsed,
+    showSubTab,
     splitLimits,
     splitWidthAfterKey,
+    subTabAfterKey,
     syncSliders,
 } from '../src/shared/gui-dna/gene-behaviours.js';
+import { subTabs } from '../src/shared/gui-dna/gui-dna-core.js';
 
 describe('setCollapsed', () => {
     const chevron = '<button type="button" class="vfx-collapse" aria-expanded="true"></button>';
@@ -97,6 +101,69 @@ describe('a split divider', () => {
         const rule = [...document.querySelector('style[data-vfx-split-widths]').sheet.cssRules].find(each => each.selectorText === '#test_split');
         expect(rule.style.getPropertyValue('--vfx-split-start')).toBe(`${400 + SPLIT_KEY_STEP}px`);
         rects.mockRestore();
+    });
+});
+
+describe('sub-tabs', () => {
+    const TABS = [
+        { tab: 'main', icon: 'fa-sliders', text: 'Main', body: '<section class="vfx-card">Books</section>' },
+        { tab: 'entity-lore', icon: 'fa-users-viewfinder', text: 'Entity-Lore', body: '<section class="vfx-card">Entities</section>' },
+        { tab: 'tester', icon: 'fa-flask', text: 'LoreBase tester', body: '<section class="vfx-card">Tester</section>' },
+    ];
+    const stateOf = gene => ({
+        tabs: [...gene.querySelectorAll('[data-vfx-subtab]')].map(tab => `${tab.dataset.vfxSubtab} ${tab.getAttribute('aria-selected')} ${tab.tabIndex}${tab.classList.contains('is-active') ? ' active' : ''}`),
+        shown: [...gene.querySelectorAll('[data-vfx-subtab-panel]')].filter(panel => !panel.hidden).map(panel => panel.dataset.vfxSubtabPanel),
+    });
+    let gene;
+    let changes;
+
+    beforeEach(() => {
+        globalThis.$ = $;
+        document.body.innerHTML = `<div id="root">${subTabs({ id: 'VectFox_test_tabs', tabs: TABS })}</div>`;
+        bindGeneBehaviours(document.getElementById('root'));
+        gene = document.querySelector('[data-vfx-subtabs]');
+        changes = [];
+        document.getElementById('root').addEventListener('vfx-subtab-change', event => changes.push(event.detail.tab));
+    });
+
+    it('moves along the strip with the arrow keys, wrapping at its ends, and to its ends with Home and End', () => {
+        expect(subTabAfterKey(1, 3, 'ArrowRight')).toBe(2);
+        expect(subTabAfterKey(2, 3, 'ArrowRight')).toBe(0);
+        expect(subTabAfterKey(0, 3, 'ArrowLeft')).toBe(2);
+        expect(subTabAfterKey(1, 3, 'Home')).toBe(0);
+        expect(subTabAfterKey(1, 3, 'End')).toBe(2);
+        expect(subTabAfterKey(1, 3, 'Enter')).toBeNull();
+        expect(subTabAfterKey(-1, 3, 'ArrowRight')).toBeNull();
+    });
+
+    it('opens on the first tab, then a click shows the tab clicked, moves the tab stop to it and tells the page', () => {
+        expect(stateOf(gene)).toEqual({ tabs: ['main true 0 active', 'entity-lore false -1', 'tester false -1'], shown: ['main'] });
+        gene.querySelector('[data-vfx-subtab="tester"]').click();
+        expect(stateOf(gene)).toEqual({ tabs: ['main false -1', 'entity-lore false -1', 'tester true 0 active'], shown: ['tester'] });
+        expect(changes).toEqual(['tester']);
+    });
+
+    it('shows the tab the keys reach and focuses it, and leaves other keys to the page', () => {
+        const main = gene.querySelector('[data-vfx-subtab="main"]');
+        main.focus();
+        main.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+        expect(document.activeElement.dataset.vfxSubtab).toBe('tester');
+        expect(stateOf(gene).shown).toEqual(['tester']);
+        document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+        expect(document.activeElement.dataset.vfxSubtab).toBe('main');
+        const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+        document.activeElement.dispatchEvent(enter);
+        expect(enter.defaultPrevented).toBe(false);
+        expect(changes).toEqual(['tester', 'main']);
+    });
+
+    it('changes nothing for a tab the gene does not hold, and code shows a tab as a click does', () => {
+        showSubTab(gene, 'gone');
+        expect(stateOf(gene).shown).toEqual(['main']);
+        expect(changes).toEqual([]);
+        showSubTab(gene, 'entity-lore');
+        expect(stateOf(gene)).toEqual({ tabs: ['main false -1', 'entity-lore true 0 active', 'tester false -1'], shown: ['entity-lore'] });
+        expect(changes).toEqual(['entity-lore']);
     });
 });
 

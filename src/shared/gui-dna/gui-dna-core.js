@@ -316,3 +316,26 @@ export function pager({ page, pageCount, previousData, nextData } = {}) {
         + iconButton({ icon: 'fa-chevron-right', title: 'Next page', isDisabled: page >= pageCount - 1, data: nextData })
         + '</div>';
 }
+
+/**
+ * Sub-tabs: a page's own tabs under its header, a strip of tabs over the panel of the tab shown, the other panels
+ * `hidden`. Each of `tabs` is { tab, icon, text, body }: `tab` the value its button and its panel carry
+ * (data-vfx-subtab, data-vfx-subtab-panel), `body` the panel's markup. The tab named `activeTab` shows, else the
+ * first, and it alone is in the Tab order (the arrow keys move along the strip, devdoc/gui-dna.md §7). `id` names the
+ * gene, and each tab's and panel's id is made from it, so a tab names its panel and a panel its tab for a screen reader.
+ * @public An adopter's pages draw it, through the adopter's sync (VectFox's tools/sync-gui-dna.mjs); mvu-helper's
+ *   own panel has no page with tabs yet.
+ */
+export function subTabs({ id, tabs = [], activeTab } = {}) {
+    const shownTab = tabs.some(item => item.tab === activeTab) ? activeTab : tabs[0]?.tab;
+    const tabId = tab => escape(`${id}_tab_${tab}`);
+    const panelId = tab => escape(`${id}_panel_${tab}`);
+    const strip = tabs.map(({ tab, icon, text }) => {
+        const isShown = tab === shownTab;
+        return `<button type="button" class="vfx-subtab${isShown ? ' is-active' : ''}" role="tab" id="${tabId(tab)}" aria-controls="${panelId(tab)}"`
+            + ` aria-selected="${isShown}" tabindex="${isShown ? 0 : -1}" data-vfx-subtab="${escape(tab)}">${iconTag(icon)}${keyedText(text)}</button>`;
+    });
+    const panels = tabs.map(({ tab, body = '' }) => `<div class="vfx-subtab-panel" role="tabpanel" id="${panelId(tab)}" aria-labelledby="${tabId(tab)}"`
+        + ` data-vfx-subtab-panel="${escape(tab)}"${tab === shownTab ? '' : ' hidden'}>${body}</div>`);
+    return `<div class="vfx-subtabs" data-vfx-subtabs="${escape(id)}"><nav class="vfx-subtab-list" role="tablist">${strip.join('')}</nav>${panels.join('')}</div>`;
+}

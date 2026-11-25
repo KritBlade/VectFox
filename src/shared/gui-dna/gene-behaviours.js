@@ -5,12 +5,13 @@
  * The behaviours every VectFox surface on GUI-DNA shares (mvu-helper/devdoc/gui-dna.md
  * §7), for its shell: the settings panel (settings-panel/panel-shell.js), the
  * Database Browser, its Chunk Visualizer, Vectorize Content, Diagnostics, Text
- * Cleaning and the progress panel. The (?) and chevron toggles, a split's divider
- * and a slider beside its number box are bound once on the surface's root,
- * delegated, so a field, card or split painted later behaves the same way, and no
- * such state is saved. Code folds a card as its chevron does, moves sliders to
- * boxes it set, shows a page the nav switches to from its top, and shows or hides
- * a part with as few style writes as it can.
+ * Cleaning and the progress panel. The (?) and chevron toggles, a split's divider,
+ * sub-tabs and a slider beside its number box are bound once on the surface's
+ * root, delegated, so a field, card, split or tab strip painted later behaves the
+ * same way, and no such state is saved. Code folds a card as its chevron does,
+ * shows a sub-tab as a click does, moves sliders to boxes it set, shows a page the
+ * nav switches to from its top, and shows or hides a part with as few style writes
+ * as it can.
  * ============================================================================
  */
 
@@ -115,9 +116,51 @@ function dragDivider(divider, startEvent) {
 }
 
 /**
+ * The tab an arrow key, Home or End moves to along a sub-tabs strip (mvu-helper's devdoc/gui-dna.md §7): Left and Right to the tab
+ * before or after, wrapping at the ends, Home and End to the first and last. Null for any other key.
+ *
+ * @param {number} index - The tab the key was pressed on, counted from 0
+ * @param {number} count - The strip's tabs
+ * @param {string} key
+ * @returns {number|null}
+ */
+export function subTabAfterKey(index, count, key) {
+    const moved = { ArrowLeft: index - 1, ArrowRight: index + 1, Home: 0, End: count - 1 }[key];
+    return moved === undefined || index < 0 || index >= count ? null : (moved + count) % count;
+}
+
+/** A sub-tabs gene's tabs, in the strip's order. */
+function subTabsOf(gene) {
+    return [...(gene?.querySelectorAll(':scope > [role="tablist"] > [data-vfx-subtab]') ?? [])];
+}
+
+/**
+ * Show one tab of a sub-tabs gene, as a click on it does (mvu-helper's devdoc/gui-dna.md §5 and §7): its panel shows
+ * and every other panel takes `hidden`; the tab takes `.is-active`, `aria-selected` and the strip's one tab stop. Then
+ * the gene fires `vfx-subtab-change`, which bubbles, the tab in `detail.tab`, so its page can draw a panel as it opens.
+ * A tab the gene does not hold changes nothing.
+ *
+ * @param {HTMLElement|null} gene - The `[data-vfx-subtabs]` element subTabs (gui-dna-core.js) builds
+ * @param {string} tab
+ */
+export function showSubTab(gene, tab) {
+    const tabs = subTabsOf(gene);
+    if (!tabs.some(each => each.dataset.vfxSubtab === tab)) return;
+    for (const each of tabs) {
+        const isShown = each.dataset.vfxSubtab === tab;
+        each.classList.toggle('is-active', isShown);
+        each.setAttribute('aria-selected', String(isShown));
+        each.tabIndex = isShown ? 0 : -1;
+    }
+    for (const panel of gene.querySelectorAll(':scope > [data-vfx-subtab-panel]')) panel.hidden = panel.dataset.vfxSubtabPanel !== tab;
+    gene.dispatchEvent(new CustomEvent('vfx-subtab-change', { bubbles: true, detail: { tab } }));
+}
+
+/**
  * Bind them on a surface's root: the (?) beside a label opens its field's longer explanation in place, a tap and never
- * a hover; a card's or record's chevron collapses it; and a split's divider is dragged, or moved with the arrow keys,
- * Home and End. A split needs an id, a plain identifier, which names its width's rule.
+ * a hover; a card's or record's chevron collapses it; a split's divider is dragged, or moved with the arrow keys, Home
+ * and End; and a sub-tab shows its panel on a click, or the arrow keys, Home and End move along its strip, showing
+ * the tab they reach. A split needs an id, a plain identifier, which names its width's rule.
  *
  * @param {HTMLElement|null} root
  */
@@ -144,6 +187,18 @@ export function bindGeneBehaviours(root) {
         if (width === null || width === undefined) return;
         event.preventDefault();
         setSplitWidth(context.split, this, width, context.limits);
+    });
+    $root.on('click', '[data-vfx-subtab]', function () {
+        showSubTab(this.closest('[data-vfx-subtabs]'), this.dataset.vfxSubtab);
+    });
+    $root.on('keydown', '[data-vfx-subtab]', function (event) {
+        const gene = this.closest('[data-vfx-subtabs]');
+        const tabs = subTabsOf(gene);
+        const next = subTabAfterKey(tabs.indexOf(this), tabs.length, event.key);
+        if (next === null) return;
+        event.preventDefault();
+        showSubTab(gene, tabs[next].dataset.vfxSubtab);
+        tabs[next].focus();
     });
     // Dragging a slider writes its number box and fires the box's own input and change, so the box's handler saves
     // exactly as if the number had been typed; typing a number moves its slider.

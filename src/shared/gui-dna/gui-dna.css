@@ -322,6 +322,57 @@
     display: none;
 }
 
+/* ── Sub-tabs ─────────────────────────────────────────────────────────────────────────────────── */
+/* A page's own tabs under its header: the strip, then each tab's panel, which lays its cards out as a page does. A
+   panel not shown carries `hidden`, kept here, as the panel's own display would show it. */
+.vfx-ui .vfx-subtabs,
+.vfx-ui .vfx-subtab-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vfx-gap);
+}
+
+.vfx-ui .vfx-subtab-panel[hidden] {
+    display: none;
+}
+
+/* The strip sits on the canvas and wraps on a narrow page. The tab shown is underlined over its line in the accent ink,
+   which clears 3:1 on the canvas in both themes, where the accent itself does not. */
+.vfx-ui .vfx-subtab-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    border-bottom: 1px solid var(--vfx-border);
+}
+
+.vfx-ui .vfx-subtab {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 40px;
+    margin: 0 0 -1px;
+    padding: 0 16px;
+    border: 1px solid transparent;
+    border-bottom: 2px solid transparent;
+    border-radius: var(--vfx-radius-control) var(--vfx-radius-control) 0 0;
+    background: none;
+    color: var(--vfx-text-muted);
+    font: inherit;
+    cursor: pointer;
+    transition: color var(--vfx-motion), border-color var(--vfx-motion), background-color var(--vfx-motion);
+}
+
+.vfx-ui .vfx-subtab:hover {
+    background-color: var(--vfx-surface-raised);
+    color: var(--vfx-text);
+}
+
+.vfx-ui .vfx-subtab.is-active {
+    border-bottom-color: var(--vfx-accent-ink);
+    color: var(--vfx-text);
+    font-weight: 600;
+}
+
 /* ── Card (section) ───────────────────────────────────────────────────────────────────────────── */
 .vfx-ui .vfx-card {
     position: relative;
@@ -1606,7 +1657,7 @@ dialog.vfx-ui.vfx-dialog::backdrop {
 
 /* ── Focus and motion ─────────────────────────────────────────────────────────────────────────── */
 /* The ring takes the accent ink: a text colour, it clears 3:1 on every surface, a status fill included. */
-.vfx-ui :is(.vfx-nav-item, .vfx-theme-option, .vfx-btn, .vfx-input, .vfx-select, .vfx-textarea, .vfx-switch, .vfx-check, .vfx-range, .vfx-help-toggle, .vfx-collapse, .vfx-more, .vfx-split-divider, .vfx-tree-toggle):focus-visible {
+.vfx-ui :is(.vfx-nav-item, .vfx-theme-option, .vfx-subtab, .vfx-btn, .vfx-input, .vfx-select, .vfx-textarea, .vfx-switch, .vfx-check, .vfx-range, .vfx-help-toggle, .vfx-collapse, .vfx-more, .vfx-split-divider, .vfx-tree-toggle):focus-visible {
     outline: 2px solid var(--vfx-accent-ink);
     outline-offset: 2px;
 }
