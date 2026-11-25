@@ -1,8 +1,35 @@
 # VectFox for extension developers
 
-This page is for you if you write a SillyTavern extension and want it to work with VectFox. VectFox gives you one object, `globalThis.VectFox`, and its own events. You use those, and you never have to fork VectFox or import its files.
+This page is for you if you write a SillyTavern extension and want it to work with VectFox. VectFox gives you one object, `globalThis.VectFox`, and its own events. Use those, and you never have to fork VectFox or import its files.
 
-Why not just import the files? Because files move. When I reorganize VectFox, an extension that imports one of its files by path breaks on that update. So does one that expects VectFox's folder to be called `VectFox`. The object stays at the same name no matter where the files go, and no matter which folder VectFox is installed in.
+Why does that matter? Because a fork falls behind every time I push an update, and its owner has to merge it back in, over and over again. An extension that only talks to the object keeps working through every update, as long as the API's major version stays the same (see Versions below).
+
+And why not just import the files? Because files move. When I reorganize VectFox, an extension that imports one of its files by path breaks on that update. So does one that expects VectFox's folder to be called `VectFox`. The object stays at the same name no matter where the files go, and no matter which folder VectFox is installed in.
+
+## What's on this page
+
+- [Words this page uses](#words-this-page-uses): EventBase, events, collections, windows, runs and summarizers
+- [Getting the object](#getting-the-object): `globalThis.VectFox`, when it's ready, and what's on it
+- [Versions](#versions): what a new version can change, and what it can't
+- [When a call says no](#when-a-call-says-no): `{ ok: false, reason }` and every reason
+- [Events](#events): what VectFox tells you, and when
+- [The chat, its collection and the settings](#the-chat-its-collection-and-the-settings): what VectFox sees right now
+- [Reading EventBase](#reading-eventbase): a chat's events, then only what changed
+- [Message sources](#message-sources): for summarizers, so VectFox still reads the story right
+- [What VectFox does on each generation](#what-vectfox-does-on-each-generation): replies, quiet generations and slash commands
+- [VectFox's own LLM calls](#vectfoxs-own-llm-calls): for usage trackers
+- [What you don't need the API for](#what-you-dont-need-the-api-for): what VectFox already does on its own
+
+## Words this page uses
+
+A few words come up a lot, so here's what I mean by each.
+
+- **EventBase**: the part of VectFox that reads a chat and writes down what happened in it, like "Mira promised Oren she'd find the compass". Each of those is an **event**.
+- **A `vectfox_*` event**: something VectFox tells you on SillyTavern's `eventSource`, like `vectfox_ready`. It's the other kind of event, so I always give its name.
+- **A collection**: where EventBase stores a chat's events. A chat can have several, and uses one at a time.
+- **A window**: the few messages EventBase reads in one go. It reads a chat window by window.
+- **A run**: EventBase reading a chat, window by window, until it's done or stopped. Auto-sync starts one as the chat grows, and so does Vectorize Content on the Action page.
+- **A summarizer**: another extension that swaps old messages for a summary. VectFox's own Summarizer Injection is something else. It sends EventBase's latest events every turn, and it never touches the chat.
 
 ## Getting the object
 
@@ -35,7 +62,7 @@ Once you have the object, `await VectFox.whenReady()` does the same wait as a pr
 | Name | What it gives you |
 |---|---|
 | `apiVersion` | The API's version, like `'1.4.0'`. See Versions below |
-| `extensionVersion` | VectFox's own version from its manifest, like `'3.6.245'`, once VectFox is ready. `null` before that, or when VectFox could not read its manifest (the console says why) |
+| `extensionVersion` | VectFox's own version from its manifest, like `'3.6.249'`, once VectFox is ready. `null` before that, or when VectFox could not read its manifest (the console says why) |
 | `isReady()` | `true` once VectFox has finished starting up |
 | `whenReady()` | A promise that resolves when VectFox has finished starting up. It's the same promise every time you ask |
 | `capabilities` | The groups of the API this VectFox serves, like `['events', 'chat', 'settings', 'eventbase.read', 'chat.messageSource']` |
@@ -54,8 +81,9 @@ If VectFox fails to start, `isReady()` stays `false` and `whenReady()` never res
 Each group of the API puts its name in `capabilities` when it ships. Check the name once, instead of checking every method you want to call:
 
 ```js
-if (VectFox.capabilities.includes('events')) {
-    VectFox.on('vectfox_ready', () => console.log('VectFox is ready'));
+if (VectFox.capabilities.includes('eventbase.read')) {
+    const answer = await VectFox.eventBase.listEvents();
+    if (answer.ok) console.log(`${answer.events.length} events in ${answer.collectionId}`);
 }
 ```
 
@@ -64,6 +92,8 @@ if (VectFox.capabilities.includes('events')) {
 `apiVersion` follows semver, and the rule is simple:
 - A new minor version, 1.0 to 1.1, only ADDS things: a method, an event, a field, a reason. Nothing you use is removed, renamed or changed. So an extension written for 1.0 works with any 1.x.
 - A new major version, 1.x to 2.0, means something was removed, renamed or changed. The old name is gone right away. No code keeps it working on the side.
+
+Think of a phone charger. A newer phone can add wireless charging, and your old cable still fits. That's a minor version. When the plug itself changes shape, your old cable doesn't fit anymore, and that's a major version.
 
 So compare the major version only:
 
@@ -76,6 +106,8 @@ if (major !== 1) {
 
 EventBase's events have a version of their own, `schemaVersion`, which every `listEvents` answer carries, like `'1.3'`. It follows the exact same rule, so you compare its major only too. A new field on an event is a new minor version, and nothing you read changes.
 
+`schemaVersion` and `apiVersion` are 2 separate numbers, and each one rises for its own changes. So if you read events, check both majors.
+
 When a release raises the major version, VectFox's release notes say so.
 
 ## When a call says no
@@ -86,7 +118,7 @@ Think of calling a shop. "Sold out" and "we're closed" are normal answers, not a
 
 | `reason` | What it means |
 |---|---|
-| `'not-ready'` | VectFox hasn't finished starting up. Every call says this until `vectfox_ready`, so wait for it and ask again |
+| `'not-ready'` | VectFox hasn't finished starting up. `getChatId`, `getCollectionInUse`, `getSettingsSnapshot` and `listEvents` say this until `vectfox_ready`, so wait for it and ask again. `on`, `off` and `registerMessageSource` work before that |
 | `'no-chat'` | No chat is open. From `listEvents`, it can also mean the chat you named isn't the open one |
 | `'no-collection'` | A chat is open, but it uses no EventBase collection. From `listEvents`, it can also mean the collection you named isn't the chat's you named |
 | `'backend-unsupported'` | The chat's events live somewhere with no change numbers, so there's no feed to read. See Reading EventBase |
@@ -101,19 +133,21 @@ if (answer.ok) {
 }
 ```
 
-Every answer is frozen, same as the events. A new minor version can add a reason, so treat one you don't know as a plain no.
+Every answer is frozen, so you can read it but not change it. A new minor version can add a reason, so treat one you don't know as a plain no.
 
 ## Events
 
 VectFox sends its events on SillyTavern's `eventSource`, and every name starts with `vectfox_`. You listen with `VectFox.on(name, handler)`, or with `eventSource.on(name, handler)` when the VectFox object doesn't exist yet.
 
 ```js
-const stop = VectFox.on('vectfox_ready', ({ apiVersion }) => {
-    console.log(`VectFox is ready, API ${apiVersion}`);
+const stop = VectFox.on('vectfox_eventbase_synced', ({ eventsAdded }) => {
+    console.log(`EventBase stored ${eventsAdded} new events`);
 });
 // Later, when you no longer want it:
 stop();
 ```
+
+`vectfox_ready` comes only once, so it's no use once you hold a ready object. Listen for it the way Getting the object does, before you start.
 
 | Event | Payload | When |
 |---|---|---|
@@ -123,15 +157,15 @@ stop();
 | `vectfox_eventbase_collection_changed` | `{ chatId, collectionId }` | The collection the open chat uses changed, or another chat opened |
 | `vectfox_llm_call_finished` | `{ feature, connection, profileName, provider, model, durationMs, outcome, usage }` | One of VectFox's own LLM calls ended. See VectFox's own LLM calls below |
 
-### The EventBase events
+### The ones about EventBase
 
-EventBase is where VectFox keeps a chat's events, and a chat can have several EventBase collections but uses one at a time. These three events tell you when what you read from it changed.
+These 3 tell you when what you read from EventBase changed.
 
-`chatId` is the ID VectFox keys a chat's collections by, the chat's `chat_metadata.integrity`. In `vectfox_eventbase_synced` and `vectfox_eventbase_events_deleted` it's the chat the collection belongs to, which isn't always the open one: a run started on one chat can end after you opened another. For an archived chat's collection it's the archive's own ID. In `vectfox_eventbase_collection_changed` it's the open chat, and `null` when no chat is open.
+`chatId` is the ID VectFox keys a chat's collections by, the chat's `chat_metadata.integrity`. In `vectfox_eventbase_synced` and `vectfox_eventbase_events_deleted` it's the chat the collection belongs to, which isn't always the open one: a run started on one chat can end after you opened another. For an archive, a chat file read in through Vectorize Content, it's the file's own ID: its `chat_metadata.integrity`, or a hash of the whole file when it has none. In `vectfox_eventbase_collection_changed` it's the open chat, and `null` when no chat is open.
 
 `vectfox_eventbase_synced` comes at the end of EVERY run, not just the ones that finish. Say I stop a run after 10 windows: those 10 windows' events are stored, so you hear about them. `eventsAdded` is how many events the run stored, and `windowsProcessed` how many windows it read. A run that read windows but stored nothing still says so, with `eventsAdded: 0`. Auto-sync checking a chat and finding nothing new to read isn't a run, so that says nothing.
 
-When you hear it, read the feed from your cursor (Reading EventBase below). That gives you exactly what the run changed, and a read with nothing new answers fast with an empty page.
+When you hear it, read the feed from your cursor (Reading EventBase below). That gives you exactly what the run changed, and a read with nothing new answers fast, with nothing in it.
 
 `vectfox_eventbase_events_deleted` comes when events go: a window read again replacing its old events, Compact collection, Start over, a delete in the Database Browser, a deleted collection, or an import over one. `eventIds` lists the events removed, or is `null` when the whole collection was emptied. You only hear it in the tab that removed them. A removal that fails part way says nothing, so treat this event as "read again", not as the full list of what's gone.
 
@@ -172,10 +206,10 @@ It's a copy of the moment you ask, and the user can change a setting any time. S
 
 | Setting | What it is |
 |---|---|
-| `enabled` | VectFox's own on/off switch. Off, VectFox adds nothing to the prompt, blanks nothing and doesn't auto-sync |
-| `ghostingEnabled` | Ghosting: VectFox blanks old messages it has already read into events from the prompt it sends, as the events stand in for them. It only acts while `summarizerInjectionEnabled` is on too |
+| `enabled` | VectFox's own on/off switch. Off, VectFox adds nothing to the prompt, takes nothing out and doesn't auto-sync |
+| `ghostingEnabled` | Ghosting: VectFox takes the old messages it has already read into events out of the prompt it sends, and the events stand in for them. The chat itself stays as it is. It only acts while `summarizerInjectionEnabled` is on too |
 | `ghostingKeepRecent` | How many of the latest messages ghosting always keeps |
-| `ghostingBatchSize` | How many messages the blanking moves by at a time. Above 1, the start of the prompt stays the same for a while, which keeps a provider's prompt cache working |
+| `ghostingBatchSize` | How many messages ghosting takes out at a time. Above 1, the start of the prompt stays the same for a while, which keeps a provider's prompt cache working |
 | `summarizerInjectionEnabled` | Summarizer Injection: VectFox sends the most recent events every turn |
 | `summarizerInjectionCount` | How many of the most recent events it sends |
 | `summarizerInjectionFullDetail` | `true` sends each event with its details, `false` its summary only |
@@ -187,7 +221,7 @@ It's a copy of the moment you ask, and the user can change a setting any time. S
 ```js
 const answer = VectFox.getSettingsSnapshot();
 if (answer.ok && answer.settings.enabled && answer.settings.ghostingEnabled && answer.settings.summarizerInjectionEnabled) {
-    console.log(`VectFox keeps the latest ${answer.settings.ghostingKeepRecent} messages and blanks the rest it has read`);
+    console.log(`VectFox keeps the latest ${answer.settings.ghostingKeepRecent} messages and takes out the rest it has read`);
 }
 ```
 
@@ -225,7 +259,7 @@ async function catchUp() {
 }
 ```
 
-That's the whole loop: drop what was emptied or removed, keep what came in, and remember where you stopped. With no `after`, it reads the collection the open chat uses.
+That's the whole loop for one collection: drop what was emptied or removed, keep what came in, and remember where you stopped. With no `collectionId`, it reads the collection the open chat uses. The cursor belongs to that collection, so when the chat moves to another one, don't carry it over (see One cursor per collection below).
 
 ### What you get back
 
@@ -256,10 +290,12 @@ One answer holds up to 100 changes, which is what `hasMore` is for. A full read,
 | `importance` | How much it matters to the story, from 1 to 10 |
 | `storyTime` | When it happened in the story, as an ISO date and time, `null` when the story gave no date |
 | `sceneTime` | The same moment in the story's own words, like `'the third night of the harvest festival'`, `''` when none |
-| `windowStart` / `windowEnd` | The first and last chat message VectFox read it from, by message number in story order: the messages with text, counted from 0, and a summary a message source answers for counted as the messages it stands for (see Message sources below) |
+| `windowStart` / `windowEnd` | The first and last message VectFox read it from, by EventBase's own message number. That's not the chat's index: EventBase counts only the messages whose text isn't empty, hidden ones included, from 0, and a summary as the messages it stands for (see Message sources below) |
 | `cursor` | The change number it was stored or last edited under, `0` when it was stored before change numbers existed |
 
 Everything in an answer is frozen.
+
+So to find the chat message an event came from, go through the chat from the start and count only the messages whose text isn't empty, hidden ones too. With a summarizer, a summary counts as the messages it stands for.
 
 ### An event can come again
 
@@ -274,6 +310,8 @@ Events VectFox stored before change numbers existed have `cursor` `0`. Only a fu
 `removedEventIds` comes from a window read again replacing its old events, Compact collection merging events, or a delete in the Database Browser. Drop each of them.
 
 `emptied` comes from Start over, a deleted collection, or an import over one. You throw away everything you kept from that collection, then take `events`, which is only what came after.
+
+A deleted collection's ID still works in `listEvents`. Read it from your cursor and it answers `emptied`, with nothing after it.
 
 ### One cursor per collection
 
@@ -308,12 +346,12 @@ The handlers start the read and don't return it, so they never hold up the other
 
 The numbers live on the server, in the Similharity plugin, not in your page. So a reader in another tab, or on your phone, catches up the exact same way: it remembers its cursor and asks for what came after.
 
-The events only come in the tab that did the work. So treat `vectfox_eventbase_synced` and `vectfox_eventbase_events_deleted` as a nudge to read now, and the feed as the full story.
+`vectfox_eventbase_synced` and `vectfox_eventbase_events_deleted` only come in the tab that did the work. So treat them as a nudge to read now, and the feed as the full story. In any other tab, read when you need the events. A chat opening there is a good time, as it sends `vectfox_eventbase_collection_changed` in that tab, and so is right before your own job runs. A read with nothing new answers fast.
 
 ### Which collection it reads
 
 - No `collectionId`: the collection the open chat uses, the same one `chat.getCollectionInUse()` gives. With no chat open you get `'no-chat'`, and with none in use `'no-collection'`.
-- `collectionId`: that collection, from any chat, even with no chat open. Use the IDs VectFox gives you, from `chat.getCollectionInUse()` or an event's payload.
+- `collectionId`: that collection, from any chat, even with no chat open. Use the IDs VectFox gives you, from `chat.getCollectionInUse()` or an event's payload. There's no call that lists all of a chat's collections, so keep the IDs you hear.
 - `chatId`: the chat the read is about, a safety check for when the user switches chats between your decision and your call. Without `collectionId`, that chat has to be the open one, or you get `'no-chat'`. With `collectionId`, the collection has to be that chat's, or you get `'no-collection'`.
 
 ### When it says no
@@ -322,7 +360,7 @@ The events only come in the tab that did the work. So treat `vectfox_eventbase_s
 
 `'read-failed'` means the read didn't get through, like Qdrant being down, or SillyTavern having just restarted. The console says why, and asking again in a bit usually works.
 
-`listEvents` only rejects for a call that can't be right, with a `TypeError`: a request that isn't an object, a `collectionId` that isn't an EventBase collection's ID, a `chatId` that isn't a chat's ID, or an `after` that isn't a whole number of 0 or more.
+`listEvents` only rejects for a call that can't be right, with a `TypeError`: a request that's there but isn't an object, a `collectionId` that isn't shaped like an EventBase collection's ID, a `chatId` that's empty or isn't a string, or an `after` that isn't a whole number of 0 or more. Leaving any of them out is fine, and so is `undefined`, which is how the first read passes `after`.
 
 ## Message sources
 
@@ -365,7 +403,7 @@ The messages in your list are message objects like the chat's, with `name`, `is_
 
 Your function runs every single time VectFox reads the chat, once per message. So keep it to 3 rules:
 - Answer at once, no promise and no `await`.
-- Give the same answer for the same message every time.
+- Give the same answer as long as the message and `chatMetadata` stay the same.
 - Change nothing you're handed, not the message and not `chatMetadata`.
 
 If your function throws, or answers anything but `null` or a list of messages, VectFox reads that message as an ordinary one and says so in the console, once.
@@ -380,9 +418,9 @@ Everything that reads the chat into EventBase reads it in story order, each summ
 
 The search text, LoreBase's scene and Agent Mode's planner read the chat as the model does, the summary as itself. That's what the model is about to read, so that's what they search with.
 
-Ghosting never blanks a summary. It takes the messages EventBase has read out of the prompt on both sides of it, and the summary stays where it is. So beside a summarizer whose summaries open the chat, the model gets the summaries first, then the latest messages, and VectFox's memory covers the read messages in between.
+Ghosting never takes a summary out. It takes out the messages EventBase has read on both sides of it, and the summary stays where it is. So beside a summarizer whose summaries open the chat, the model gets the summaries first, then the latest messages, and VectFox's memory covers the read messages in between.
 
-A chat that was summarized and read into EventBase BEFORE your source registered was read from the summary's text. Read it again once, from its first message, and from then on it's right.
+A chat that was summarized and read into EventBase BEFORE your source registered was read from the summary's text. Read it again once: open Vectorize Content on the Action page, press Vectorize, and pick Start over, or New collection to keep the old events. From then on it's right.
 
 ### A worked example: InlineSummary
 
@@ -403,7 +441,49 @@ export function inlineSummaryOriginals(message, { chatMetadata }) {
 
 When the originals are gone, like after a fork's Flatten deleted them, it answers `null`, and VectFox reads the summary as it is.
 
+That makes the chat shorter than what EventBase read, and VectFox copes. Auto-sync goes on with the new messages and reads none of the old ones twice. Ghosting takes nothing out until the chat grows past what EventBase read. And the events read before keep the message numbers they had.
+
 `registerInlineSummarySource()` in the same file registers it, right away when VectFox's object is there, or on `vectfox_ready` when VectFox loads after it. Put it in InlineSummary itself, in a fork of it, or in a small extension of your own that runs beside it. As its own extension it keeps working even while InlineSummary is off, so a summarized chat still reads right.
+
+## What VectFox does on each generation
+
+VectFox does its work in a generation interceptor, the step SillyTavern runs right before it builds a prompt. What it does there depends on the kind of generation.
+
+| Generation | EventBase memory | LoreBase lore |
+|---|---|---|
+| A reply: a normal send, a swipe, a regenerate or a continue | Yes | Yes |
+| A quiet-to-loud generation, which shows in the chat as a reply | Yes | Yes |
+| An impersonation | Yes | No |
+| A quiet generation, like another extension's background job | No | No |
+| A send of slash commands only | Nothing runs | Nothing runs |
+
+EventBase memory is the search, Summarizer Injection and ghosting, each one when the user has it on. LoreBase lore is LoreBase's pick from the lorebook entries the user selected for it.
+
+A reply gets everything. VectFox searches the chat's events, sends the most recent ones, takes out the messages it has already read, and LoreBase picks the lore for the scene.
+
+A quiet generation gets NOTHING. That's what an extension runs with `generateQuietPrompt()` for a job of its own, like a summary, an emotion, an image prompt or a background worker. VectFox searches nothing, takes nothing out and sends none of its blocks, not even the ones from the last reply. And the lorebook entries selected for LoreBase stay out of its World Info scan, as only LoreBase ever sends those.
+
+Why? Because whoever runs a quiet generation builds its own prompt for its own job. Think of a prompter in a theater. They whisper the lines to the actor on stage, not to the crew moving the set behind it. The crew has its own job, and the lines would only get in the way.
+
+```js
+const { generateQuietPrompt } = SillyTavern.getContext();
+// VectFox adds none of its memory to this one, and LoreBase picks nothing for it.
+const mood = await generateQuietPrompt({ quietPrompt: 'In one word, how does Mira feel right now?' });
+```
+
+A quiet-to-loud generation counts as a reply, because the user sees it in the chat as one. That's `generateQuietPrompt({ quietPrompt, quietToLoud: true })`, and it gets everything a reply gets.
+
+An impersonation, where the AI writes the user's next message, gets EventBase's memory but no LoreBase pick, so the entries selected for LoreBase stay out of it too. I only tested LoreBase's pick on replies, so I keep it there.
+
+A send that's only slash commands, like `/echo hi`, runs nothing at all. SillyTavern stops before it gets to the interceptors, so VectFox never even sees it.
+
+### If you run background jobs
+
+VectFox's blocks are SillyTavern extension prompts, and those are global. So when your quiet generation starts while a reply is still being built, VectFox empties its blocks for your job, and that reply can go out without VectFox's memory and LoreBase's picks.
+
+So start your background jobs once the reply is done, like on SillyTavern's `GENERATION_ENDED`.
+
+If you need VectFox's memory in a quiet generation of your own, there's no switch for that yet. Tell me what you need on [GitHub](https://github.com/KritBlade/VectFox/issues), and I'll look at it.
 
 ## VectFox's own LLM calls
 
@@ -458,6 +538,62 @@ window.fetch = function (input, init) {
 
 Read it right off `init.signal`, the signal you're handed. A new signal made from it, like `AbortSignal.any([init.signal])`, doesn't carry it.
 
-The mark tells you whose request is going out, and the event is the full record. With the switch off, or if a SillyTavern update ever stops passing the signal along as is, a request goes out with no mark, but the event still reports the call. So a tracker uses both: the mark to file each request as it goes out, and the event to make sure nothing slipped by.
+The mark tells you whose request is going out, and the event is the full record. With the switch off, or if a SillyTavern update ever stops passing the signal along as is, a request goes out with no mark, but the event still reports the call.
 
-Basically, check `isReady()`, wait for `vectfox_ready` if you have to, and from there everything goes through the one object. The mark is the only thing outside it: your users switch it on, and you read it right off the request's signal.
+So a tracker uses both, for 2 different jobs. The mark keeps VectFox's requests out of the chat's own count as they go out. The event is VectFox's own count, one per call, with its tokens. Nothing ties a request to its event, so count them apart, and don't try to pair them up.
+
+## What you don't need the API for
+
+A lot of what people forked VectFox for, it already does on its own. So before you write code against the API, check this list. What you need may already be a setting.
+
+### Lorebook entries SillyTavern switched off stay off
+
+LoreBase only touches the lorebook entries the user selected for it, and NEVER one that SillyTavern has disabled. So if your extension keeps its own entries switched off and sends the ones it picks itself, VectFox won't send them behind your back.
+
+For a book whose entries are all disabled, LoreBase writes no entry keys and stores no vectors, and its selection screen marks each of those entries Disabled.
+
+### Lorebook edits get picked up on their own
+
+When your extension changes a lorebook, save it the way SillyTavern does:
+
+```js
+const { loadWorldInfo, saveWorldInfo } = SillyTavern.getContext();
+const book = await loadWorldInfo('Harbor Town');
+const entry = Object.values(book.entries)[0];
+entry.content = 'Oren keeps the lighthouse, and he never sleeps.';
+await saveWorldInfo('Harbor Town', book);
+```
+
+`saveWorldInfo` sends SillyTavern's `WORLDINFO_UPDATED`. 2 seconds after a book's saves stop, LoreBase rewrites the vectors it holds for the entries that changed, and drops what no entry holds anymore. And it reads every book fresh from SillyTavern on every reply anyway. So there's no "re-index" call to make.
+
+### VectFox's interceptor runs at loading_order 101
+
+SillyTavern runs the extensions' generation interceptors by `loading_order`, lowest first, and by `display_name` when 2 are the same. Each extension sets both in its own `manifest.json`. VectFox's `loading_order` is 101. So an extension of yours at 100 or below runs BEFORE VectFox, and VectFox works on the chat your extension left. One above 101 runs after VectFox, and one at 101 goes by its name against `VectFox`. Nothing in the API moves VectFox's 101.
+
+VectFox changes one thing in the chat array the interceptors share: ghosting takes out the messages EventBase has read. Everything else VectFox adds goes in as SillyTavern extension prompts and World Info, never as messages. So an interceptor that runs after VectFox gets a shorter array, and each message in it still carries the `index` SillyTavern gave it.
+
+### The extraction prompt is the user's
+
+EventBase reads events out of the chat with one prompt, and the whole prompt is on the ChatHistory page, in the EventBase extraction prompt card. The box shows the built-in prompt until you edit it, and Reset to default puts it back. `{{text}}` marks where the chat goes, and `{{maxCount}}` the most events one window may give. Empty sends the built-in prompt.
+
+So if your setup needs EventBase to look for different things, give your users a prompt to paste in there. No fork needed. Start from the built-in one, and keep its OUTPUT SCHEMA part as it is. The model has to answer with that JSON array of events, or EventBase can't read the reply, and that window fails.
+
+### Each feature can have its own connection
+
+VectFox's 4 LLM features each pick their own connection: EventBase on the Core page, Agent Mode on the AgentMode page, StoryArc on the StoryArc page, and LoreBase on the WorldInfo page. A connection is a SillyTavern connection profile, or a provider set in VectFox itself, and Agent Mode can also just use EventBase's. Embedding has its own, on the Core page too.
+
+Every key stays in SillyTavern's own secret store: a connection profile's, and the ones typed into VectFox's key boxes too. SillyTavern's server reads them there when a call goes out, and VectFox never keeps a key in its own settings. So with connection profiles, each feature can run on another vendor with another key, like a fast cheap model for EventBase and a smarter one for LoreBase.
+
+### Text Cleaning setups travel as a file
+
+Text Cleaning strips markup and noise from messages before VectFox reads them. On the Action page, open Text Cleaning with Edit patterns, and the Import and export card has both buttons. Export writes the preset, the ticked built-ins and your own patterns into one file, and Import reads it back.
+
+So if your extension's messages carry markup VectFox shouldn't read, like a status panel, ship a setup file and tell your users to import it.
+
+### A shorter prompt, with or without a summarizer
+
+A long chat doesn't need a summarizer that hides old messages just to keep the prompt small. On the AutoSync page, auto-sync, Summarizer Injection and ghosting do it together: VectFox reads each turn as it comes, sends the most recent events every turn, and takes out the messages it has already read. So the prompt holds the latest messages, and the events stand in for everything older.
+
+And if your users run a summarizer anyway, a message source makes the two work together (see Message sources above).
+
+Basically, check `isReady()`, wait for `vectfox_ready` if you have to, and from there everything goes through the one object. The mark is the only thing outside it: your users switch it on, and you read it right off the request's signal. And before you write any of it, look at the list right above... what you need may already be a setting.
