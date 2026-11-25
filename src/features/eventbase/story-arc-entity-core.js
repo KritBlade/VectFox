@@ -111,8 +111,14 @@ function standsAsWord(text, start, name) {
     return true;
 }
 
-/** Whether a text holds a name as a word (standsAsWord): a Latin name only as a whole word, in any case. */
-function holdsName(text, name) {
+/**
+ * Whether a text holds a name as a word (standsAsWord): a Latin name only as a whole word, in any case.
+ *
+ * @param {string} text
+ * @param {string} name
+ * @returns {boolean}
+ */
+export function holdsName(text, name) {
     if (isLatinName(name)) return new RegExp(asPattern(name), 'iu').test(text);
     for (let start = text.indexOf(name); start >= 0; start = text.indexOf(name, start + 1)) {
         if (standsAsWord(text, start, name)) return true;
@@ -128,6 +134,17 @@ function keptNameByOtherName(merges) {
 /** The kept name of every name a merge holds, the kept name itself included, keyed in lower case. */
 function keptNameByName(merges) {
     return new Map([...Object.keys(merges).map(kept => [kept.toLowerCase(), kept]), ...keptNameByOtherName(merges)]);
+}
+
+/** The names an event's tag of one kind lists, trimmed, each written as its kept name: how an unmerged name is counted. */
+function taggedKeptNames(event, kind, keptNameOf) {
+    const tags = Array.isArray(event[ENTITY_TAG_BY_KIND[kind]]) ? event[ENTITY_TAG_BY_KIND[kind]] : [];
+    return tags.map(tag => String(tag).trim()).filter(Boolean).map(keptNameOf);
+}
+
+/** The events whose text holds one of the names as a word: how a merged entity is counted. */
+function eventsHoldingNames(storedEvents, names) {
+    return storedEvents.filter(event => names.some(name => holdsName(String(event.text ?? ''), name)));
 }
 
 /**
@@ -259,8 +276,7 @@ export function listEntities(storedEvents, merges, kind) {
     const tallyOfKind = (wantedKind) => {
         const tallyByLowerCaseName = new Map();
         for (const event of storedEvents) {
-            const tags = Array.isArray(event[ENTITY_TAG_BY_KIND[wantedKind]]) ? event[ENTITY_TAG_BY_KIND[wantedKind]] : [];
-            const spellings = new Set(tags.map(tag => String(tag).trim()).filter(Boolean).map(keptNameOf));
+            const spellings = new Set(taggedKeptNames(event, wantedKind, keptNameOf));
             for (const lowerCaseName of new Set([...spellings].map(spelling => spelling.toLowerCase()))) {
                 const tally = tallyByLowerCaseName.get(lowerCaseName) ?? { eventCount: 0, eventCountBySpelling: new Map() };
                 tally.eventCount += 1;
@@ -283,8 +299,7 @@ export function listEntities(storedEvents, merges, kind) {
     for (const [kept, others] of Object.entries(merges)) {
         const tally = tallyByLowerCaseName.get(kept.toLowerCase());
         if (!tally) continue;
-        const names = [kept, ...others];
-        tally.eventCount = storedEvents.filter(event => names.some(name => holdsName(String(event.text ?? ''), name))).length;
+        tally.eventCount = eventsHoldingNames(storedEvents, [kept, ...others]).length;
     }
     return [...tallyByLowerCaseName.values()]
         .map(({ eventCount, eventCountBySpelling }) => {
@@ -292,6 +307,26 @@ export function listEntities(storedEvents, merges, kind) {
             return { name, otherNames: merges[name] ?? [], eventCount };
         })
         .sort((a, b) => (b.eventCount - a.eventCount) || a.name.localeCompare(b.name));
+}
+
+/**
+ * The events an entity's row in listEntities counts, in their stored order, so a reader of "42 events" reads those
+ * 42: for a merged entity every event whose text holds one of its names, for any other name every event whose tag of
+ * the kind holds it, in any case.
+ *
+ * @param {object[]} storedEvents
+ * @param {Record<string, string[]>} merges
+ * @param {string} name - A row's name, or another name of its entity
+ * @param {string} [kind] - people, factions or places
+ * @returns {object[]}
+ */
+export function eventsNamingEntity(storedEvents, merges, name, kind = KIND_OF_UNTAGGED_ENTITY) {
+    const keptByName = keptNameByName(merges);
+    const keptNameOf = each => keptByName.get(each.toLowerCase()) ?? each;
+    const keptName = keptNameOf(name.trim());
+    const mergedName = Object.keys(merges).find(kept => isSameName(kept, keptName));
+    if (mergedName) return eventsHoldingNames(storedEvents, [mergedName, ...merges[mergedName]]);
+    return storedEvents.filter(event => taggedKeptNames(event, kind, keptNameOf).some(tag => isSameName(tag, keptName)));
 }
 
 /**

@@ -6,6 +6,7 @@
  *   - a short name inside a different person's name is left alone, while a full name holding it as a part and a one-off spelling are rewritten,
  *   - the search asks for the other names of anyone the question names, except the rare ones,
  *   - the entity list counts a merged entity once and never loses one that no tag names,
+ *   - the events an entity's row counts are the ones its count counted, for every row,
  *   - merging carries a source's own other names, and splitting undoes it,
  *   - a name's spellings that differ only in case are one name, in the list, the hidden names, a merge and the search,
  *   - a Chinese, Japanese, Thai, Lao, Khmer or Burmese name counts only where it stands as a word, so a merged 家 never rewrites or counts 家族,
@@ -23,6 +24,7 @@ import {
     entityNamesInMessage,
     entityNamesLeftAlone,
     entitySearchText,
+    eventsNamingEntity,
     filterEntities,
     hasEntityMerges,
     isHiddenEntityName,
@@ -276,6 +278,41 @@ describe('listEntities', () => {
             { name: 'Tom', otherNames: ['ROSE'], eventCount: 3 },
             { name: 'Rosie', otherNames: [], eventCount: 1 },
         ]);
+    });
+});
+
+describe('eventsNamingEntity', () => {
+    const events = [
+        { text: 'Rose', characters: ['Rose', 'Tom'], locations: ['Bay'] },
+        { text: 'Rosa', characters: ['Rosa'] },
+        { text: 'Rose and Rosa', characters: ['Rose', 'Rosa'] },
+        { text: 'Tom', characters: ['Tom ', 'Tom'] },
+        { text: 'Rose', characters: ['ROSE', 'rose'] },
+        { text: '他回到家了', characters: ['家'] },
+        { text: '家族 的 事', characters: ['Tom'] },
+    ];
+    const mergeSets = [{}, { Rose: ['Rosa'] }, { rose: ['Rosie'] }, { Tom: ['ROSE'] }, { 雪: ['家'] }, { Harbour: ['Bay'] }];
+
+    it.each(mergeSets)('gives every row of listEntities the events its count counts (merges %j)', (merges) => {
+        for (const kind of ['people', 'places']) {
+            for (const row of listEntities(events, merges, kind)) {
+                expect(eventsNamingEntity(events, merges, row.name, kind), `${kind} ${row.name}`).toHaveLength(row.eventCount);
+            }
+        }
+    });
+
+    it('reads a merged entity by its text, from its kept name or an other name, in the stored order', () => {
+        const merges = { Rose: ['Rosa'] };
+        const expected = [events[0], events[1], events[2], events[4]];
+        expect(eventsNamingEntity(events, merges, 'Rose')).toEqual(expected);
+        expect(eventsNamingEntity(events, merges, 'rosa')).toEqual(expected);
+    });
+
+    it("reads any other name by its kind's tag, in any case and once per event", () => {
+        expect(eventsNamingEntity(events, {}, 'rose')).toEqual([events[0], events[2], events[4]]);
+        expect(eventsNamingEntity(events, {}, 'Tom')).toEqual([events[0], events[3], events[6]]);
+        expect(eventsNamingEntity(events, {}, 'Bay', 'places')).toEqual([events[0]]);
+        expect(eventsNamingEntity(events, {}, 'Nobody')).toEqual([]);
     });
 });
 
