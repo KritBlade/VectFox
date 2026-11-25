@@ -372,7 +372,7 @@ Think of a book where someone tore out pages 30 to 211 and put a one-page recap 
 
 ### Registering one
 
-`chat.registerMessageSource({ owner, originalsOf })` registers your function, and gives you back a function that unregisters it. `owner` names your extension, and the console uses that name if your function ever fails. You can register any time, before VectFox is ready too, and it counts from VectFox's next read.
+`chat.registerMessageSource({ owner, originalsOf })` registers your function, and gives you back a function that unregisters it. `owner` names your extension, and the console uses that name if your function ever fails. You can register any time, before VectFox is ready too, and it counts from VectFox's next read. It stays registered for every chat until you unregister it, so register once, when your extension loads.
 
 ```js
 const stop = VectFox.chat.registerMessageSource({
@@ -401,9 +401,10 @@ The messages in your list are message objects like the chat's, with `name`, `is_
 
 ### The rules
 
-Your function runs every single time VectFox reads the chat, once per message. So keep it to 3 rules:
+Your function runs every single time VectFox reads the chat, once per message. So keep it to 4 rules:
 - Answer at once, no promise and no `await`.
 - Give the same answer as long as the message and `chatMetadata` stay the same.
+- Read your answer from the message itself, or from `chatMetadata`, never by keeping the message object, like as a `WeakMap` key. SillyTavern makes new message objects every time it loads a chat, and InlineSummary reloads the chat after every summary.
 - Change nothing you're handed, not the message and not `chatMetadata`.
 
 If your function throws, or answers anything but `null` or a list of messages, VectFox reads that message as an ordinary one and says so in the console, once.
@@ -421,6 +422,14 @@ The search text, LoreBase's scene and Agent Mode's planner read the chat as the 
 Ghosting never takes a summary out. It takes out the messages EventBase has read on both sides of it, and the summary stays where it is. So beside a summarizer whose summaries open the chat, the model gets the summaries first, then the latest messages, and VectFox's memory covers the read messages in between.
 
 A chat that was summarized and read into EventBase BEFORE your source registered was read from the summary's text. Read it again once: open Vectorize Content on the Action page, press Vectorize, and pick Start over, or New collection to keep the old events. From then on it's right.
+
+### Checking that it works
+
+You don't need code for this. Open a chat EventBase has already read, and look at what VectFox's AutoSync page says under its status, like `Chat: 13 messages`. Then summarize a few of the older messages, ones EventBase has read, and look again:
+- Your source works: it still says 13 messages, and the status is the same as before.
+- It doesn't: the count drops, and the page says "This chat is shorter than what EventBase read."
+
+If your function throws, or answers something it shouldn't, the console says so too, once, under the `owner` you gave.
 
 ### A worked example: InlineSummary
 
@@ -443,7 +452,11 @@ When the originals are gone, like after a fork's Flatten deleted them, it answer
 
 That makes the chat shorter than what EventBase read, and VectFox copes. Auto-sync goes on with the new messages and reads none of the old ones twice. Ghosting takes nothing out until the chat grows past what EventBase read. And the events read before keep the message numbers they had.
 
-`registerInlineSummarySource()` in the same file registers it, right away when VectFox's object is there, or on `vectfox_ready` when VectFox loads after it. Put it in InlineSummary itself, in a fork of it, or in a small extension of your own that runs beside it. As its own extension it keeps working even while InlineSummary is off, so a summarized chat still reads right.
+`registerInlineSummarySource()` in the same file registers it, right away when VectFox's object is there, or on `vectfox_ready` when VectFox loads after it. Put it in InlineSummary itself, in a fork of it, or in a small extension of your own that runs beside it. As its own extension it keeps working even while InlineSummary is off, so a summarized chat still reads right. InlineSummary loads after VectFox, so inside InlineSummary it registers right away.
+
+Copy the file into your extension, and don't import it from VectFox's folder. Like every other file of VectFox's, its path isn't part of the API, so it can move.
+
+I checked it with InlineSummary 1.2.3 on a real chat: a summary, a summary holding another one, and Restore, one level at a time. Every EventBase message number stayed where it was, and ghosting kept each summary in the prompt.
 
 ## What VectFox does on each generation
 
