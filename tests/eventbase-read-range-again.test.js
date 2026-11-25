@@ -1,5 +1,5 @@
 /**
- * A stretch of the chat read again (InternalProject/Vectfox/plans/eventbase-read-range-again.md, B1): the run reads
+ * A stretch of the chat read again (InternalProject/Vectfox/plans/executed/eventbase-read-range-again.md, B1): the run reads
  * every window from the one holding its first message to the one holding its last, on the chat's window grid, though
  * the record holds them; each window's new events replace its earlier ones once stored, and a window whose new read
  * finds none loses its earlier ones (D4); a window whose read fails keeps its events; a stop, or an insert that fails,

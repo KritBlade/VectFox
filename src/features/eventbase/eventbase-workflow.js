@@ -174,7 +174,7 @@ export function notifyUnfinishedWindows(result, nextStep = 'Resume in Vectorize 
  * been read, in a window of any size (isWindowAlreadyExtracted), unless the run reads a stretch again
  * (isReadingAgain): then every window from the one holding startFromMessage to the one holding
  * endAtMessage is read, and one whose new read finds no event loses its earlier events too
- * (InternalProject/Vectfox/plans/eventbase-read-range-again.md).
+ * (InternalProject/Vectfox/plans/executed/eventbase-read-range-again.md).
  *
  * @param {object} params
  * @param {object[]} params.messages - The chat's messages from its first: message numbers count in this list

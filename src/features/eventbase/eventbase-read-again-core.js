@@ -4,7 +4,7 @@
  * ============================================================================
  * Vectorize Content can read a stretch of the open chat again, from its Start
  * from message to its End message (InternalProject/Vectfox/plans/
- * eventbase-read-range-again.md). Each window of the stretch replaces its
+ * executed/eventbase-read-range-again.md). Each window of the stretch replaces its
  * events, then StoryArc links the new events and decides again the events whose
  * links went into the stretch. This holds what the dialog shows before the run,
  * the progress panel's title for each step, and the verdict at the end.

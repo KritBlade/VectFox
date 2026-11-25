@@ -4,7 +4,7 @@
  * ============================================================================
  * Vectorize Content reads a stretch of the open chat again, from its Start from
  * message to its End message, into the chat's collection in use
- * (InternalProject/Vectfox/plans/eventbase-read-range-again.md). Before the run
+ * (InternalProject/Vectfox/plans/executed/eventbase-read-range-again.md). Before the run
  * it shows what the stretch holds and what the run costs (describeReadingAgain);
  * runEventBaseIngestion reads its windows, each replacing its events; then
  * StoryArc links the new events and decides again the events whose links went
