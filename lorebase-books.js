@@ -1,5 +1,5 @@
 /**
- * LoreBase's books as Qdrant holds them, for one SillyTavern account (§3.5 of InternalProject/Vectfox/plans/
+ * LoreBase's books as Qdrant holds them, for one SillyTavern account (§3.5 of InternalProject/Vectfox/plans/executed/
  * vectfox-multi-collection-per-chat.md): how many entries of each book have keys (lorebase-keys.js), and each of the
  * account's book tenants, in the account's own LoreBase collection and in vectfox_main alike, with its point count,
  * the book its points name and the embedding source and model one of them was stored with. VectFox's Database Browser

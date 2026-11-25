@@ -1,6 +1,6 @@
 /**
  * Change numbers and the change log of Similharity's Qdrant collections, which VectFox's EventBase feed reads (D12 and
- * section 5.3 of InternalProject/Vectfox/plans/vectfox-public-api.md).
+ * section 5.3 of InternalProject/Vectfox/plans/executed/vectfox-public-api.md).
  *
  * Every point Similharity writes into a Qdrant collection, by an insert or an edit, carries a change number in
  * `change_number`, which Similharity gives and which replaces any number a client sends. Every removal of an event, a
