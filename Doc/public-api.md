@@ -342,6 +342,8 @@ VectFox.on('vectfox_eventbase_events_deleted', ({ collectionId }) => { catchUpWi
 
 The handlers start the read and don't return it, so they never hold up the other extensions listening.
 
+[`tools/public-api-sample/event-reader.js`](../tools/public-api-sample/event-reader.js) is this reader whole, ready to copy into your extension. It also waits for one read of a collection to end before it starts the next, so 2 events close together never read the same changes twice.
+
 ### Another tab, another device
 
 The numbers live on the server, in the Similharity plugin, not in your page. So a reader in another tab, or on your phone, catches up the exact same way: it remembers its cursor and asks for what came after.
@@ -554,6 +556,8 @@ Read it right off `init.signal`, the signal you're handed. A new signal made fro
 The mark tells you whose request is going out, and the event is the full record. With the switch off, or if a SillyTavern update ever stops passing the signal along as is, a request goes out with no mark, but the event still reports the call.
 
 So a tracker uses both, for 2 different jobs. The mark keeps VectFox's requests out of the chat's own count as they go out. The event is VectFox's own count, one per call, with its tokens. Nothing ties a request to its event, so count them apart, and don't try to pair them up.
+
+[`tools/public-api-sample/usage-tracker.js`](../tools/public-api-sample/usage-tracker.js) does both in one small tracker, ready to copy into your extension.
 
 ## What you don't need the API for
 
