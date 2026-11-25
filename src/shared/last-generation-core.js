@@ -1,6 +1,6 @@
 /**
  * The last generation past its slash commands, and what it says of a quiet generation (D4 of
- * InternalProject/Vectfox/plans/vectfox-public-api.md). A quiet generation is quiet-to-loud when it is shown as a reply;
+ * InternalProject/Vectfox/plans/executed/vectfox-public-api.md). A quiet generation is quiet-to-loud when it is shown as a reply;
  * any other quiet generation is a quiet prompt, whose caller builds its own prompt: a summary, an emotion, an image
  * prompt, another extension's background job. SillyTavern passes the generation interceptor a generation's type alone,
  * and GENERATION_AFTER_COMMANDS, which fires just before the interceptors run, carries whether a quiet one is

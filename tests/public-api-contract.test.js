@@ -1,5 +1,5 @@
 /**
- * The public API's contract (A3 of InternalProject/Vectfox/plans/vectfox-public-api.md): every name another extension
+ * The public API's contract (A3 of InternalProject/Vectfox/plans/executed/vectfox-public-api.md): every name another extension
  * reads, pinned in CONTRACT. The test goes red when a member of the `VectFox` object or of one of its groups, an event, a
  * payload field, a capability, a reason, a field of a call's answer, a setting of the snapshot, a field of an EventBase
  * event listEvents gives, a value an LLM call's report names, a field of a message source or of what it is asked with,

@@ -1,5 +1,5 @@
 /**
- * The EventBase feed (§5.3 of InternalProject/Vectfox/plans/vectfox-public-api.md): what changed in one EventBase
+ * The EventBase feed (§5.3 of InternalProject/Vectfox/plans/executed/vectfox-public-api.md): what changed in one EventBase
  * collection after a change number, which the public API's eventBase.listEvents answers from. Similharity gives every
  * point it writes to Qdrant a change number and records each removed event under the same counter, so a reader that
  * keeps the last number it read catches up on the events written and removed since, from any tab or device. A chat

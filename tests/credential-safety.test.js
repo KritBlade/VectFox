@@ -1,5 +1,5 @@
 /**
- * Credential invariants, from InternalProject/Vectfox/plans/vectfox-connection-manager.md §10. Scans src/ as text, with
+ * Credential invariants, from InternalProject/Vectfox/plans/executed/vectfox-connection-manager.md §10. Scans src/ as text, with
  * no host imports and no SillyTavern mocks. A red here means a change can put an API key where it does not belong:
  * report it and stop. Never edit this file to make it pass.
  *

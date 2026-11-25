@@ -226,7 +226,7 @@ describe('a preview, as the Query Tester runs it', () => {
     });
 });
 
-// H4 of InternalProject/Vectfox/plans/vectfox-public-api.md: the events' message numbers count the story, so recency
+// H4 of InternalProject/Vectfox/plans/executed/vectfox-public-api.md: the events' message numbers count the story, so recency
 // and "already in context" measure the story's length, each summary a message source answers for as its messages.
 describe('the length a retrieval measures the events by', () => {
     it('is the story\'s, the messages with text in story order', async () => {

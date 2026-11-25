@@ -1,6 +1,6 @@
 /**
  * The one place VectFox reads the open chat (src/shared/chat-messages.js and chat-messages-core.js, H4 of
- * InternalProject/Vectfox/plans/vectfox-public-api.md, §5.4): the chat as SillyTavern holds it, and story order, where a
+ * InternalProject/Vectfox/plans/executed/vectfox-public-api.md, §5.4): the chat as SillyTavern holds it, and story order, where a
  * summary the message sources answer for reads as the messages it stands for, through summaries within summaries, with
  * a guard against a summary that holds one it is read inside and against summaries too deep; and no other file of src/
  * reads the open chat from SillyTavern's context.

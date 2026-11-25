@@ -1,7 +1,7 @@
 /**
  * A purged collection is told to the listener src/index.js sets (src/features/vector-backend/vector-api.js,
  * purgeVectorIndex and setPurgedCollectionListener), which the public API sends on as an EventBase collection emptied
- * (A2 of InternalProject/Vectfox/plans/vectfox-public-api.md): once the backend has emptied it, never for a purge that
+ * (A2 of InternalProject/Vectfox/plans/executed/vectfox-public-api.md): once the backend has emptied it, never for a purge that
  * failed, and a listener that throws never fails the purge. The backend is a stand-in.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';

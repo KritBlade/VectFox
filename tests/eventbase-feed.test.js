@@ -1,5 +1,5 @@
 /**
- * EventBase's feed (R2 of InternalProject/Vectfox/plans/vectfox-public-api.md, §5.3,
+ * EventBase's feed (R2 of InternalProject/Vectfox/plans/executed/vectfox-public-api.md, §5.3,
  * src/features/eventbase/eventbase-feed.js): what changed in one collection after a change number, read from
  * Similharity's change route through the vector backend, a stand-in here that answers as the route does. Each event
  * comes with its stored fields and its summary from its text; events stored before change numbers read as 0 and come

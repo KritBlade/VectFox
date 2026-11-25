@@ -1,5 +1,5 @@
 /**
- * The one place VectFox reads the open chat's messages (§5.4 of InternalProject/Vectfox/plans/vectfox-public-api.md),
+ * The one place VectFox reads the open chat's messages (§5.4 of InternalProject/Vectfox/plans/executed/vectfox-public-api.md),
  * two ways. As SillyTavern holds them, a summary as itself, which is what the model reads: the search text, LoreBase's
  * scene and Agent Mode's planner read the chat so. In story order, each summary as the messages it stands for
  * (chat-messages-core.js): EventBase's reads and the counts on VectFox's pages, so its message numbers stay put when a

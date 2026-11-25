@@ -2,7 +2,7 @@
  * The public API's pure parts: its version, the events it emits, the groups it serves, the reasons, settings and
  * EventBase events its calls answer with, what a message source's answer says, the mark on VectFox's own requests,
  * readiness and the shape of the `VectFox` object (§4, §5.2, §5.3 and §5.4 of
- * InternalProject/Vectfox/plans/vectfox-public-api.md). No host imports: public-api.js publishes the object, answers its
+ * InternalProject/Vectfox/plans/executed/vectfox-public-api.md). No host imports: public-api.js publishes the object, answers its
  * calls, asks the message sources and emits the events.
  */
 

@@ -358,7 +358,7 @@ describe('applyGhosting and the collection in use', () => {
     });
 });
 
-// A summarizer that registered a message source (H4 of InternalProject/Vectfox/plans/vectfox-public-api.md, D6): the tip
+// A summarizer that registered a message source (H4 of InternalProject/Vectfox/plans/executed/vectfox-public-api.md, D6): the tip
 // counts the story, each summary as the messages it stands for, and ghosting keeps every summary where it is while it
 // takes the read messages around it out of the prompt.
 describe('applyGhosting beside a summarizer that registered a message source', () => {

@@ -1,7 +1,7 @@
 /**
  * The last generation past its slash commands (src/shared/last-generation.js and last-generation-core.js), which says
  * whether a quiet generation is quiet-to-loud, shown as a reply, or a quiet prompt, whose caller builds its own prompt
- * (D4 of InternalProject/Vectfox/plans/vectfox-public-api.md). SillyTavern passes the interceptor the type alone, so
+ * (D4 of InternalProject/Vectfox/plans/executed/vectfox-public-api.md). SillyTavern passes the interceptor the type alone, so
  * the follower keeps what GENERATION_AFTER_COMMANDS carried, and a dry run, which reaches no interceptor, never stands
  * in for the generation that does.
  */

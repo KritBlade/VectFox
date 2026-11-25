@@ -1,6 +1,6 @@
 /**
  * The vector API's read of a collection's changes after a change number (src/features/vector-backend/vector-api.js,
- * readCollectionChanges), which EventBase's feed reads through (R2 of InternalProject/Vectfox/plans/vectfox-public-api.md):
+ * readCollectionChanges), which EventBase's feed reads through (R2 of InternalProject/Vectfox/plans/executed/vectfox-public-api.md):
  * the backend in use answers, and a read that fails drops the backend's health cache, so the next request sets the
  * backend up again, as after a SillyTavern restart left Similharity's Qdrant unset. The backend is a stand-in.
  */

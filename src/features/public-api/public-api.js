@@ -1,5 +1,5 @@
 /**
- * Publishes the `VectFox` object other extensions call (§4 of InternalProject/Vectfox/plans/vectfox-public-api.md),
+ * Publishes the `VectFox` object other extensions call (§4 of InternalProject/Vectfox/plans/executed/vectfox-public-api.md),
  * answers its calls and emits its events on SillyTavern's eventSource. src/index.js publishes the object when it is
  * evaluated, so it exists before VectFox's initialization ends, and announces readiness when that ends, handing over
  * the settings store the calls answer from (§5.2): until then every call answers `not-ready`. `eventBase.listEvents`

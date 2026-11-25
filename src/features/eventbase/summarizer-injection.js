@@ -184,7 +184,7 @@ function chatIndicesOfPrompt(prompt, chat, isToolCallingOn) {
  *     prompt cache can reuse it. The raw window then spans keepFloor to keepFloor +
  *     batch size - 1 messages. Snapping down only takes out fewer, so both bounds above hold.
  * The messages before the boundary are taken out, all but two kinds, which stay where they are: a summary a message
- * source answers for (D6 of InternalProject/Vectfox/plans/vectfox-public-api.md), and a message that copies none of the
+ * source answers for (D6 of InternalProject/Vectfox/plans/executed/vectfox-public-api.md), and a message that copies none of the
  * chat's, as another extension's interceptor adds. "Keep last N" auto-scales to any chat length.
  *
  * Taken out, not flagged: a message taken out of the array leaves no empty turn, which some chat-completion APIs

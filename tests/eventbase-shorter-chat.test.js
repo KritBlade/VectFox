@@ -246,7 +246,7 @@ describe('a run on a chat shorter than its tip', () => {
     });
 });
 
-// H4 of InternalProject/Vectfox/plans/vectfox-public-api.md: with a summarizer's message source registered, every run
+// H4 of InternalProject/Vectfox/plans/executed/vectfox-public-api.md: with a summarizer's message source registered, every run
 // reads the open chat in story order (storyMessages), each summary as the messages it stands for.
 describe('beside a summarizer that registered a message source', () => {
     /** The sample's message source for InlineSummary, as the public API answers with it. */

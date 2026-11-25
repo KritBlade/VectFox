@@ -1,5 +1,5 @@
 /**
- * Message sources (H4 of InternalProject/Vectfox/plans/vectfox-public-api.md, §5.4, D6, D13): `chat.registerMessageSource`
+ * Message sources (H4 of InternalProject/Vectfox/plans/executed/vectfox-public-api.md, §5.4, D6, D13): `chat.registerMessageSource`
  * on the VectFox object, which story order asks about each message it reads, wired as src/index.js wires it; a source
  * that throws, or answers anything but null or a list of messages, counts as null and is said in the console once; and
  * the sample message source for InlineSummary (tools/public-api-sample/message-source.js), registered as another

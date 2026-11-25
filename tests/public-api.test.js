@@ -1,5 +1,5 @@
 /**
- * The `VectFox` object (A1 of InternalProject/Vectfox/plans/vectfox-public-api.md, §4.1): there as soon as
+ * The `VectFox` object (A1 of InternalProject/Vectfox/plans/executed/vectfox-public-api.md, §4.1): there as soon as
  * src/index.js is evaluated, frozen, ready once initialization ends, and `vectfox_ready` emitted once, without
  * waiting for its listeners; its events (A2, §4.3); its chat group and settings snapshot (R1, §5.2); its eventBase
  * group, the feed of a collection's events and removals (R2, §5.3), which answer `not-ready` until then; and the marker

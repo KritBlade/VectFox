@@ -1,5 +1,5 @@
 /**
- * Story order, the order EventBase reads a chat in (§5.4 of InternalProject/Vectfox/plans/vectfox-public-api.md): a
+ * Story order, the order EventBase reads a chat in (§5.4 of InternalProject/Vectfox/plans/executed/vectfox-public-api.md): a
  * message the message sources answer for as a summary reads as the messages it stands for, each of them asked about in
  * turn, so summarizing messages and restoring them leave every message's place where it was. Only a message with text
  * takes a place, as EventBase's windows read text. No host imports: chat-messages.js reads the open chat and asks the

@@ -139,7 +139,7 @@ export class VectorBackend {
 
     /**
      * What changed in a collection after a change number, which the EventBase feed reads (§5.3 of
-     * InternalProject/Vectfox/plans/vectfox-public-api.md). Only Qdrant keeps change numbers, through Similharity, so
+     * InternalProject/Vectfox/plans/executed/vectfox-public-api.md). Only Qdrant keeps change numbers, through Similharity, so
      * every other backend answers that it does not support them.
      * @param {string} collectionId
      * @param {object} settings
