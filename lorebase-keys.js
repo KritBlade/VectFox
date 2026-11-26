@@ -188,16 +188,19 @@ export async function countLoreKeysByBook(backend, user) {
 }
 
 /**
- * Delete one user's keys: those of the named books' entries, or, with no books named, of every entry in every book
- * (LoreBase's Delete all). Other users' points stay.
+ * Delete one user's keys: those of some entries of one book, those of the named books' entries, or, with no books
+ * named, of every entry in every book (LoreBase's Delete all). Other users' points stay. VectFox's LoreBase deletes
+ * the keys of entries a book no longer holds, as SillyTavern gives a new entry the first free uid, a deleted one's.
  * @param {object} backend - The Qdrant backend, initialized
  * @param {string} user - The SillyTavern user's handle
  * @param {unknown} [books] - The books' exact names, 1 to 2,000 of them; left out, every book
+ * @param {unknown} [uids] - The uids of the entries whose keys go, 1 to 2,000 of them, with books naming their one
+ *   book; left out, every entry of the books named
  * @returns {Promise<number>} How many entries' keys were deleted
- * @throws {RangeError} When the user is not a name, or books is given and is not a list of 1 to 2,000 names;
- *   {Error} when Qdrant refuses it
+ * @throws {RangeError} When the user is not a name, books is given and is not a list of 1 to 2,000 names, or uids is
+ *   given and is not a list of 1 to 2,000 uids with books naming one book; {Error} when Qdrant refuses it
  */
-export async function deleteLoreKeys(backend, user, books) {
+export async function deleteLoreKeys(backend, user, books, uids) {
     assertName(user, 'The user');
     if (books !== undefined) {
         if (!Array.isArray(books) || !books.length || books.length > MOST_BOOKS_PER_REQUEST) {
@@ -205,9 +208,17 @@ export async function deleteLoreKeys(backend, user, books) {
         }
         books.forEach(book => assertName(book, 'A book'));
     }
+    if (uids !== undefined) {
+        if (books?.length !== 1) throw new RangeError('uids must come with books naming the one book that holds them.');
+        if (!Array.isArray(uids) || !uids.length || uids.length > MOST_ENTRIES_PER_WRITE) {
+            throw new RangeError(`uids must list 1 to ${MOST_ENTRIES_PER_WRITE} entry uids; leave it out to delete every entry's keys of the book.`);
+        }
+        uids.forEach(uid => assertName(typeof uid === 'number' ? String(uid) : uid, 'An entry\'s uid'));
+    }
     await ensureKeysCollection(backend);
     const must = [{ key: USER_FIELD, match: { value: user } }];
     if (books !== undefined) must.push({ key: BOOK_FIELD, match: { any: books } });
+    if (uids !== undefined) must.push({ has_id: uids.map(uid => keysPointId(user, books[0], String(uid))) });
     const filter = { must };
     const counted = await backend._request('POST', `/collections/${LOREBASE_KEYS_COLLECTION}/points/count`, { filter, exact: true });
     await backend._request('POST', `/collections/${LOREBASE_KEYS_COLLECTION}/points/delete?wait=true`, { filter });

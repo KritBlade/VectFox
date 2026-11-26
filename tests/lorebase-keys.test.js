@@ -1,7 +1,7 @@
 // Tests LoreBase's key store: a collection with no vectors, a point per entry whose ID comes from the user, the book
 // and the uid, an entry's title stored when the write gives one and read back beside the keys, each user reading,
-// writing, counting and deleting only their own points, a delete of named books or of every book, malformed writes
-// and deletes refused, and the collection left out of VectFox's collection listing. Qdrant is stubbed at the
+// writing, counting and deleting only their own points, a delete of some entries of one book, of named books or of
+// every book, malformed writes and deletes refused, and the collection left out of VectFox's collection listing. Qdrant is stubbed at the
 // backend's one request function.
 //
 //   node --test tests/
@@ -111,6 +111,35 @@ test('a delete naming books refuses an empty or malformed list before Qdrant is 
     const tooMany = Array.from({ length: 2001 }, (_, index) => `Book ${index}`);
     for (const books of [[], 'Harbor book', [''], [42], null, tooMany]) {
         await assert.rejects(deleteLoreKeys(qdrantBackend, 'tester', books), RangeError, JSON.stringify(books).slice(0, 40));
+    }
+    assert.equal(requests.length, 0);
+});
+
+test("a delete of some entries of one book counts and deletes the requesting user's points of those entries alone, by their IDs", async () => {
+    const requests = stubQdrant([LOREBASE_KEYS_COLLECTION], {
+        [`POST /collections/${LOREBASE_KEYS_COLLECTION}/points/count`]: () => ({ count: 2 }),
+    });
+    assert.equal(await deleteLoreKeys(qdrantBackend, 'tester', ['Harbor book'], ['3', 9]), 2);
+    const someEntries = {
+        must: [
+            { key: 'user', match: { value: 'tester' } },
+            { key: 'book', match: { any: ['Harbor book'] } },
+            { has_id: [keysPointId('tester', 'Harbor book', '3'), keysPointId('tester', 'Harbor book', '9')] },
+        ],
+    };
+    assert.deepEqual(requests.find(request => request.endpoint.endsWith('/points/count')).body, { filter: someEntries, exact: true });
+    assert.deepEqual(requests.find(request => request.endpoint.endsWith('/points/delete?wait=true')).body, { filter: someEntries });
+});
+
+test('a delete naming uids refuses them without one book named, or as an empty or malformed list, before Qdrant is asked', async () => {
+    const requests = stubQdrant([LOREBASE_KEYS_COLLECTION]);
+    const tooMany = Array.from({ length: 2001 }, (_, index) => String(index));
+    const refused = [
+        [undefined, ['3']], [['Harbor book', 'Desert book'], ['3']], [['Harbor book'], []], [['Harbor book'], '3'],
+        [['Harbor book'], ['']], [['Harbor book'], [null]], [['Harbor book'], tooMany],
+    ];
+    for (const [books, uids] of refused) {
+        await assert.rejects(deleteLoreKeys(qdrantBackend, 'tester', books, uids), RangeError, JSON.stringify([books, uids]).slice(0, 60));
     }
     assert.equal(requests.length, 0);
 });

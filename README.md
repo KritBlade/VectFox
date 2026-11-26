@@ -521,9 +521,9 @@ Writes the keys of some of a book's entries, replacing any they had. An entry ho
 
 #### `POST /lorebase/keys/delete`
 
-Deletes the requesting user's keys: those of the named books' entries, or, with no `books`, of every entry in every book. Other users' keys stay. `books`, when given, lists 1 to 2,000 book names; an empty list, or anything else, answers 400 and deletes nothing.
+Deletes the requesting user's keys: those of some entries of one book (`uids`, with `books` naming that book), those of the named books' entries, or, with no `books`, of every entry in every book. Other users' keys stay. `books`, when given, lists 1 to 2,000 book names; `uids`, when given, lists 1 to 2,000 entry uids, and `books` must name one book. An empty list, or anything else, answers 400 and deletes nothing.
 
-**Request Body:** `{ "books": ["Harbor book"] }`, or `{}` for every book
+**Request Body:** `{ "books": ["Harbor book"], "uids": ["3"] }` for some entries, `{ "books": ["Harbor book"] }` for a book, or `{}` for every book
 
 **Response:** `{ "deleted": 311 }`, how many entries' keys were deleted.
 

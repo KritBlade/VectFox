@@ -1566,13 +1566,14 @@ async function getVectorsForSource(source, texts, model, directories, req) {
 
     /**
      * POST /api/plugins/similharity/lorebase/keys/delete
-     * Delete the requesting user's keys: those of the named books' entries, or, with no books named, of every entry in
-     * every book (LoreBase's Delete all keys).
-     * Body: { books?: string[] }, 1 to 2,000 names when given. Response: { deleted: number }.
+     * Delete the requesting user's keys: those of some entries of one book, those of the named books' entries, or, with
+     * no books named, of every entry in every book (LoreBase's Delete all keys).
+     * Body: { books?: string[], uids?: string[] }, 1 to 2,000 names when given; uids, 1 to 2,000 entry uids, with books
+     * naming their one book. Response: { deleted: number }.
      */
     router.post('/lorebase/keys/delete', async (req, res) => {
         try {
-            const deleted = await deleteLoreKeys(qdrantBackend, req.user.profile.handle, req.body?.books);
+            const deleted = await deleteLoreKeys(qdrantBackend, req.user.profile.handle, req.body?.books, req.body?.uids);
             res.json({ deleted });
         } catch (error) {
             console.error(`[${pluginName}] lorebase/keys/delete error:`, error);
