@@ -1081,6 +1081,11 @@
     color: var(--vfx-accent-ink);
 }
 
+/* An icon whose glyph shows a state that is free or enabled, in the success ink: an icon toggle's open padlock while off. */
+.vfx-ui .vfx-btn.vfx-btn-icon.is-success > i {
+    color: var(--vfx-success-ink);
+}
+
 .vfx-ui .vfx-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;

@@ -7,11 +7,12 @@
  * what keeps Entity-Lore from running, with the button to where it is fixed;
  * the line naming the chat's book; the last run's line; and the character
  * list, a page of rows, each with its event count, its state and the buttons
- * that state offers, Lock among them where Entity-Lore would write the
- * character, the names Allow again kept it apart from, and why an entry is
- * due again when its names changed, on StoryArc's Entity tab or by Allow
- * again. A button carries data-entity-lore-action, and a row's its
- * character's name and entry uid. Pure: builds strings.
+ * that state offers, the names Allow again kept it apart from, and why an
+ * entry is due again when its names changed, on StoryArc's Entity tab or by
+ * Allow again. Where Entity-Lore would write the character, and once it is
+ * locked, Lock is a toggle whose padlock shows which: open in the success
+ * ink, or closed and pressed. A button carries data-entity-lore-action, and a
+ * row's its character's name and entry uid. Pure: builds strings.
  * ============================================================================
  */
 
@@ -122,25 +123,32 @@ const rewriteNowButtons = row => [
     button({ text: 'Rewrite now', icon: 'fa-rotate', data: actionData(row, ENTITY_LORE_ACTION.write) }),
 ];
 const allowAgainButton = row => [button({ text: 'Allow again', icon: 'fa-rotate-left', data: actionData(row, ENTITY_LORE_ACTION.allowAgain) })];
-const lockButton = row => iconButton({
-    icon: 'fa-lock', title: "Lock: Entity-Lore leaves this character's entry as it is", data: actionData(row, ENTITY_LORE_ACTION.lock),
-});
+// Lock, a toggle whose padlock shows the character's state (D16): open, in the success ink, while Entity-Lore writes its
+// entry; closed and pressed once it is locked, when pressing it unlocks. Its title, the toggle's name, stays the same, as
+// aria-pressed says which.
+const lockToggle = row => {
+    const isLocked = row.state === ENTITY_STATE.locked;
+    return iconButton({
+        icon: isLocked ? 'fa-lock' : 'fa-lock-open',
+        title: "Lock: Entity-Lore leaves this character's entry as it is",
+        isPressed: isLocked,
+        status: isLocked ? '' : 'success',
+        data: actionData(row, isLocked ? ENTITY_LORE_ACTION.unlock : ENTITY_LORE_ACTION.lock),
+    });
+};
 
 // Each state's buttons (§3's table); a state with none is left out.
 const STATE_ACTIONS = {
-    [ENTITY_STATE.waiting]: row => [lockButton(row)],
-    [ENTITY_STATE.due]: row => [button({ text: 'Write now', icon: 'fa-pen-nib', data: actionData(row, ENTITY_LORE_ACTION.write) }), lockButton(row)],
-    [ENTITY_STATE.written]: row => [...rewriteNowButtons(row), lockButton(row)],
-    [ENTITY_STATE.rewriteDue]: row => [...rewriteNowButtons(row), lockButton(row)],
+    [ENTITY_STATE.waiting]: row => [lockToggle(row)],
+    [ENTITY_STATE.due]: row => [button({ text: 'Write now', icon: 'fa-pen-nib', data: actionData(row, ENTITY_LORE_ACTION.write) }), lockToggle(row)],
+    [ENTITY_STATE.written]: row => [...rewriteNowButtons(row), lockToggle(row)],
+    [ENTITY_STATE.rewriteDue]: row => [...rewriteNowButtons(row), lockToggle(row)],
     [ENTITY_STATE.editedByUser]: row => [
         openEntryButton(row),
         button({ text: 'Rewrite anyway', icon: 'fa-rotate', data: actionData(row, ENTITY_LORE_ACTION.rewriteAnyway) }),
-        lockButton(row),
+        lockToggle(row),
     ],
-    [ENTITY_STATE.locked]: row => [
-        ...(row.uid === undefined ? [] : [openEntryButton(row)]),
-        button({ text: 'Unlock', icon: 'fa-lock-open', data: actionData(row, ENTITY_LORE_ACTION.unlock) }),
-    ],
+    [ENTITY_STATE.locked]: row => [...(row.uid === undefined ? [] : [openEntryButton(row)]), lockToggle(row)],
     [ENTITY_STATE.deletedByUser]: allowAgainButton,
     [ENTITY_STATE.notNamed]: allowAgainButton,
     [ENTITY_STATE.sameAs]: allowAgainButton,

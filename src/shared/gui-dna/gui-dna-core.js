@@ -47,6 +47,7 @@ function needsAttribute(needs) {
 }
 
 const PILL_STATUSES = ['success', 'warning', 'danger', 'neutral', 'accent'];
+const ICON_STATUSES = ['success'];
 const BUTTON_KIND_CLASSES = { primary: ' vfx-btn-primary', danger: ' vfx-btn-danger', quiet: ' vfx-btn-quiet', secondary: '' };
 const HELP_TOGGLE = '<button type="button" class="vfx-help-toggle" aria-expanded="false" data-i18n-title="More about this" title="More about this"><i class="fa-solid fa-circle-question"></i></button>';
 const COLLAPSE_TOGGLE = '<button type="button" class="vfx-collapse" aria-expanded="true" data-i18n-title="Show or hide" title="Show or hide"><i class="fa-solid fa-chevron-up"></i></button>';
@@ -113,10 +114,13 @@ function partContent(part) {
 
 /**
  * Icon button: 32px square, its translated title is its accessible name. `isPressed` (true/false) makes it an icon
- * toggle: aria-pressed, and `.is-on` while pressed. `isDanger` for a destructive row action.
+ * toggle: aria-pressed, and `.is-on` while pressed. `isDanger` for a destructive row action. `status` 'success' draws
+ * the icon in the success ink, for an icon whose glyph shows a state that is free or enabled: an icon toggle's open
+ * padlock while off.
  */
-export function iconButton({ icon, title, isDanger = false, isPressed = null, isDisabled = false, data } = {}) {
-    const classes = `vfx-btn vfx-btn-icon${isDanger ? ' vfx-btn-danger' : ''}${isPressed === true ? ' is-on' : ''}`;
+export function iconButton({ icon, title, isDanger = false, isPressed = null, status = '', isDisabled = false, data } = {}) {
+    const statusClass = ICON_STATUSES.includes(status) ? ` is-${status}` : '';
+    const classes = `vfx-btn vfx-btn-icon${isDanger ? ' vfx-btn-danger' : ''}${statusClass}${isPressed === true ? ' is-on' : ''}`;
     const pressed = typeof isPressed === 'boolean' ? ` aria-pressed="${isPressed}"` : '';
     return `<button type="button" class="${classes}"${titleAttributes(title)}${pressed}${isDisabled ? ' disabled' : ''}${dataAttributes(data)}>${iconTag(icon)}</button>`;
 }

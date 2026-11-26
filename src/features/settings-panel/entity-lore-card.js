@@ -5,9 +5,9 @@
  * fixed; Write at and Rewrite every; the line naming the chat's book; Run now; the status line, the last run's outcome
  * in this chat or why a button did nothing, which a row's button says in a toast as well, as the rows sit below the
  * status line, often out of view; and the open chat's characters, each with its state and the buttons that state
- * offers, Lock and Unlock among them, searched by name and paged. The switch and the notice are drawn as the page opens, as LoreBase's switch
- * changes and as the chat changes; the characters are read only while the card is shown, again as its tab opens, as
- * the chat changes, as either count is set and as a run ends.
+ * offers, Lock among them, a toggle that locks and unlocks its character, searched by name and paged. The switch and the
+ * notice are drawn as the page opens, as LoreBase's switch changes and as the chat changes; the characters are read
+ * only while the card is shown, again as its tab opens, as the chat changes, as either count is set and as a run ends.
  */
 import { getCurrentChatId } from '../../sillytavern/chat.js';
 import { log } from '../../sillytavern/log.js';

@@ -7,8 +7,9 @@
  * Guards that:
  *   - each state's row has §3's pill and buttons, its event count, its other names and, for a same_as, the hint to
  *     merge the names on StoryArc's Entity tab; each button names its character and entry; Lock is offered wherever
- *     Entity-Lore would write the character, and a locked row offers Open entry, when it has one, and Unlock; an
- *     entry due again as its names changed on StoryArc's Entity tab says why,
+ *     Entity-Lore would write the character, and a locked row offers Open entry, when it has one, and Lock; Lock's
+ *     padlock shows the character's state, open in the success ink while unlocked, closed and pressed once locked,
+ *     when pressing it unlocks; an entry due again as its names changed on StoryArc's Entity tab says why,
  *   - the list pages 20 rows at a time, its page kept within the pages there are, and says why it is empty,
  *   - the notice says what to turn on first while Entity-Lore is off, that it is paused while it is on, and offers the
  *     button to where it is fixed; LoreBase or StoryArc not acting disables the switch, the model not set does not,
@@ -43,8 +44,8 @@ describe("a character's row (§3's table)", () => {
         [ENTITY_STATE.written, { uid: '3', writtenAtEvents: 30 }, ['12 events', 'Written at 30 events'], ['Open entry', 'Rewrite now', LOCK]],
         [ENTITY_STATE.rewriteDue, { uid: '3', writtenAtEvents: 10 }, ['12 events', 'Rewrite due'], ['Open entry', 'Rewrite now', LOCK]],
         [ENTITY_STATE.editedByUser, { uid: '3', writtenAtEvents: 10 }, ['12 events', 'Edited by you'], ['Open entry', 'Rewrite anyway', LOCK]],
-        [ENTITY_STATE.locked, { uid: '3', writtenAtEvents: 30 }, ['12 events', 'Locked'], ['Open entry', 'Unlock']],
-        [ENTITY_STATE.locked, {}, ['12 events', 'Locked'], ['Unlock']],
+        [ENTITY_STATE.locked, { uid: '3', writtenAtEvents: 30 }, ['12 events', 'Locked'], ['Open entry', LOCK]],
+        [ENTITY_STATE.locked, {}, ['12 events', 'Locked'], [LOCK]],
         [ENTITY_STATE.deletedByUser, {}, ['12 events', 'Deleted by you'], ['Allow again']],
         [ENTITY_STATE.notNamed, {}, ['12 events', 'Not a named character'], ['Allow again']],
         [ENTITY_STATE.sameAs, { sameAs: 'Tamsin Vale' }, ['12 events', 'Same as Tamsin Vale'], ['Allow again']],
@@ -66,6 +67,23 @@ describe("a character's row (§3's table)", () => {
         expect({ ...open.dataset }).toEqual({ i18nTitle: 'Open entry', entityLoreAction: ENTITY_LORE_ACTION.openEntry, name: 'Tamsin', uid: '3' });
         expect({ ...rewrite.dataset }).toEqual({ entityLoreAction: ENTITY_LORE_ACTION.rewriteAnyway, name: 'Tamsin', uid: '3' });
         expect({ ...rowOf(ENTITY_STATE.due).querySelector('button').dataset }).toEqual({ entityLoreAction: ENTITY_LORE_ACTION.write, name: 'Tamsin' });
+    });
+
+    it("shows the character's state on Lock's padlock: open in the success ink while unlocked, closed and pressed once locked", () => {
+        const lookOf = holder => {
+            const lock = holder.querySelector(`button[title="${LOCK}"]`);
+            return { className: lock.className, isPressed: lock.getAttribute('aria-pressed'), icon: lock.querySelector('i').className, data: { ...lock.dataset } };
+        };
+        const unlockedStates = [ENTITY_STATE.waiting, ENTITY_STATE.due, ENTITY_STATE.written, ENTITY_STATE.rewriteDue, ENTITY_STATE.editedByUser];
+        const open = {
+            className: 'vfx-btn vfx-btn-icon is-success', isPressed: 'false', icon: 'fa-solid fa-lock-open',
+            data: { i18nTitle: LOCK, entityLoreAction: ENTITY_LORE_ACTION.lock, name: 'Tamsin', uid: '3' },
+        };
+        expect(unlockedStates.map(state => lookOf(rowOf(state, { uid: '3', writeAt: 10, writtenAtEvents: 10 })))).toEqual(unlockedStates.map(() => open));
+        expect(lookOf(rowOf(ENTITY_STATE.locked, { uid: '3' }))).toEqual({
+            className: 'vfx-btn vfx-btn-icon is-on', isPressed: 'true', icon: 'fa-solid fa-lock',
+            data: { i18nTitle: LOCK, entityLoreAction: ENTITY_LORE_ACTION.unlock, name: 'Tamsin', uid: '3' },
+        });
     });
 
     it("shows a character's other names, and on a same_as the way to count the two as one", () => {

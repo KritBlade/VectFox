@@ -11,7 +11,8 @@
  *   - the characters are read only while the card is shown, again as its tab opens, and drawn with the book line,
  *     searched by name and paged,
  *   - each row's button does what its state offers: Write now and Rewrite now write that entry, Rewrite anyway asks
- *     first, Allow again forgets the name, Lock and Unlock lock the row's character, Open entry opens LoreBase's editor,
+ *     first, Allow again forgets the name, Lock locks the row's character and, pressed once locked, unlocks it, Open entry
+ *     opens LoreBase's editor,
  *     each reading the characters again; one
  *     that did nothing says why in a toast as well as on the status line, which sits above the rows, often out of view,
  *   - the notice's button opens the StoryArc page or the Main tab,
@@ -242,8 +243,9 @@ describe("a row's buttons", () => {
         expect(readEntityLoreCharacters).toHaveBeenCalledTimes(2);
     });
 
-    it("lock the row's character and unlock it, each reading the rows again", async () => {
+    it("Lock locks the row's character, and pressed once locked unlocks it, each reading the rows again", async () => {
         const LOCK = "Lock: Entity-Lore leaves this character's entry as it is";
+        expect(buttonFor('Tamsin', LOCK).getAttribute('aria-pressed')).toBe('false');
         buttonFor('Tamsin', LOCK).click();
         await settle();
         expect(lockEntityLoreCharacter).toHaveBeenCalledWith(expect.objectContaining({ name: 'Tamsin', otherNames: [] }), true);
@@ -252,8 +254,8 @@ describe("a row's buttons", () => {
         host.characters.states[0] = character('Tamsin', 'locked');
         refreshEntityLoreCard();
         await settle();
-        expect(buttonFor('Tamsin', LOCK)).toBeUndefined();
-        buttonFor('Tamsin', 'Unlock').click();
+        expect(buttonFor('Tamsin', LOCK).getAttribute('aria-pressed')).toBe('true');
+        buttonFor('Tamsin', LOCK).click();
         await settle();
         expect(lockEntityLoreCharacter).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'Tamsin', state: 'locked' }), false);
 
