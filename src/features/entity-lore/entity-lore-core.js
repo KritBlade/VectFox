@@ -9,10 +9,11 @@
  * each counted character stands, which the Entity-Lore tab's rows and a run
  * both read, so the two never disagree; the entries a run writes, and the one a
  * row's button writes; an entry's keys; the record kept in the
- * collection's metadata, the characters the user locked in it, and what a
- * merge of names on StoryArc's Entity tab, a split, or Allow again makes of
- * it; an event with one time, as an entry's call reads it; the cut of a
- * character's events into slices one call can read; and what a run names:
+ * collection's metadata, the characters the user locked in it, the names
+ * Allow again kept apart, and what a merge of names on StoryArc's Entity tab,
+ * a split, or Allow again makes of it; an event with one time, as an entry's
+ * call reads it; the cut of a character's events into slices one call can
+ * read; and what a run names:
  * its book, the titles it wrote, the names matched to an entry, Run now's
  * question and the run's outcome.
  *
@@ -76,6 +77,7 @@ export const ENTITY_STATE = Object.freeze({
 /** Whether two names are one, trimmed and in any case: how the record, the exclusions, the keys and the name check match names. */
 export const isSameName = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
 const isPlainObject = value => typeof value === 'object' && value !== null && !Array.isArray(value);
+const isNameText = value => typeof value === 'string' && Boolean(value.trim());
 
 function wholeNumberIn(value, { default: fallback, min, max }) {
     const number = Number.parseInt(value, 10);
@@ -153,22 +155,26 @@ export function entityLoreBlocker({ loreBaseReason, isLoreBaseSwitchedOn, isStor
 
 /**
  * A collection's Entity-Lore record, from its metadata's `entityLore`: the book it writes into, what it knows of each
- * kept name, and the names of the characters the user locked (T3). A kept name whose record is not one of
- * RECORD_STATE's reads as having none, and a locked name that holds no text is left out.
+ * kept name, the names of the characters the user locked (T3), and the pairs of names Allow again kept apart (D18). A
+ * kept name whose record is not one of RECORD_STATE's reads as having none, and a locked name or a pair that holds no
+ * text is left out.
  *
  * @param {unknown} stored
- * @returns {{bookName: string, entries: Record<string, object>, lockedNames: string[]}} a new object
+ * @returns {{bookName: string, entries: Record<string, object>, lockedNames: string[],
+ *   keptApart: Array<{name: string, from: string}>}} a new object
  */
 export function readEntityLoreRecord(stored) {
     const storedEntries = isPlainObject(stored) && isPlainObject(stored.entries) ? stored.entries : {};
     const entries = Object.fromEntries(Object.entries(storedEntries)
         .filter(([, entry]) => isPlainObject(entry) && RECORD_STATES.has(entry.state))
         .map(([name, entry]) => [name, { ...entry }]));
-    const storedLocks = isPlainObject(stored) && Array.isArray(stored.lockedNames) ? stored.lockedNames : [];
+    const listOf = key => (isPlainObject(stored) && Array.isArray(stored[key]) ? stored[key] : []);
     return {
         bookName: isPlainObject(stored) && typeof stored.bookName === 'string' ? stored.bookName : '',
         entries,
-        lockedNames: storedLocks.filter(name => typeof name === 'string' && name.trim()),
+        lockedNames: listOf('lockedNames').filter(isNameText),
+        keptApart: listOf('keptApart').filter(pair => isPlainObject(pair) && isNameText(pair.name) && isNameText(pair.from))
+            .map(({ name, from }) => ({ name, from })),
     };
 }
 
@@ -360,21 +366,53 @@ export function withSplitName(record, { keptName, splitName }, bookUids) {
 
 /**
  * The record after Allow again (§3, §6): it forgets a kept name, which is counted as if new, due at Write at and asked
- * about by the next name check. A name the name check matched to an entry (§4.3) no longer reads as that entry's, so
- * the entry, written and held by the book still, is due again and written afresh (D17), as its text holds the name's
- * events.
+ * about by the next name check. A name the name check matched to an entry (§4.3) no longer reads as that entry's: the
+ * two are kept apart (D18), so the name check never matches them again, and the entry, written and held by the book
+ * still, is due again and written afresh (D17), as its text holds the name's events.
  *
  * @param {object} record
  * @param {string} name - The row's kept name
  * @param {Array<string|number>} bookUids - The uids of the entries the book holds now
- * @returns {{record: object, unmatched: {title: string, uid: string}|null}} record: a new record; unmatched: the entry
- *   the name was matched to, when it is marked
+ * @returns {{record: object, keptApartFrom: string|null, matchedEntryUid: string|null}} record: a new record;
+ *   keptApartFrom: the title the name was matched to, now kept apart from it; matchedEntryUid: the uid of that title's
+ *   entry, when it is marked to be written afresh
  */
 export function withNameAllowedAgain(record, name, bookUids) {
     const entry = recordOfName(record, name);
     const forgotten = withEntryForgotten(record, name);
-    const changed = entry?.state === RECORD_STATE.sameAs ? withEntryNamesChanged(forgotten, entry.sameAs ?? '', NAMES_CHANGED_BY.allowAgain, bookUids) : null;
-    return { record: changed?.record ?? forgotten, unmatched: changed ? { title: changed.title, uid: changed.uid } : null };
+    if (entry?.state !== RECORD_STATE.sameAs || !entry.sameAs) return { record: forgotten, keptApartFrom: null, matchedEntryUid: null };
+    const changed = withEntryNamesChanged(forgotten, entry.sameAs, NAMES_CHANGED_BY.allowAgain, bookUids);
+    const keptApartFrom = changed?.title ?? entry.sameAs;
+    return { record: withKeptApart(changed?.record ?? forgotten, { name, from: keptApartFrom }), keptApartFrom, matchedEntryUid: changed?.uid ?? null };
+}
+
+/** The record with two names kept apart (D18), each pair once, in either order and any case. */
+function withKeptApart(record, pair) {
+    const isPair = each => (isSameName(each.name, pair.name) && isSameName(each.from, pair.from))
+        || (isSameName(each.name, pair.from) && isSameName(each.from, pair.name));
+    return record.keptApart.some(isPair) ? record : { ...record, keptApart: [...record.keptApart, pair] };
+}
+
+/**
+ * The names a counted character is kept apart from (D18): Allow again on a Same as row said the two are not one
+ * character, so the name check never matches either to the other (§4.3). From each pair the row holds one side of, by
+ * any of its names, the other side with every name of its character as StoryArc's merges make it; none from a pair
+ * the row holds both sides of, as merging the two names counts them as one.
+ *
+ * @returns {string[]} each name once, in any case
+ */
+function namesKeptApartFrom(record, row, rows) {
+    const namesOf = each => [each.name, ...(each.otherNames ?? [])];
+    const holds = (each, name) => namesOf(each).some(other => isSameName(other, name));
+    const others = record.keptApart.flatMap(({ name, from }) => (holds(row, name) === holds(row, from) ? [] : [holds(row, name) ? from : name]));
+    const apart = [];
+    for (const other of others) {
+        const owner = rows.find(each => holds(each, other));
+        for (const each of owner ? namesOf(owner) : [other]) {
+            if (!apart.some(kept => isSameName(kept, each))) apart.push(each);
+        }
+    }
+    return apart;
 }
 
 /**
@@ -437,6 +475,8 @@ export function exclusionOf(row, { characterNames = [], personaName = '', loreNa
  *   reaches the count it was written at plus Rewrite every (§5.1), and written otherwise.
  * - A locked character is never due, so no run writes or rewrites it; one deleted, not named, another name of an
  *   entry or excluded stays so.
+ * - A character Allow again kept apart from others carries their names (`keptApartFrom`, D18), which the name check
+ *   reads (§4.3), whatever its state.
  *
  * @param {Array<{name: string, otherNames: string[], eventCount: number}>} rows - From listEntities, people
  * @param {object} options
@@ -446,11 +486,13 @@ export function exclusionOf(row, { characterNames = [], personaName = '', loreNa
  * @param {object} [options.chat] - What exclusionOf reads
  * @param {Array<{uid: string|number, content: string}>} [options.bookEntries] - The entries Entity-Lore's book holds now
  * @returns {object[]} each row with its `state`, and as it applies `writeAt`, `uid`, `writtenAtEvents`, `namesChangedBy`,
- *   `sameAs` or `exclusion`
+ *   `sameAs`, `exclusion` or `keptApartFrom`
  */
 export function entityLoreStates(rows, { record, writeAt, rewriteEvery, chat = {}, bookEntries = [] }) {
     const hashByUid = new Map(bookEntries.map(entry => [String(entry.uid), entryContentHash(entry.content)]));
-    return rows.map((row) => {
+    return rows.map((counted) => {
+        const keptApartFrom = namesKeptApartFrom(record, counted, rows);
+        const row = keptApartFrom.length ? { ...counted, keptApartFrom } : counted;
         const entry = recordOfName(record, row.name);
         if (entry?.state === RECORD_STATE.deleted) return { ...row, state: ENTITY_STATE.deletedByUser };
         if (entry?.state === RECORD_STATE.notNamed) return { ...row, state: ENTITY_STATE.notNamed };

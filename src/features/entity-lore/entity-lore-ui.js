@@ -8,10 +8,10 @@
  * the line naming the chat's book; the last run's line; and the character
  * list, a page of rows, each with its event count, its state and the buttons
  * that state offers, Lock among them where Entity-Lore would write the
- * character, and why an entry is due again when its names changed, on
- * StoryArc's Entity tab or by Allow again. A button carries
- * data-entity-lore-action, and a row's its character's name and entry uid.
- * Pure: builds strings.
+ * character, the names Allow again kept it apart from, and why an entry is
+ * due again when its names changed, on StoryArc's Entity tab or by Allow
+ * again. A button carries data-entity-lore-action, and a row's its
+ * character's name and entry uid. Pure: builds strings.
  * ============================================================================
  */
 
@@ -149,6 +149,7 @@ const STATE_ACTIONS = {
 function characterRow(row) {
     const sub = [
         row.otherNames.length ? { text: 'Also known as', name: row.otherNames.join(' · ') } : null,
+        row.keptApartFrom?.length ? { text: 'Kept apart from', name: row.keptApartFrom.join(' · ') } : null,
         row.state === ENTITY_STATE.sameAs ? { text: "To count the two as one, merge their names on StoryArc's Entity tab." } : null,
         row.namesChangedBy ? { text: NAMES_CHANGED_HINTS[row.namesChangedBy] } : null,
     ].filter(Boolean);

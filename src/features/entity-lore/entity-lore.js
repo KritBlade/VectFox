@@ -10,7 +10,8 @@
  * time: an EventBase run that ends during one runs one more after it. The card
  * reads each character's state as a run reads it, the last run's outcome, and
  * what keeps Entity-Lore from running; its Allow again clears a name's record,
- * and its Lock keeps a character from every run (T3).
+ * keeping a name cleared off an entry apart from that entry's character for
+ * good (D18), and its Lock keeps a character from every run (T3).
  * Names merged on StoryArc's Entity tab make an entry written under any of them
  * the kept name's at once (D14), keyed by every name and due again (D17); a
  * name split off one comes off its keys at once, and its entry is written
@@ -207,7 +208,7 @@ async function changeChatRecord(change) {
  * Allow again (§3, §6): the open chat's record forgets a kept name, so it is counted as if new, due at Write at and
  * asked about by the next name check. A name the name check matched to an entry (Same as) also comes off that entry's
  * keys at once, in any case, with no model call, and the entry is written afresh at the next run, without that name's
- * events (D17). Refused while a run writes.
+ * events (D17); the two are kept apart, so the name check never matches them again (D18). Refused while a run writes.
  * @param {string} name - The row's kept name
  * @returns {Promise<{problem: string|null}>}
  */
@@ -220,9 +221,12 @@ async function allowAgainIn(collectionKey, name) {
     try {
         const book = await recordWithBookEntries(collectionKey);
         const allowed = withNameAllowedAgain(book?.record ?? storedRecordOf(collectionKey), name, book?.bookEntries.map(entry => entry.uid) ?? []);
-        if (allowed.unmatched) await saveKeyedWithout(book, allowed.unmatched.uid, name);
+        if (allowed.matchedEntryUid) await saveKeyedWithout(book, allowed.matchedEntryUid, name);
         setCollectionMeta(collectionKey, { entityLore: allowed.record });
-        if (allowed.unmatched) log.lifecycle(`${LOG} ${name}: allowed again, so ${allowed.unmatched.title}'s entry is keyed without it and written afresh at the next run`);
+        if (allowed.keptApartFrom) {
+            log.lifecycle(`${LOG} ${name}: allowed again and kept apart from ${allowed.keptApartFrom}`
+                + `${allowed.matchedEntryUid ? ', whose entry is keyed without it and written afresh at the next run' : ''}`);
+        }
         return { problem: null };
     } catch (error) {
         log.warn(`${LOG} ${name}: Allow again failed, so its record is as it was:`, error);
@@ -539,13 +543,15 @@ async function writeOnPanel(job, { planned, due, scope }) {
 }
 
 /**
- * The name check on every name due (§4.3): each answer read goes in the record, a same_as naming an entry already
- * written adds the name to that entry's keys, and a name with no answer read stays due. False when the check failed, so
- * no new entry is written this run.
+ * The name check on every name due (§4.3), each with the names Allow again kept it apart from (D18): each answer read
+ * goes in the record, a same_as naming an entry already written adds the name to that entry's keys, and a name with no
+ * answer read stays due. False when the check failed, so no new entry is written this run.
  * @returns {Promise<boolean>}
  */
 async function checkNames(job, due) {
-    const candidates = due.map(row => ({ name: row.name, eventCount: row.eventCount, eventLine: eventLinesOf(job, [row.name])[0] ?? '' }));
+    const candidates = due.map(row => ({
+        name: row.name, eventCount: row.eventCount, eventLine: eventLinesOf(job, [row.name])[0] ?? '', keptApartFrom: row.keptApartFrom ?? [],
+    }));
     const check = { candidates, entryTitles: writtenEntryTitles(job.record) };
     try {
         const items = parseJsonArrayFromLlm(await job.ask(nameCheckMessages(check), NAME_CHECK_REQUEST), { label: CONTEXT_LABEL, identKeys: ['name'] });
@@ -556,7 +562,9 @@ async function checkNames(job, due) {
             if (answer.answer === NAME_CHECK_ANSWER.sameAs) await keyWrittenEntry(job, answer.sameAs, answer.name);
         }
         saveRecord(job);
-        log.lifecycle(`${LOG} The name check: ${answers.map(each => `${each.name} ${each.answer}${each.sameAs ? ` ${each.sameAs}` : ''}`).join(', ')}`);
+        const answerText = each => `${each.name} ${each.answer}${each.sameAs ? ` ${each.sameAs}` : ''}`
+            + `${each.keptApartFrom ? ` (answered same_as ${each.keptApartFrom}, which it is kept apart from)` : ''}`;
+        log.lifecycle(`${LOG} The name check: ${answers.map(answerText).join(', ')}`);
         return true;
     } catch (error) {
         failCall(job, 'The name check', error);

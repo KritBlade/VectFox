@@ -75,6 +75,11 @@ describe("a character's row (§3's table)", () => {
         ]);
     });
 
+    it('shows the names Allow again kept a character apart from', () => {
+        const holder = rowOf(ENTITY_STATE.due, { keptApartFrom: ['Tamsin Vale', 'Tam'] });
+        expect([...holder.querySelectorAll('.vfx-row-sub')].map(line => line.textContent)).toEqual(['Kept apart from: Tamsin Vale · Tam']);
+    });
+
     it("says why an entry is due again when its names changed, on StoryArc's Entity tab or by Allow again", () => {
         const subsOf = extra => [...rowOf(ENTITY_STATE.rewriteDue, { uid: '3', ...extra }).querySelectorAll('.vfx-row-sub')].map(line => line.textContent);
         expect(subsOf({ namesChangedBy: NAMES_CHANGED_BY.merge })).toEqual(["Names were merged on StoryArc's Entity tab, so the next run rewrites it with every name's events."]);

@@ -3,10 +3,12 @@
  * plan §4.3, §4.4 and §5.2 of InternalProject/Vectfox/plans/entity-lore.md).
  *
  * Guards that:
- *   - the name check lists the entries already written and each candidate with its count and one event, and says what
- *     each answer means, names in the list that are one character answered as one,
+ *   - the name check lists the entries already written and each candidate with its count and one event, and under it
+ *     the names Allow again kept it apart from, and says what each answer means, names in the list that are one
+ *     character answered as one, two kept apart never same_as each other,
  *   - its answers are read by the candidate's own name in any case, each once, a same_as only when it names an entry's
- *     title or another candidate the same answer calls named, and a candidate with no answer read is left out,
+ *     title or another candidate the same answer calls named, one naming a name the candidate is kept apart from as
+ *     named, and a candidate with no answer read is left out,
  *   - the entry is asked for in five sections under their headings, from the events or the notes on them, in the
  *     story's language, and a rewrite also reads the entry as it stands and keeps what it holds,
  *   - a slice's notes are asked for with its place in the arc,
@@ -102,6 +104,32 @@ describe('the name check (§4.3)', () => {
         expect(answers).toEqual([]);
         expect(unreadItemCount).toBe(4);
         expect(readNameCheck([{ name: 'Hollis', answer: 'same_as' }], check)).toEqual({ answers: [], unreadItemCount: 1 });
+    });
+
+    it('writes under a name the names Allow again kept it apart from, and the rule for them only when one is', () => {
+        const apart = { candidates: [{ ...candidates[3], keptApartFrom: ['Captain Brannoc', 'Brannoc'] }, candidates[0]], entryTitles: ['Captain Brannoc'] };
+        const prompt = userText(nameCheckMessages(apart));
+        expect(prompt).toContain('1. Hollis: 1 event. One of them: Day 2 | Hollis sells a map\n   Not the same character as Captain Brannoc, Brannoc.\n2. Tamsin: 112 events. One of them: ');
+        expect(prompt).toContain('and same_as with that name for each of the others. Two names marked not the same character are never same_as each other.\n');
+        expect(userText(nameCheckMessages(check))).not.toContain('not the same character');
+    });
+
+    it('reads a same_as naming a name the candidate is kept apart from as named, naming it, as the user said the two are not one', () => {
+        const apart = {
+            candidates: [{ ...candidates[3], keptApartFrom: ['captain brannoc'] }, { ...candidates[2], keptApartFrom: ['Tamsin'] }, candidates[0]],
+            entryTitles: ['Captain Brannoc'],
+        };
+        const { answers, unreadItemCount } = readNameCheck([
+            { name: 'Hollis', answer: 'same_as', same_as: 'Captain Brannoc' },
+            { name: 'Tamsin Vale', answer: 'same_as', same_as: 'Tamsin' },
+            { name: 'Tamsin', answer: 'named' },
+        ], apart);
+        expect(answers).toEqual([
+            { name: 'Hollis', answer: NAME_CHECK_ANSWER.named, keptApartFrom: 'Captain Brannoc' },
+            { name: 'Tamsin Vale', answer: NAME_CHECK_ANSWER.named, keptApartFrom: 'Tamsin' },
+            { name: 'Tamsin', answer: NAME_CHECK_ANSWER.named },
+        ]);
+        expect(unreadItemCount).toBe(0);
     });
 
     it('reads an answer that is no list as no answers', () => {

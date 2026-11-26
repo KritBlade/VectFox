@@ -11,6 +11,9 @@
  *     to the kept name with the names matched to it, and due again; another name's entry is named; a name split off one
  *     makes the kept name's entry due again, written afresh, which a later merge leaves so, unless the name check
  *     matched the name to it; Allow again on a name the name check matched does so to the entry it was matched to,
+ *     and keeps the two apart, each pair once,
+ *   - a character kept apart from others names them, on both sides and with every merged name, whatever its state,
+ *     but none once the two are merged,
  *   - an entry's hash ignores line endings and the ends of its text, so SillyTavern's own save is not the user's edit,
  *   - a character is excluded by any of its names, in any case: the chat's character, the persona, another lorebook's
  *     entry, or the card's description,
@@ -60,15 +63,19 @@ describe('the settings', () => {
 });
 
 describe('the record', () => {
-    it('reads back only the book name, the entries and the locked names it can use', () => {
-        expect(emptyRecord()).toEqual({ bookName: '', entries: {}, lockedNames: [] });
-        expect(readEntityLoreRecord({ bookName: 7, entries: [], lockedNames: 'Mira' })).toEqual({ bookName: '', entries: {}, lockedNames: [] });
+    it('reads back only the book name, the entries, the locked names and the names kept apart it can use', () => {
+        expect(emptyRecord()).toEqual({ bookName: '', entries: {}, lockedNames: [], keptApart: [] });
+        expect(readEntityLoreRecord({ bookName: 7, entries: [], lockedNames: 'Mira', keptApart: {} }))
+            .toEqual({ bookName: '', entries: {}, lockedNames: [], keptApart: [] });
         const stored = {
             bookName: 'VectFox NPCs - Harbor',
             entries: { Mira: { state: 'written', uid: '4', writtenAtEvents: 12, contentHash: '9' }, Corin: { state: 'lost' }, Tess: 'written' },
             lockedNames: ['Corin', ' ', 7, 'Bram'],
+            keptApart: [{ name: 'Corrie', from: 'Corin', note: 'x' }, { name: 'Bram' }, 'Tess', { name: ' ', from: 'Mira' }, null],
         };
-        expect(readEntityLoreRecord(stored)).toEqual({ bookName: 'VectFox NPCs - Harbor', entries: { Mira: stored.entries.Mira }, lockedNames: ['Corin', 'Bram'] });
+        expect(readEntityLoreRecord(stored)).toEqual({
+            bookName: 'VectFox NPCs - Harbor', entries: { Mira: stored.entries.Mira }, lockedNames: ['Corin', 'Bram'], keptApart: [{ name: 'Corrie', from: 'Corin' }],
+        });
         expect(readEntityLoreRecord(stored).entries.Mira).not.toBe(stored.entries.Mira);
     });
 
@@ -89,7 +96,8 @@ describe('the record', () => {
 
     it('forgets a kept name in any case on Allow again', () => {
         const record = withNameCheckAnswer(withNameCheckAnswer(emptyRecord(), 'Bram', { state: RECORD_STATE.notNamed }), 'Tess', { state: RECORD_STATE.notNamed });
-        expect(withNameAllowedAgain(record, 'BRAM', [])).toEqual({ record: { ...record, entries: { Tess: { state: 'not_named' } } }, unmatched: null });
+        expect(withNameAllowedAgain(record, 'BRAM', []))
+            .toEqual({ record: { ...record, entries: { Tess: { state: 'not_named' } } }, keptApartFrom: null, matchedEntryUid: null });
     });
 
     it('marks deleted only the written entries whose uid the book no longer holds', () => {
@@ -214,6 +222,15 @@ describe('entityLoreStates', () => {
         const rewritten = withWrittenEntry(record, 'Mira', { uid: 0, writtenAtEvents: 13, content: 'Mira again' });
         expect(entityLoreStates([row('Mira', 13)], { record: rewritten, ...options, bookEntries: [{ uid: 0, content: 'Mira again' }] })[0].state)
             .toBe(ENTITY_STATE.written);
+    });
+
+    it('names the characters Allow again kept a row apart from, on both sides and with every merged name, whatever its state, but none once the two are merged (D18)', () => {
+        const rows = [row('Corin', 30, ['Corin Vale']), row('corrie', 12), row('Tess', 12)];
+        const record = withCharacterLocked({ ...emptyRecord(), keptApart: [{ name: 'Corrie', from: 'Corin' }] }, rows[0], true);
+        expect(entityLoreStates(rows, { record, ...options }).map(({ name, state, keptApartFrom = [] }) => [name, state, keptApartFrom])).toEqual([
+            ['Corin', ENTITY_STATE.locked, ['corrie']], ['corrie', ENTITY_STATE.due, ['Corin', 'Corin Vale']], ['Tess', ENTITY_STATE.due, []],
+        ]);
+        expect(entityLoreStates([row('Corin', 30, ['Corrie'])], { record, ...options })[0]).not.toHaveProperty('keptApartFrom');
     });
 
     it('gives the same states for the same names and counts, and keeps each row as it was', () => {
@@ -341,6 +358,7 @@ describe("names merged or split on StoryArc's Entity tab, and a matched name all
                     Tamsin: { ...recordOfName(record, 'Marrow'), namesChangedBy: NAMES_CHANGED_BY.merge },
                 },
                 lockedNames: [],
+                keptApart: [],
             },
             uid: '4', movedFrom: 'Marrow', alsoWritten: [],
         });
@@ -375,16 +393,20 @@ describe("names merged or split on StoryArc's Entity tab, and a matched name all
         expect(withSplitName(matched, { keptName: 'Tamsin', splitName: 'Marrow' }, [2])).toBeNull();
     });
 
-    it('marks the entry a name was matched to, to be written afresh, once Allow again forgets the name, which a later merge leaves so', () => {
+    it('keeps a name the name check matched apart from its entry once Allow again forgets it, and marks the entry to be written afresh, which a later merge leaves so', () => {
         const record = withNameCheckAnswer(written(emptyRecord(), 'Tamsin', 2), 'Marrow', { state: RECORD_STATE.sameAs, sameAs: 'tamsin' });
         const allowed = withNameAllowedAgain(record, 'MARROW', [2]);
         expect(allowed).toEqual({
-            record: { ...record, entries: { Tamsin: { ...record.entries.Tamsin, namesChangedBy: NAMES_CHANGED_BY.allowAgain } } },
-            unmatched: { title: 'Tamsin', uid: '2' },
+            record: { ...record, entries: { Tamsin: { ...record.entries.Tamsin, namesChangedBy: NAMES_CHANGED_BY.allowAgain } }, keptApart: [{ name: 'MARROW', from: 'Tamsin' }] },
+            keptApartFrom: 'Tamsin', matchedEntryUid: '2',
         });
         const mergedAgain = withMergedEntry(allowed.record, { keptName: 'Tamsin', otherNames: ['Corin'] }, [2]);
         expect(recordOfName(mergedAgain.record, 'Tamsin').namesChangedBy).toBe(NAMES_CHANGED_BY.allowAgain);
-        expect(withNameAllowedAgain(record, 'Marrow', [])).toEqual({ record: { ...record, entries: { Tamsin: record.entries.Tamsin } }, unmatched: null });
+        expect(withNameAllowedAgain(record, 'Marrow', [])).toEqual({
+            record: { ...record, entries: { Tamsin: record.entries.Tamsin }, keptApart: [{ name: 'Marrow', from: 'tamsin' }] }, keptApartFrom: 'tamsin', matchedEntryUid: null,
+        });
+        const matchedAgain = withNameCheckAnswer(allowed.record, 'Marrow', { state: RECORD_STATE.sameAs, sameAs: 'Tamsin' });
+        expect(withNameAllowedAgain(matchedAgain, 'marrow', [2]).record.keptApart).toEqual([{ name: 'MARROW', from: 'Tamsin' }]);
         expect([NAMES_CHANGED_BY.merge, NAMES_CHANGED_BY.split, NAMES_CHANGED_BY.allowAgain, undefined].map(isWrittenAfreshAfter)).toEqual([false, true, true, false]);
     });
 });

@@ -7,7 +7,8 @@
  *
  * - the name check: one call for every candidate of a run, which says of each
  *   name whether it is a named character, not one, or another name of a
- *   character that has an entry or is another candidate of the same check;
+ *   character that has an entry or is another candidate of the same check,
+ *   never of one Allow again kept it apart from;
  * - the entry: one call per character, written new or again (a rewrite reads
  *   the entry as it stands), from the character's events or from the notes on
  *   them, in five sections under bracket headings, which LoreBase's splitter
@@ -55,20 +56,23 @@ const TIME_RULE = 'Give a time as an event\'s "when" gives it. Never write an ev
 
 /**
  * The name check's messages: the titles of the entries Entity-Lore wrote in this book, then each candidate with how
- * many events name it and one of those events, then what each answer means. Names in the list that are one character
- * are answered as one: named for the name with the most events, same_as it for the others, so only that name gets an
- * entry.
+ * many events name it and one of those events, and under it the names Allow again kept it apart from (D18), then what
+ * each answer means. Names in the list that are one character are answered as one: named for the name with the most
+ * events, same_as it for the others, so only that name gets an entry. Two names kept apart are never same_as each other.
  *
- * @param {{candidates: Array<{name: string, eventCount: number, eventLine: string}>, entryTitles: string[]}} check -
- *   candidates in the run's order, each with one event naming it as its line reads; entryTitles may be empty
+ * @param {{candidates: Array<{name: string, eventCount: number, eventLine: string, keptApartFrom?: string[]}>,
+ *   entryTitles: string[]}} check - candidates in the run's order, each with one event naming it as its line reads;
+ *   entryTitles may be empty
  * @returns {Array<{role: string, content: string}>}
  */
 export function nameCheckMessages({ candidates, entryTitles }) {
     const titles = entryTitles.length
         ? `Entries already written for this story, by title:\n${entryTitles.map(title => `- ${title}`).join('\n')}`
         : 'Entries already written for this story: none.';
-    const names = candidates.map(({ name, eventCount, eventLine }, index) => `${index + 1}. ${name}: ${eventCount} ${eventCount === 1 ? 'event' : 'events'}. `
-        + `One of them: ${oneLine(eventLine)}`).join('\n');
+    const apartLine = keptApartFrom => (keptApartFrom.length ? `\n   Not the same character as ${keptApartFrom.join(', ')}.` : '');
+    const names = candidates.map(({ name, eventCount, eventLine, keptApartFrom = [] }, index) => `${index + 1}. ${name}: ${eventCount} `
+        + `${eventCount === 1 ? 'event' : 'events'}. One of them: ${oneLine(eventLine)}${apartLine(keptApartFrom)}`).join('\n');
+    const isAnyKeptApart = candidates.some(candidate => candidate.keptApartFrom?.length);
     const prompt = [
         titles,
         '',
@@ -80,7 +84,8 @@ export function nameCheckMessages({ candidates, entryTitles }) {
             + 'the old man, the protagonist), a group (the guards, the villagers), or a pronoun.',
         '- same_as: another name of a character who already has an entry, or of a character another name in this list names. '
             + 'Give that entry\'s title, or that name, exactly as written above. When names in this list are one character, '
-            + 'answer named for the one with the most events, and same_as with that name for each of the others.',
+            + 'answer named for the one with the most events, and same_as with that name for each of the others.'
+            + (isAnyKeptApart ? ' Two names marked not the same character are never same_as each other.' : ''),
         'Answer each name once, writing it exactly as written above.',
         'Return {"names": [{"name": "...", "answer": "named" | "not_named" | "same_as", "same_as": "<title or name>"}, ...]}',
     ].join('\n');
@@ -93,12 +98,14 @@ const textOf = value => (typeof value === 'string' ? value.trim() : '');
  * The name check's answers, in the candidates' order. An item is read when it names a candidate, in any case, not
  * answered before, with one of the three answers; a same_as when it names an entry's title, or another candidate the
  * same answer calls named, so same_as never chains or points at itself, and names that title or that candidate as
- * written in the list. A candidate with no answer read stays due for the next run.
+ * written in the list. A same_as naming a name the candidate is kept apart from (D18) reads as named, as the user said
+ * the two are not one character, `keptApartFrom` naming it. A candidate with no answer read stays due for the next run.
  *
  * @param {unknown[]} items - The answer's records, as parseJsonArrayFromLlm reads them with `name` marking a record
- * @param {{candidates: Array<{name: string}>, entryTitles: string[]}} check - What nameCheckMessages asked
- * @returns {{answers: Array<{name: string, answer: string, sameAs?: string}>, unreadItemCount: number}} Each answer's
- *   name as the candidate's own
+ * @param {{candidates: Array<{name: string, keptApartFrom?: string[]}>, entryTitles: string[]}} check - What
+ *   nameCheckMessages asked
+ * @returns {{answers: Array<{name: string, answer: string, sameAs?: string, keptApartFrom?: string}>,
+ *   unreadItemCount: number}} Each answer's name as the candidate's own
  */
 export function readNameCheck(items, { candidates, entryTitles }) {
     const candidateOf = name => candidates.find(candidate => isSameName(candidate.name, name));
@@ -125,8 +132,10 @@ export function readNameCheck(items, { candidates, entryTitles }) {
         const title = entryTitles.find(each => isSameName(each, found.sameAs));
         const other = candidateOf(found.sameAs);
         const sameAs = title ?? (other && other !== candidate && isNamed(other) ? other.name : '');
-        if (sameAs) answers.push({ name: candidate.name, answer: NAME_CHECK_ANSWER.sameAs, sameAs });
-        else unreadItemCount += 1;
+        const isKeptApart = (candidate.keptApartFrom ?? []).some(name => isSameName(name, sameAs));
+        if (!sameAs) unreadItemCount += 1;
+        else if (isKeptApart) answers.push({ name: candidate.name, answer: NAME_CHECK_ANSWER.named, keptApartFrom: sameAs });
+        else answers.push({ name: candidate.name, answer: NAME_CHECK_ANSWER.sameAs, sameAs });
     }
     return { answers, unreadItemCount };
 }

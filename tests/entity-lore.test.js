@@ -25,9 +25,10 @@
  *   - names merged on StoryArc's Entity tab make an entry written under any of them the kept name's at once, keyed by
  *     every name and due again, rewritten from the entry as it stands; a name split off one comes off its keys at once,
  *     and its entry is written afresh from the events of the names it keeps, as is the entry a name the name check
- *     matched was matched to, once Allow again forgets that name; each with no model call and whatever is switched off,
- *     after a run under way ends, in order; a split changes nothing for a name the name check matched; a failed Allow
- *     again says why,
+ *     matched was matched to, once Allow again forgets that name, which is then kept apart from that entry's
+ *     character: the name check is told, and reads a same_as between them as named; each with no model call and
+ *     whatever is switched off, after a run under way ends, in order; a split changes nothing for a name the name check
+ *     matched; a failed Allow again says why,
  *   - the changes to the record made outside a run go one at a time, Lock's too, and a run reads the record once they
  *     are made.
  *
@@ -250,6 +251,7 @@ describe('a run (§4.2 to §4.6)', () => {
                 Tamsin: { state: 'written', uid: '0', writtenAtEvents: 12, contentHash: entryContentHash(entryAbout('Tamsin')) },
             },
             lockedNames: [],
+            keptApart: [],
         });
         expect(writeMissing).toHaveBeenCalledWith(host.settings, ['keys', 'vectors'], { bookNames: [BOOK] });
         expect(progressTracker.show).toHaveBeenCalledWith('Entity-Lore', 4, 'Entries', { unitLabel: 'Entries' });
@@ -550,7 +552,7 @@ describe("names merged or split on StoryArc's Entity tab, and a matched name all
         onEntityNamesMerged(MERGE);
         await settle();
         expect(host.books[BOOK].entries[0]).toEqual({ uid: 0, comment: 'Tamsin', key: ['Tamsin', 'Marrow', 'the ferry witch'], content: entryAbout('Marrow') });
-        expect(record()).toEqual({ bookName: BOOK, entries: { Tamsin: { ...writtenAs('Marrow', 0), namesChangedBy: 'merge' } }, lockedNames: [] });
+        expect(record()).toEqual({ bookName: BOOK, entries: { Tamsin: { ...writtenAs('Marrow', 0), namesChangedBy: 'merge' } }, lockedNames: [], keptApart: [] });
         expect(host.ask).not.toHaveBeenCalled();
 
         host.events = [...eventsNaming('Tamsin', 6), ...eventsNaming('Marrow', 8)];
@@ -587,7 +589,7 @@ describe("names merged or split on StoryArc's Entity tab, and a matched name all
             0: { uid: 0, comment: 'Tamsin', key: ['Tamsin', 'Marrow'], content: entryAbout('Tamsin') },
             1: { uid: 1, comment: 'Marrow', key: ['Marrow'], content: entryAbout('Marrow') },
         });
-        expect(record()).toEqual({ ...entityLore, entries: { ...entityLore.entries, Tamsin: { ...writtenAs('Tamsin', 0), namesChangedBy: 'merge' } }, lockedNames: [] });
+        expect(record()).toEqual({ ...entityLore, entries: { ...entityLore.entries, Tamsin: { ...writtenAs('Tamsin', 0), namesChangedBy: 'merge' } }, lockedNames: [], keptApart: [] });
         expect(globalThis.toastr.warning).toHaveBeenCalledWith(
             `Marrow also has an entry in "${BOOK}". Entity-Lore keeps writing Tamsin's; delete the other in World Info if it says the same.`, 'VectFox Entity-Lore');
         vi.unstubAllGlobals();
@@ -654,6 +656,24 @@ describe("names merged or split on StoryArc's Entity tab, and a matched name all
         expect(host.books[BOOK].entries[0].key).toEqual(['Tamsin', 'Marrow']);
         expect(record()).toEqual(entityLore);
         expect(saveLorebookEntry).not.toHaveBeenCalled();
+    });
+
+    it("keep a name allowed again apart from its entry's character: the name check is told, and a same_as to it anyway reads as named", async () => {
+        bookOf([{ uid: 0, comment: 'Tamsin', key: ['Tamsin', 'Marrow'], content: entryAbout('Tamsin') }]);
+        host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: BOOK, entries: { Tamsin: writtenAs('Tamsin', 0), Marrow: { state: 'same_as', sameAs: 'Tamsin' } } } };
+        host.events = [...eventsNaming('Tamsin', 14), ...eventsNaming('Marrow', 12)];
+        expect(await allowEntityLoreAgain('Marrow')).toEqual({ problem: null });
+        expect(record().keptApart).toEqual([{ name: 'Marrow', from: 'Tamsin' }]);
+        expect((await readEntityLoreCharacters()).states.map(({ name, keptApartFrom }) => [name, keptApartFrom])).toEqual([['Tamsin', ['Marrow']], ['Marrow', ['Tamsin']]]);
+
+        host.ask = answering({ Marrow: { answer: 'same_as', same_as: 'Tamsin' } });
+        await runAfterEventBase();
+        const check = host.ask.mock.calls.find(([messages]) => isCheck(messages))[0][1].content;
+        expect(check).toContain('1. Marrow: 12 events. One of them: ');
+        expect(check).toContain('\n   Not the same character as Tamsin.\n');
+        expect(record().entries.Marrow).toMatchObject({ state: 'written', uid: '1' });
+        expect(host.books[BOOK].entries[0].key).toEqual(['Tamsin']);
+        expect(saveLorebookEntry).toHaveBeenCalledTimes(1);
     });
 
     it('say why Allow again failed, the record and the keys as they were', async () => {
