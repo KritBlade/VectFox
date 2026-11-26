@@ -151,7 +151,7 @@ describe('the entry (§4.4, §5.2)', () => {
         expect(prompt).toContain('so it must hold who Tamsin is, not a summary of the story: what stays true about them, and the turning points that made them who they are.');
         expect(prompt).toContain('\n[Background]: their past and where they come from: what happened to them before the story, and why, as the latest events tell it, in a few sentences; not a retelling of the story.\n');
         expect(prompt).toContain('- The events run in story order, and a later one can correct an earlier one: a secret comes out, or the reason behind something proves to be another. Write each section as the latest ones tell it, not as the account they correct.');
-        expect(prompt).toContain("- [Key events] holds the turning points that changed Tamsin or the story most, picked from the story's start to now: one event per line, never two in one line. Leave the smaller events out.");
+        expect(prompt).toContain("- [Key events] holds the turning points that changed Tamsin or the story most, picked from the story's start to now: one event per line, never two in one line, even two with the same time. Leave the smaller events out.");
         const at = headings.map(heading => prompt.indexOf(`\n${heading}: `));
         expect(at.every(index => index > 0)).toBe(true);
         expect([...at].sort((a, b) => a - b)).toEqual(at);

@@ -184,7 +184,7 @@ export function entryMessages({ name, otherNames = [], storyText, isFromNotes = 
         `- The ${isFromNotes ? 'notes' : 'events'} run in story order, and a later one can correct an earlier one: a secret comes out, or the reason behind something `
             + 'proves to be another. Write each section as the latest ones tell it, not as the account they correct.',
         `- [Key events] holds the turning points that changed ${name} or the story most, picked from the story's start to now: one event per line, `
-            + 'never two in one line. Leave the smaller events out.',
+            + 'never two in one line, even two with the same time. Leave the smaller events out.',
         '- Use every name exactly as the events write it.',
         `- ${TIME_RULE}`,
         `- ${languageRule(languageName)} Keep the headings in English, as written.`,
