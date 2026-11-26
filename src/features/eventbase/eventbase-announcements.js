@@ -1,24 +1,27 @@
 /**
- * What EventBase tells the listeners src/index.js sets at start-up, the public API's, which send each on as a
- * `vectfox_eventbase_*` event: a run that ended, finished, stopped or failed; events removed from a collection; and
- * the collection the open chat uses, when that changes (followCollectionInUse in eventbase-chat-collections.js). A
- * whole collection purged is told by the vector backend's own listener (setPurgedCollectionListener). A listener that
- * throws is logged and never fails the work it hears of.
+ * What EventBase tells the listeners src/index.js sets at start-up: a run that ended, finished, stopped or failed;
+ * events removed from a collection; and the collection the open chat uses, when that changes (followCollectionInUse
+ * in eventbase-chat-collections.js), which the public API sends on as `vectfox_eventbase_*` events, Entity-Lore hearing
+ * of each run too; and names StoryArc's Entity tab merged into one entity, which Entity-Lore hears alone. A whole
+ * collection purged is told by the vector backend's own listener (setPurgedCollectionListener). A listener that throws
+ * is logged and never fails the work it hears of.
  */
 import { log } from '../../sillytavern/log.js';
 
-/** @type {{onRunEnded: Function|null, onEventsRemoved: Function|null, onCollectionInUseChanged: Function|null}} */
-const listeners = { onRunEnded: null, onEventsRemoved: null, onCollectionInUseChanged: null };
+/** @type {{onRunEnded: Function|null, onEventsRemoved: Function|null, onCollectionInUseChanged: Function|null, onEntityNamesMerged: Function|null}} */
+const listeners = { onRunEnded: null, onEventsRemoved: null, onCollectionInUseChanged: null, onEntityNamesMerged: null };
 
 /**
- * Sets the listeners told of EventBase's runs, removals and collection in use. One left out hears nothing.
+ * Sets the listeners told of EventBase's runs, removals and collection in use, and of StoryArc's merged names. One left
+ * out hears nothing.
  * @param {object} set
  * @param {(run: {collectionId: string, eventsAdded: number, windowsProcessed: number}) => void} [set.onRunEnded]
  * @param {(collectionId: string, eventIds: string[]|null) => void} [set.onEventsRemoved]
  * @param {(inUse: {chatId: string|null, collectionId: string|null}) => void} [set.onCollectionInUseChanged]
+ * @param {(merge: {collectionKey: string, keptName: string, otherNames: string[]}) => void} [set.onEntityNamesMerged]
  */
-export function setEventBaseListeners({ onRunEnded = null, onEventsRemoved = null, onCollectionInUseChanged = null } = {}) {
-    Object.assign(listeners, { onRunEnded, onEventsRemoved, onCollectionInUseChanged });
+export function setEventBaseListeners({ onRunEnded = null, onEventsRemoved = null, onCollectionInUseChanged = null, onEntityNamesMerged = null } = {}) {
+    Object.assign(listeners, { onRunEnded, onEventsRemoved, onCollectionInUseChanged, onEntityNamesMerged });
 }
 
 /**
@@ -63,4 +66,13 @@ export function announceEventsRemoved(collectionId, eventIds) {
  */
 export function announceCollectionInUseChanged(inUse) {
     tell('onCollectionInUseChanged', inUse);
+}
+
+/**
+ * StoryArc's Entity tab merged names into one entity, saved in the collection's metadata.
+ * @param {{collectionKey: string, keptName: string, otherNames: string[]}} merge - collectionKey: the collection's
+ *   registry key; keptName: the name the entity goes by; otherNames: every other name of it now
+ */
+export function announceEntityNamesMerged(merge) {
+    tell('onEntityNamesMerged', merge);
 }

@@ -6,6 +6,8 @@
  *   - the switch is off unless turned on, and Write at and Rewrite every read as whole numbers in their ranges,
  *   - the record reads back only what it can use, finds a kept name in any case, and each change gives a new record,
  *   - a missing book starts the record over: its written entries are due again, the user's and the name check's answers kept,
+ *   - names merged into one entity make its entry the kept name's, or else the first other name's the book holds, moved
+ *     to the kept name with the names matched to it; another name's entry is named,
  *   - an entry's hash ignores line endings and the ends of its text, so SillyTavern's own save is not the user's edit,
  *   - a character is excluded by any of its names, in any case: the chat's character, the persona, another lorebook's
  *     entry, or the card's description,
@@ -16,6 +18,7 @@
  *   - a run writes new entries before rewrites, most events first, at most its limit; a row's button writes its own
  *     character's entry, new or again, an edited one only as accepted,
  *   - an entry's keys are its names, then the keys it already had, each once in any case,
+ *   - an event as an entry's call reads it has one time: its DateTime to the minute, or else its scene_time,
  *   - a character's events are cut into slices that fit, oldest first.
  *
  * Names are made up and match no story.
@@ -27,7 +30,7 @@ import {
     REWRITE_EVERY_EVENTS, WRITE_AT_EVENTS, dueCounts, entityLoreBlocker, entityLoreStates, entriesForName, entriesForRun, entryContentHash,
     entryKeysOf, exclusionOf, isEntityLoreOn,
     readEntityLoreRecord, recordOfName, rewriteEveryEventsOf, sliceEventLines, withBookName, withBookStartedOver, withEntryForgotten,
-    withMissingEntriesDeleted, withNameCheckAnswer, withWrittenEntry, writeAtEventsOf,
+    withMergedEntry, withMissingEntriesDeleted, withNameCheckAnswer, withOneEventTime, withWrittenEntry, writeAtEventsOf,
 } from '../src/features/entity-lore/entity-lore-core.js';
 
 const row = (name, eventCount, otherNames = []) => ({ name, otherNames, eventCount });
@@ -258,6 +261,46 @@ describe('entryKeysOf', () => {
         expect(entryKeysOf(row('Mira', 12, ['Mirabel', 'mira']))).toEqual(['Mira', 'Mirabel']);
         expect(entryKeysOf(row('Mira', 12, ['Mirabel']), ['mirabel', 'the lighthouse girl', ' ', 'Corrie', 'MIRA']))
             .toEqual(['Mira', 'Mirabel', 'the lighthouse girl', 'Corrie']);
+    });
+});
+
+describe('withMergedEntry (D14)', () => {
+    const written = (record, name, uid) => withWrittenEntry(record, name, { uid, writtenAtEvents: 12, content: `${name} keeps the ferry.` });
+
+    it("moves an entry written under a merged name to the kept name, with the names matched to it", () => {
+        let record = written(emptyRecord(), 'Marrow', 4);
+        record = withNameCheckAnswer(withNameCheckAnswer(record, 'the ferry witch', { state: RECORD_STATE.sameAs, sameAs: 'Marrow' }), 'Tamsin', { state: RECORD_STATE.notNamed });
+        const merged = withMergedEntry(record, { keptName: 'Tamsin', otherNames: ['Marrow'] }, [4, 7]);
+        expect(merged).toEqual({
+            record: {
+                bookName: '',
+                entries: {
+                    'the ferry witch': { state: RECORD_STATE.sameAs, sameAs: 'Tamsin' },
+                    Tamsin: { ...recordOfName(record, 'Marrow') },
+                },
+            },
+            uid: '4', movedFrom: 'Marrow', alsoWritten: [],
+        });
+        expect(recordOfName(record, 'Marrow').state).toBe(RECORD_STATE.written);
+    });
+
+    it("keeps the kept name's own entry and names another name's, and finds none the book no longer holds", () => {
+        const record = written(written(emptyRecord(), 'Tamsin', 2), 'marrow', 4);
+        expect(withMergedEntry(record, { keptName: 'Tamsin', otherNames: ['Marrow'] }, [2, 4])).toEqual({ record, uid: '2', movedFrom: null, alsoWritten: ['Marrow'] });
+        expect(withMergedEntry(record, { keptName: 'Tamsin', otherNames: ['Marrow'] }, [4]).movedFrom).toBe('Marrow');
+        expect(withMergedEntry(record, { keptName: 'Tamsin', otherNames: ['Marrow'] }, [])).toBeNull();
+        expect(withMergedEntry(withNameCheckAnswer(emptyRecord(), 'Marrow', { state: RECORD_STATE.notNamed }), { keptName: 'Tamsin', otherNames: ['Marrow'] }, [4])).toBeNull();
+    });
+});
+
+describe('withOneEventTime', () => {
+    it("gives an event one time: its DateTime to the minute, or its scene_time where it has none, the event given left as it was", () => {
+        const event = { text: 'Tamsin signs the ledger.', DateTime: '2026-04-08T18:58:00.000Z', scene_time: 'April 8th, six to seven' };
+        expect(withOneEventTime(event)).toEqual({ ...event, DateTime: '2026-04-08 18:58', scene_time: '' });
+        expect(event.DateTime).toBe('2026-04-08T18:58:00.000Z');
+        const ownCalendar = { text: 'The tide turns.', DateTime: null, scene_time: 'Day 3 of the Long Tide, dusk' };
+        expect(withOneEventTime(ownCalendar)).toBe(ownCalendar);
+        expect(withOneEventTime({ DateTime: '0947-11-02T06:05:00.000Z' }).DateTime).toBe('0947-11-02 06:05');
     });
 });
 

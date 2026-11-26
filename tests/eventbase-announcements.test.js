@@ -7,7 +7,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../src/sillytavern/log.js', () => ({ log: { warn: vi.fn(), error: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn() } }));
 
-const { announceCollectionInUseChanged, announceEventsRemoved, announceRunEnded, setEventBaseListeners } = await import('../src/features/eventbase/eventbase-announcements.js');
+const {
+    announceCollectionInUseChanged, announceEntityNamesMerged, announceEventsRemoved, announceRunEnded, setEventBaseListeners,
+} = await import('../src/features/eventbase/eventbase-announcements.js');
 const { log } = await import('../src/sillytavern/log.js');
 
 const HARBOR_EVENTS = 'vf_eventbase_qdrant_wren_harbor_aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
@@ -19,22 +21,25 @@ afterEach(() => {
 
 describe("EventBase's announcements", () => {
     it('tells each listener its own kind only', () => {
-        const heard = { runs: [], removals: [], inUse: [] };
+        const heard = { runs: [], removals: [], inUse: [], merges: [] };
         setEventBaseListeners({
             onRunEnded: run => heard.runs.push(run),
             onEventsRemoved: (collectionId, eventIds) => heard.removals.push([collectionId, eventIds]),
             onCollectionInUseChanged: inUse => heard.inUse.push(inUse),
+            onEntityNamesMerged: merge => heard.merges.push(merge),
         });
 
         announceRunEnded({ collectionId: HARBOR_EVENTS, eventsAdded: 3, windowsProcessed: 2 });
         announceEventsRemoved(HARBOR_EVENTS, ['evt-gate']);
         announceEventsRemoved(HARBOR_EVENTS, null);
         announceCollectionInUseChanged({ chatId: null, collectionId: null });
+        announceEntityNamesMerged({ collectionKey: `qdrant:${HARBOR_EVENTS}`, keptName: 'Mara', otherNames: ['Marigold'] });
 
         expect(heard).toEqual({
             runs: [{ collectionId: HARBOR_EVENTS, eventsAdded: 3, windowsProcessed: 2 }],
             removals: [[HARBOR_EVENTS, ['evt-gate']], [HARBOR_EVENTS, null]],
             inUse: [{ chatId: null, collectionId: null }],
+            merges: [{ collectionKey: `qdrant:${HARBOR_EVENTS}`, keptName: 'Mara', otherNames: ['Marigold'] }],
         });
     });
 

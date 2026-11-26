@@ -9,9 +9,11 @@
  * each counted character stands, which the Entity-Lore tab's rows and a run
  * both read, so the two never disagree; the entries a run writes, and the one a
  * row's button writes; an entry's keys; the record kept in the
- * collection's metadata; the cut of a character's events into slices one
- * call can read; and what a run names: its book, the titles it wrote, the names
- * matched to an entry, Run now's question and the run's outcome.
+ * collection's metadata, and what a merge of names on StoryArc's Entity tab
+ * makes of it; an event with one time, as an entry's call reads it; the cut of
+ * a character's events into slices one call can read; and what a run names:
+ * its book, the titles it wrote, the names matched to an entry, Run now's
+ * question and the run's outcome.
  *
  * Pure: no host or feature imports. What another feature knows, such as
  * whether the card's description holds a name or how many tokens a text is,
@@ -239,6 +241,36 @@ export function withMissingEntriesDeleted(record, bookUids) {
 }
 
 /**
+ * The record after StoryArc's Entity tab merged names into one entity (D14): the entity's entry is the kept name's, or
+ * else the first of its other names', written and held by the book still; one written under another name moves to the
+ * kept name, and the names the name check matched to it follow it. Null when none of the names has one. Another name's
+ * entry stays as it is, `alsoWritten` naming it.
+ *
+ * @param {object} record
+ * @param {{keptName: string, otherNames: string[]}} merge - The merged entity's names, as StoryArc keeps them
+ * @param {Array<string|number>} bookUids - The uids of the entries the book holds now
+ * @returns {{record: object, uid: string, movedFrom: string|null, alsoWritten: string[]}|null} record: a new record when
+ *   the entry moved; movedFrom: the name it was written under, null when it was the kept name's
+ */
+export function withMergedEntry(record, { keptName, otherNames }, bookUids) {
+    const held = new Set(bookUids.map(String));
+    const heldEntryOf = (name) => {
+        const entry = recordOfName(record, name);
+        return entry?.state === RECORD_STATE.written && held.has(String(entry.uid)) ? entry : null;
+    };
+    const [chosen, ...alsoWritten] = [keptName, ...otherNames].filter(heldEntryOf);
+    if (chosen === undefined) return null;
+    const entry = heldEntryOf(chosen);
+    if (isSameName(chosen, keptName)) return { record, uid: entry.uid, movedFrom: null, alsoWritten };
+    const moved = withEntry(withEntryForgotten(record, chosen), keptName, entry);
+    const entries = Object.fromEntries(Object.entries(moved.entries).map(([name, each]) => [
+        name,
+        each.state === RECORD_STATE.sameAs && isSameName(each.sameAs ?? '', chosen) ? { ...each, sameAs: keptName } : each,
+    ]));
+    return { record: { ...moved, entries }, uid: entry.uid, movedFrom: chosen, alsoWritten };
+}
+
+/**
  * The record starting over after its book went missing, as when the user deleted it (§6): it names no book, so the
  * next entry makes one, and its written entries are forgotten, so each is due again. What the user and the name check
  * decided about a name stays: deleted, not a named character, and another name of an entry.
@@ -387,6 +419,23 @@ export function entryKeysOf(row, currentKeys = []) {
 }
 
 // ---------------------------------------------------------------------------- The input cut (§4.4)
+
+// A DateTime as EventBase stores it, ISO 8601 from toISOString: its date, and its hour and minute.
+const STORED_DATE_TIME = /^([+-]?\d{4,6}-\d{2}-\d{2})T(\d{2}:\d{2})/u;
+
+/**
+ * An event as an entry's call reads it (§4.4): with one time, so the entries of a chat give their times one way. Its
+ * DateTime, ISO 8601 in every chat, as "2026-04-08 18:58"; its scene_time, as the story wrote it, only where it has no
+ * DateTime, as on a calendar of the story's own. The event given stays as it is.
+ *
+ * @param {object} event - A stored event
+ * @returns {object}
+ */
+export function withOneEventTime(event) {
+    if (!event.DateTime) return event;
+    const parts = STORED_DATE_TIME.exec(String(event.DateTime));
+    return { ...event, DateTime: parts ? `${parts[1]} ${parts[2]}` : event.DateTime, scene_time: '' };
+}
 
 /**
  * A character's events, one line each and oldest first, cut into the slices a call reads: one slice while they fit in

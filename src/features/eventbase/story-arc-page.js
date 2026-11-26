@@ -13,6 +13,7 @@
 
 import { log } from '../../sillytavern/log.js';
 import { notice } from '../../shared/gui-dna/gui-dna-core.js';
+import { announceEntityNamesMerged } from './eventbase-announcements.js';
 import { readEntityMerges, readHiddenEntityNames, saveEntityMerges, saveHiddenEntityNames } from './story-arc-entities.js';
 import { buildEntityNameWriter, entityNamesLeftAlone, filterEntities, isHiddenEntityName, listEntities, mergeEntityNames, separateHiddenEntities, showEntityNameAgain, splitEntityName, withKeptEntityNames } from './story-arc-entity-core.js';
 import { ENTITY_MERGE_TARGET_ID, ENTITY_SPLIT_NAME_ID, entityListMarkup, hiddenNamesButton } from './story-arc-entity-ui.js';
@@ -117,6 +118,7 @@ async function confirmMerge(sourceName) {
     // A name typed as the one to keep may be hidden; merging into it shows it again, so the merged row stays in view.
     if (isHiddenEntityName(page.hiddenNames, keptName)) applyHiddenNames(showEntityNameAgain(page.hiddenNames, keptName));
     applyMerges(merges);
+    announceEntityNamesMerged({ collectionKey: page.collectionKey, keptName, otherNames: merges[keptName] ?? [] });
 }
 
 async function runEntityAction(action, name) {

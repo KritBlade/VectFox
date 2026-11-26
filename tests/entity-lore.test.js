@@ -16,10 +16,13 @@
  *     one the user edited or deleted is left alone; a book gone starts the record over,
  *   - a failed call leaves its character due and is counted; a model the provider refuses raises the sticky popup and
  *     stops the run; a chat opened during the run gets no book,
- *   - a long arc is written from the notes on each slice, and the book is saved one entry at a time,
+ *   - a long arc is written from the notes on each slice, each event with one time, and the book is saved one entry at
+ *     a time,
  *   - the card reads each character's state as a run does, saving nothing; a row's button writes one due character's
  *     entry after the name check on that name, or a written one again, an edited one from the entry as the user left
- *     it; Allow again forgets a name, refused during a run; each run's end is told, and the last outcome kept.
+ *     it; Allow again forgets a name, refused during a run; each run's end is told, and the last outcome kept,
+ *   - names merged on StoryArc's Entity tab make an entry written under any of them the kept name's at once, keyed by
+ *     every name, with no model call and whatever is switched off, after a run under way ends.
  *
  * Names are made up and match no story.
  */
@@ -87,7 +90,7 @@ vi.mock('../src/features/eventbase/index.js', async () => {
         readChatStoryEvents: vi.fn(async () => ({ collectionId: 'harbor-collection', registryKey: 'qdrant:harbor-collection', name: 'Harbor', events: host.events })),
         readEntityMerges: () => host.merges,
         inTimelineOrder: events => [...events].sort((a, b) => a.timeline_sort_key - b.timeline_sort_key),
-        formatStoryLine: event => `- #${event.timeline_sort_key}: ${event.text} (when: Day ${event.timeline_sort_key})`,
+        formatStoryLine: event => `- #${event.timeline_sort_key}: ${event.text} (when: ${[event.DateTime, event.scene_time].filter(Boolean).join(', ') || `Day ${event.timeline_sort_key}`})`,
     };
 });
 vi.mock('../src/features/llm-provider/index.js', () => ({
@@ -132,7 +135,8 @@ const { log } = await import('../src/sillytavern/log.js');
 const { readChatStoryEvents } = await import('../src/features/eventbase/index.js');
 const { addLoreBookToChat, regenerateKeysOfEntries, saveEntryWithVectors, writeMissing } = await import('../src/features/lorebase/index.js');
 const {
-    allowEntityLoreAgain, lastEntityLoreRun, onEntityLoreRunEnded, onEventBaseRunEnded, readEntityLoreCharacters, runEntityLoreNow, writeEntityLoreEntryNow,
+    allowEntityLoreAgain, lastEntityLoreRun, onEntityLoreRunEnded, onEntityNamesMerged, onEventBaseRunEnded, readEntityLoreCharacters, runEntityLoreNow,
+    writeEntityLoreEntryNow,
 } = await import('../src/features/entity-lore/index.js');
 const { entryContentHash } = await import('../src/features/entity-lore/entity-lore-core.js');
 
@@ -329,6 +333,18 @@ describe('a run (§4.2 to §4.6)', () => {
         expect(createLorebookEntry).toHaveBeenCalledTimes(1);
     });
 
+    it('gives each event one time: its DateTime to the minute, or its scene_time where it has none', async () => {
+        host.events = eventsNaming('Tamsin', 12).map((event, index) => [
+            { ...event, DateTime: '2026-04-08T18:58:00.000Z', scene_time: 'April 8th, evening' },
+            { ...event, DateTime: null, scene_time: 'Day 3 of the Long Tide' },
+        ][index] ?? event);
+        await runAfterEventBase();
+        const entryCall = host.ask.mock.calls.find(([messages]) => entryNameOf(messages) === 'Tamsin')[0][1].content;
+        expect(entryCall).toContain('Tamsin works the harbor. (when: 2026-04-08 18:58)');
+        expect(entryCall).toContain('Tamsin works the harbor. (when: Day 3 of the Long Tide)');
+        expect(entryCall).not.toContain('T18:58');
+    });
+
     it('saves the book one entry at a time, as each save writes a loaded copy of the whole book', async () => {
         host.events = ['Ash', 'Bryn', 'Cole'].flatMap(name => eventsNaming(name, 12));
         let saving = 0;
@@ -473,6 +489,74 @@ describe("the card's rows (§3)", () => {
         await runAfterEventBase();
         expect(ended).toHaveBeenCalledTimes(1);
         expect(lastEntityLoreRun()).toBe(before);
+    });
+});
+
+describe("names merged on StoryArc's Entity tab (D14)", () => {
+    const MERGE = { collectionKey: REGISTRY_KEY, keptName: 'Tamsin', otherNames: ['Marrow'] };
+    const writtenAs = (name, uid) => ({ state: 'written', uid: String(uid), writtenAtEvents: 12, contentHash: entryContentHash(entryAbout(name)) });
+    const bookOf = (entries) => {
+        host.worldNames.push(BOOK);
+        host.chatBooks.push(BOOK);
+        host.books[BOOK] = { entries: Object.fromEntries(entries.map(entry => [entry.uid, entry])) };
+    };
+
+    it("make an entry written under a merged name the kept name's at once, keyed by every name, with no model call, whatever is off", async () => {
+        bookOf([{ uid: 0, comment: 'Marrow', key: ['Marrow', 'the ferry witch'], content: entryAbout('Marrow') }]);
+        host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: BOOK, entries: { Marrow: writtenAs('Marrow', 0) } } };
+        host.settings = { ...host.settings, entity_lore_enabled: false, lorebase_enabled: false, story_arc_mode_enabled: false };
+        onEntityNamesMerged(MERGE);
+        await settle();
+        expect(host.books[BOOK].entries[0]).toEqual({ uid: 0, comment: 'Tamsin', key: ['Tamsin', 'Marrow', 'the ferry witch'], content: entryAbout('Marrow') });
+        expect(record()).toEqual({ bookName: BOOK, entries: { Tamsin: writtenAs('Marrow', 0) } });
+        expect(host.ask).not.toHaveBeenCalled();
+
+        host.events = [...eventsNaming('Tamsin', 6), ...eventsNaming('Marrow', 8)];
+        host.merges = { Tamsin: ['Marrow'] };
+        const { states } = await readEntityLoreCharacters(host.settings);
+        expect(states.map(({ name, state }) => [name, state])).toEqual([['Tamsin', 'written']]);
+    });
+
+    it("key the kept name's own entry by the merged names, its title as it was, and say when another name has an entry too", async () => {
+        vi.stubGlobal('toastr', { warning: vi.fn() });
+        bookOf([
+            { uid: 0, comment: 'Tamsin', key: ['Tamsin'], content: entryAbout('Tamsin') },
+            { uid: 1, comment: 'Marrow', key: ['Marrow'], content: entryAbout('Marrow') },
+        ]);
+        const entityLore = { bookName: BOOK, entries: { Tamsin: writtenAs('Tamsin', 0), Marrow: writtenAs('Marrow', 1) } };
+        host.collectionMeta[REGISTRY_KEY] = { entityLore };
+        onEntityNamesMerged(MERGE);
+        await settle();
+        expect(host.books[BOOK].entries).toEqual({
+            0: { uid: 0, comment: 'Tamsin', key: ['Tamsin', 'Marrow'], content: entryAbout('Tamsin') },
+            1: { uid: 1, comment: 'Marrow', key: ['Marrow'], content: entryAbout('Marrow') },
+        });
+        expect(record()).toEqual(entityLore);
+        expect(globalThis.toastr.warning).toHaveBeenCalledWith(
+            `Marrow also has an entry in "${BOOK}". Entity-Lore keeps writing Tamsin's; delete the other in World Info if it says the same.`, 'VectFox Entity-Lore');
+        vi.unstubAllGlobals();
+    });
+
+    it('wait for a run under way to end, as the run saves the record it read', async () => {
+        bookOf([{ uid: 0, comment: 'Marrow', key: ['Marrow'], content: entryAbout('Marrow') }]);
+        host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: BOOK, entries: { Marrow: writtenAs('Marrow', 0) } } };
+        host.events = eventsNaming('Hollis', 12);
+        let release;
+        const held = new Promise((resolve) => { release = resolve; });
+        const model = answering();
+        host.ask = vi.fn(async (messages) => {
+            if (isCheck(messages)) await held;
+            return model(messages);
+        });
+        onEventBaseRunEnded({ collectionId: 'harbor-collection', eventsAdded: 3 });
+        await settle();
+        onEntityNamesMerged(MERGE);
+        await settle();
+        expect(host.books[BOOK].entries[0].comment).toBe('Marrow');
+        release();
+        await settle();
+        expect(record().entries).toEqual({ Hollis: expect.objectContaining({ state: 'written', uid: '1' }), Tamsin: writtenAs('Marrow', 0) });
+        expect(host.books[BOOK].entries[0].comment).toBe('Tamsin');
     });
 });
 
