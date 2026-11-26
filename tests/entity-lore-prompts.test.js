@@ -149,8 +149,8 @@ describe('the entry (§4.4, §5.2)', () => {
         expect(prompt.startsWith(`The story's events naming Tamsin, oldest first, one per line:\n\n${events}\n\n`)).toBe(true);
         expect(prompt).toContain('Write one lorebook entry about Tamsin, a character in this story, also called Tamsin Vale.');
         expect(prompt).toContain('so it must hold who Tamsin is, not a summary of the story: what stays true about them, and the turning points that made them who they are.');
-        expect(prompt).toContain("\n[Background]: their past and where they come from, as the story has revealed it so far, in a few sentences; not a retelling of the story.\n");
-        expect(prompt).toContain("- When something later in the story shows more of Tamsin's past, or shows an earlier account of it was wrong, write the past as it is known now, not the account it replaced.");
+        expect(prompt).toContain('\n[Background]: their past and where they come from: what happened to them before the story, and why, as the latest events tell it, in a few sentences; not a retelling of the story.\n');
+        expect(prompt).toContain('- The events run in story order, and a later one can correct an earlier one: a secret comes out, or the reason behind something proves to be another. Write each section as the latest ones tell it, not as the account they correct.');
         expect(prompt).toContain("- [Key events] holds the turning points that changed Tamsin or the story most, picked from the story's start to now: one event per line, never two in one line. Leave the smaller events out.");
         const at = headings.map(heading => prompt.indexOf(`\n${heading}: `));
         expect(at.every(index => index > 0)).toBe(true);
@@ -173,6 +173,7 @@ describe('the entry (§4.4, §5.2)', () => {
         const prompt = userText(entryMessages({ name: 'Tamsin', storyText: 'Tamsin leaves home.\nTamsin joins the guild.', isFromNotes: true }));
         expect(prompt.startsWith('Notes on Tamsin, part by part, oldest first: what each part of the story shows of who they are, then its biggest events:\n\nTamsin leaves home.')).toBe(true);
         expect(prompt).toContain('- Write only what the notes say or plainly show. Never invent.');
+        expect(prompt).toContain('- The notes run in story order, and a later one can correct an earlier one:');
     });
 
     it('writes an entry again from the events and the entry as it stands, keeping its ties and picking its key events again', () => {

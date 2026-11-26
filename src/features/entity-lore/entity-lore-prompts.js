@@ -31,7 +31,7 @@ export const NAME_CHECK_ANSWER = Object.freeze({ named: 'named', notNamed: RECOR
 const ENTRY_SECTIONS = Object.freeze([
     { name: 'Identity', holds: 'who they are: full name and other names, role, origin, what they are to the story' },
     { name: 'Personality', holds: 'how they think, act and speak, what they want and fear, as the events show it' },
-    { name: 'Background', holds: 'their past and where they come from, as the story has revealed it so far, in a few sentences; not a retelling of the story' },
+    { name: 'Background', holds: 'their past and where they come from: what happened to them before the story, and why, as the latest events tell it, in a few sentences; not a retelling of the story' },
     { name: 'Key events', holds: 'the turning points of their story, oldest first, one event per line: when, what happened, their part, the outcome' },
     { name: 'Relationships', holds: 'each character they are tied to: the tie, how it came about, how it stands' },
 ]);
@@ -181,8 +181,8 @@ export function entryMessages({ name, otherNames = [], storyText, isFromNotes = 
         'Rules:',
         `- Write only what the ${isFromNotes ? 'notes' : 'events'} say or plainly show. Never invent.`,
         `- Leave out what changes from scene to scene: where ${name} is now, what they wear, how they look, how they feel at the moment. Another tool tracks those.`,
-        `- When something later in the story shows more of ${name}'s past, or shows an earlier account of it was wrong, write the past as it is `
-            + 'known now, not the account it replaced.',
+        `- The ${isFromNotes ? 'notes' : 'events'} run in story order, and a later one can correct an earlier one: a secret comes out, or the reason behind something `
+            + 'proves to be another. Write each section as the latest ones tell it, not as the account they correct.',
         `- [Key events] holds the turning points that changed ${name} or the story most, picked from the story's start to now: one event per line, `
             + 'never two in one line. Leave the smaller events out.',
         '- Use every name exactly as the events write it.',
