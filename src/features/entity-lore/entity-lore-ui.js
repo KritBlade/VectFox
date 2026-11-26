@@ -7,13 +7,16 @@
  * what keeps Entity-Lore from running, with the button to where it is fixed;
  * the line naming the chat's book; the last run's line; and the character
  * list, a page of rows, each with its event count, its state and the buttons
- * that state offers. A button carries data-entity-lore-action, and a row's its
- * character's name and entry uid. Pure: builds strings.
+ * that state offers, Lock among them where Entity-Lore would write the
+ * character, and why an entry is due again when its names changed, on
+ * StoryArc's Entity tab or by Allow again. A button carries
+ * data-entity-lore-action, and a row's its character's name and entry uid.
+ * Pure: builds strings.
  * ============================================================================
  */
 
 import { button, emptyState, iconButton, listRow, notice, pager, statusPill } from '../../shared/gui-dna/gui-dna-core.js';
-import { ENTITY_LORE_FIX_AT, ENTITY_LORE_NEED, ENTITY_STATE, EXCLUSION } from './entity-lore-core.js';
+import { ENTITY_LORE_FIX_AT, ENTITY_LORE_NEED, ENTITY_STATE, EXCLUSION, NAMES_CHANGED_BY } from './entity-lore-core.js';
 
 export const ENTITY_LORE_ROWS_PER_PAGE = 20;
 /** What a button of the card does, as its data-entity-lore-action says. */
@@ -22,6 +25,8 @@ export const ENTITY_LORE_ACTION = Object.freeze({
     rewriteAnyway: 'rewrite-anyway',
     openEntry: 'open-entry',
     allowAgain: 'allow-again',
+    lock: 'lock',
+    unlock: 'unlock',
     previousPage: 'page-previous',
     nextPage: 'page-next',
     fix: 'fix',
@@ -88,6 +93,14 @@ const EXCLUSION_TEXTS = {
     [EXCLUSION.cardDescription]: 'In the character card',
 };
 
+// Why an entry is due again before Rewrite every: its character's names changed, on StoryArc's Entity tab or by Allow
+// again on a name the name check matched to it (D17).
+const NAMES_CHANGED_HINTS = {
+    [NAMES_CHANGED_BY.merge]: "Names were merged on StoryArc's Entity tab, so the next run rewrites it with every name's events.",
+    [NAMES_CHANGED_BY.split]: "A name was split off on StoryArc's Entity tab, so the next run writes it afresh, without that name's events.",
+    [NAMES_CHANGED_BY.allowAgain]: "A name marked Same as this one was allowed again, so the next run writes it afresh, without that name's events.",
+};
+
 // Each state's pill (§3's table).
 const STATE_PILLS = {
     [ENTITY_STATE.waiting]: row => ({ name: `Waiting, ${row.eventCount} of ${eventsText(row.writeAt)}`, icon: 'fa-hourglass-half' }),
@@ -99,6 +112,7 @@ const STATE_PILLS = {
     [ENTITY_STATE.notNamed]: () => ({ text: 'Not a named character', icon: 'fa-user-slash' }),
     [ENTITY_STATE.sameAs]: row => ({ name: `Same as ${row.sameAs}`, icon: 'fa-link' }),
     [ENTITY_STATE.excluded]: row => ({ text: EXCLUSION_TEXTS[row.exclusion], icon: 'fa-ban' }),
+    [ENTITY_STATE.locked]: () => ({ text: 'Locked', icon: 'fa-lock' }),
 };
 
 const actionData = (row, action) => ({ 'entity-lore-action': action, name: row.name, uid: row.uid });
@@ -108,15 +122,24 @@ const rewriteNowButtons = row => [
     button({ text: 'Rewrite now', icon: 'fa-rotate', data: actionData(row, ENTITY_LORE_ACTION.write) }),
 ];
 const allowAgainButton = row => [button({ text: 'Allow again', icon: 'fa-rotate-left', data: actionData(row, ENTITY_LORE_ACTION.allowAgain) })];
+const lockButton = row => iconButton({
+    icon: 'fa-lock', title: "Lock: Entity-Lore leaves this character's entry as it is", data: actionData(row, ENTITY_LORE_ACTION.lock),
+});
 
 // Each state's buttons (§3's table); a state with none is left out.
 const STATE_ACTIONS = {
-    [ENTITY_STATE.due]: row => [button({ text: 'Write now', icon: 'fa-pen-nib', data: actionData(row, ENTITY_LORE_ACTION.write) })],
-    [ENTITY_STATE.written]: rewriteNowButtons,
-    [ENTITY_STATE.rewriteDue]: rewriteNowButtons,
+    [ENTITY_STATE.waiting]: row => [lockButton(row)],
+    [ENTITY_STATE.due]: row => [button({ text: 'Write now', icon: 'fa-pen-nib', data: actionData(row, ENTITY_LORE_ACTION.write) }), lockButton(row)],
+    [ENTITY_STATE.written]: row => [...rewriteNowButtons(row), lockButton(row)],
+    [ENTITY_STATE.rewriteDue]: row => [...rewriteNowButtons(row), lockButton(row)],
     [ENTITY_STATE.editedByUser]: row => [
         openEntryButton(row),
         button({ text: 'Rewrite anyway', icon: 'fa-rotate', data: actionData(row, ENTITY_LORE_ACTION.rewriteAnyway) }),
+        lockButton(row),
+    ],
+    [ENTITY_STATE.locked]: row => [
+        ...(row.uid === undefined ? [] : [openEntryButton(row)]),
+        button({ text: 'Unlock', icon: 'fa-lock-open', data: actionData(row, ENTITY_LORE_ACTION.unlock) }),
     ],
     [ENTITY_STATE.deletedByUser]: allowAgainButton,
     [ENTITY_STATE.notNamed]: allowAgainButton,
@@ -127,6 +150,7 @@ function characterRow(row) {
     const sub = [
         row.otherNames.length ? { text: 'Also known as', name: row.otherNames.join(' · ') } : null,
         row.state === ENTITY_STATE.sameAs ? { text: "To count the two as one, merge their names on StoryArc's Entity tab." } : null,
+        row.namesChangedBy ? { text: NAMES_CHANGED_HINTS[row.namesChangedBy] } : null,
     ].filter(Boolean);
     return listRow({
         icon: 'fa-user',

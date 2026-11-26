@@ -9,9 +9,15 @@
  * the Entity-Lore card, one character's entry, new or again. One run at a
  * time: an EventBase run that ends during one runs one more after it. The card
  * reads each character's state as a run reads it, the last run's outcome, and
- * what keeps Entity-Lore from running; its Allow again clears a name's record.
+ * what keeps Entity-Lore from running; its Allow again clears a name's record,
+ * and its Lock keeps a character from every run (T3).
  * Names merged on StoryArc's Entity tab make an entry written under any of them
- * the kept name's at once (D14), after the run when one is under way.
+ * the kept name's at once (D14), keyed by every name and due again (D17); a
+ * name split off one comes off its keys at once, and its entry is written
+ * afresh, without that name's events (D17), as is the entry a name was matched
+ * to once Allow again clears that name. Each waits for a run under way. The
+ * changes to the record made outside a run go one at a time, and the record is
+ * read for a run or the card once those under way are made.
  *
  * A run reads the chat's stored events and the record in the collection's
  * metadata, starts the record over when its book is gone (D13) and marks
@@ -52,9 +58,10 @@ import {
 } from '../lorebase/index.js';
 import {
     ENTITY_LORE_SETTING, ENTITY_STATE, ENTRIES_PER_AUTOMATIC_RUN, RECORD_STATE, dueCounts, entityLoreBlocker as blockerOf, entityLoreStates,
-    entriesForName, entriesForRun, entryContentHash, entryKeysOf, isEntityLoreOn, isSameName, namesMatchedTo, npcBookName, readEntityLoreRecord,
-    recordOfName, rewriteEveryEventsOf, runNowQuestion, runOutcomeText, sliceEventLines, withBookName, withBookStartedOver, withEntryForgotten,
-    withMergedEntry, withMissingEntriesDeleted, withNameCheckAnswer, withOneEventTime, withWrittenEntry, writeAtEventsOf, writtenEntryTitles,
+    entriesForName, entriesForRun, entryContentHash, entryKeysOf, isEntityLoreOn, isSameName, isWrittenAfreshAfter, namesMatchedTo, npcBookName,
+    readEntityLoreRecord, recordOfName, rewriteEveryEventsOf, runNowQuestion, runOutcomeText, sliceEventLines, withBookName, withBookStartedOver,
+    withCharacterLocked, withMergedEntry, withMissingEntriesDeleted, withNameAllowedAgain, withNameCheckAnswer, withOneEventTime, withSplitName,
+    withWrittenEntry, writeAtEventsOf, writtenEntryTitles,
 } from './entity-lore-core.js';
 import {
     NAME_CHECK_ANSWER, entryMessages, nameCheckMessages, notesMessages, readEntryAnswer, readNameCheck, readNotesAnswer,
@@ -80,9 +87,13 @@ let isRunAgain = false;
 /** @type {{chatId: string, text: string, isClean: boolean}|null} */
 let lastRun = null;
 const runEndedListeners = new Set();
-// Names merged on StoryArc's Entity tab during a run, each made the record's once the run ends, as the run saves the
-// record it read.
-const mergesAfterRun = [];
+// What StoryArc's Entity tab changed of the names during a run, merges and splits, each made the record's once the run
+// ends, as the run saves the record it read.
+const nameChangesAfterRun = [];
+// The changes to a chat's record made outside a run, one at a time (inTurn): StoryArc's merges and splits, Allow again,
+// Lock and Unlock. A run, Run now's count and the card read the record once those under way are made.
+const recordTurn = { last: Promise.resolve() };
+const storedRecordOf = collectionKey => readEntityLoreRecord(getCollectionMeta(collectionKey).entityLore);
 
 /**
  * What a run writes: the entries it picks from the states, and the due names its name check asks about. A run after an
@@ -179,18 +190,59 @@ export async function writeEntityLoreEntryNow(name) {
 }
 
 /**
- * Allow again (§3, §6): the open chat's record forgets a kept name, so it is counted as if new, due at Write at and
- * asked about by the next name check. Refused while a run writes, as the run saves the record it read.
- * @param {string} name - The row's kept name
- * @returns {{problem: string|null}}
+ * A change a row's button makes to the open chat's record, in the record's turn, after the changes under way. Refused
+ * while a run writes, as the run saves the record it read.
+ * @param {(collectionKey: string) => {problem: string|null}|Promise<{problem: string|null}>} change - Reads the
+ *   collection's record and saves it changed
+ * @returns {Promise<{problem: string|null}>}
  */
-export function allowEntityLoreAgain(name) {
+async function changeChatRecord(change) {
     if (activeRun) return { problem: WRITING_ALREADY };
     const { collection } = collectionInUse(extension_settings.vectfox);
     if (!collection) return { problem: 'This chat has no collection in use.' };
-    const record = readEntityLoreRecord(getCollectionMeta(collection.registryKey).entityLore);
-    setCollectionMeta(collection.registryKey, { entityLore: withEntryForgotten(record, name) });
-    return { problem: null };
+    return inTurn(recordTurn, () => change(collection.registryKey));
+}
+
+/**
+ * Allow again (§3, §6): the open chat's record forgets a kept name, so it is counted as if new, due at Write at and
+ * asked about by the next name check. A name the name check matched to an entry (Same as) also comes off that entry's
+ * keys at once, in any case, with no model call, and the entry is written afresh at the next run, without that name's
+ * events (D17). Refused while a run writes.
+ * @param {string} name - The row's kept name
+ * @returns {Promise<{problem: string|null}>}
+ */
+export function allowEntityLoreAgain(name) {
+    return changeChatRecord(collectionKey => allowAgainIn(collectionKey, name));
+}
+
+/** Allow again's change: the entry the name was matched to keyed without it, then the record. What fails is logged and said. */
+async function allowAgainIn(collectionKey, name) {
+    try {
+        const book = await recordWithBookEntries(collectionKey);
+        const allowed = withNameAllowedAgain(book?.record ?? storedRecordOf(collectionKey), name, book?.bookEntries.map(entry => entry.uid) ?? []);
+        if (allowed.unmatched) await saveKeyedWithout(book, allowed.unmatched.uid, name);
+        setCollectionMeta(collectionKey, { entityLore: allowed.record });
+        if (allowed.unmatched) log.lifecycle(`${LOG} ${name}: allowed again, so ${allowed.unmatched.title}'s entry is keyed without it and written afresh at the next run`);
+        return { problem: null };
+    } catch (error) {
+        log.warn(`${LOG} ${name}: Allow again failed, so its record is as it was:`, error);
+        return { problem: `Allow again failed: ${String(error?.message ?? error).slice(0, 200)}` };
+    }
+}
+
+/**
+ * Lock or Unlock (§3, T3): a locked character is never due, so neither a run nor Run now writes its first entry or
+ * writes it again, and its entry stays as it is; unlocked, it is due again as its counts say. Refused while a run
+ * writes.
+ * @param {{name: string, otherNames?: string[]}} row - The card's row
+ * @param {boolean} isLocked
+ * @returns {Promise<{problem: string|null}>}
+ */
+export function lockEntityLoreCharacter(row, isLocked) {
+    return changeChatRecord((collectionKey) => {
+        setCollectionMeta(collectionKey, { entityLore: withCharacterLocked(storedRecordOf(collectionKey), row, isLocked) });
+        return { problem: null };
+    });
 }
 
 /**
@@ -235,8 +287,8 @@ function tellRunEnded() {
 }
 
 /**
- * One run, then the merges StoryArc's Entity tab made during it, then one more run when an EventBase run ended during
- * it. Never throws: what fails is logged.
+ * One run, then the merges and splits StoryArc's Entity tab made during it, in the record's turn, then one more run
+ * when an EventBase run ended during it. Never throws: what fails is logged.
  * @param {object} settings - VectFox settings
  * @param {RunScope} scope - What it writes
  */
@@ -254,7 +306,8 @@ async function runEntityLore(settings, scope) {
         eventSource.removeListener(event_types.CHAT_CHANGED, stop);
         activeRun = null;
     }
-    while (mergesAfterRun.length) await adoptMergedEntry(mergesAfterRun.shift());
+    for (const adopt of nameChangesAfterRun.splice(0)) void inTurn(recordTurn, adopt);
+    await recordTurn.last;
     tellRunEnded();
     if (!isRunAgain) return;
     isRunAgain = false;
@@ -262,40 +315,52 @@ async function runEntityLore(settings, scope) {
 }
 
 /**
+ * Make a change StoryArc's Entity tab made to the names the record's, in the record's turn: after the changes under
+ * way, or once the run under way ends, as the run saves the record it read.
+ */
+function adoptNameChange(adopt) {
+    if (activeRun) nameChangesAfterRun.push(adopt);
+    else void inTurn(recordTurn, adopt);
+}
+
+/** A collection's record and its book's entries, or null while the record names no book SillyTavern holds. */
+async function recordWithBookEntries(collectionKey) {
+    const record = storedRecordOf(collectionKey);
+    if (!record.bookName || !world_names.includes(record.bookName)) return null;
+    return { record, bookEntries: Object.values((await loadWorldInfo(record.bookName))?.entries ?? {}) };
+}
+
+/**
  * Names StoryArc's Entity tab merged into one entity (D14): the entity's entry, written under any of the names and still
  * in its book, becomes the kept name's in the record, so the merged row reads it as its entry and never as a new one
- * due; it gets every name as a key, and the kept name as its title when it moved from a name it was titled by. At once,
- * with no model call, LoreBase and Entity-Lore on or off; during a run, once it ends, as the run saves the record it read.
+ * due; it gets every name as a key, and the kept name as its title when it moved from a name it was titled by; and it
+ * is due again, rewritten with every name's events (D17). At once, with no model call, LoreBase and Entity-Lore on or
+ * off; during a run, once it ends.
  * @param {{collectionKey: string, keptName: string, otherNames: string[]}} merge - collectionKey: the collection's
  *   registry key; otherNames: every other name of the entity now
  */
 export function onEntityNamesMerged(merge) {
-    if (activeRun) {
-        mergesAfterRun.push(merge);
-        return;
-    }
-    void adoptMergedEntry(merge);
+    adoptNameChange(() => adoptMergedEntry(merge));
 }
 
 /** onEntityNamesMerged's work: the book's entry saved, then the record. Never throws: what fails is logged. */
 async function adoptMergedEntry({ collectionKey, keptName, otherNames }) {
     try {
-        const record = readEntityLoreRecord(getCollectionMeta(collectionKey).entityLore);
-        if (!record.bookName || !world_names.includes(record.bookName)) return;
-        const bookEntries = Object.values((await loadWorldInfo(record.bookName))?.entries ?? {});
-        const merged = withMergedEntry(record, { keptName, otherNames }, bookEntries.map(entry => entry.uid));
+        const book = await recordWithBookEntries(collectionKey);
+        const merged = book && withMergedEntry(book.record, { keptName, otherNames }, book.bookEntries.map(entry => entry.uid));
         if (!merged) return;
-        const entry = bookEntries.find(each => String(each.uid) === merged.uid);
+        const { bookName } = book.record;
+        const entry = book.bookEntries.find(each => String(each.uid) === merged.uid);
         const keys = entryKeysOf({ name: keptName, otherNames }, entry.key ?? []);
         const comment = merged.movedFrom !== null && isSameName(String(entry.comment ?? ''), merged.movedFrom) ? keptName : entry.comment;
         if (comment !== entry.comment || keys.length !== (entry.key ?? []).length) {
-            await saveLorebookEntry(record.bookName, merged.uid, { comment, content: entry.content, keys });
+            await saveLorebookEntry(bookName, merged.uid, { comment, content: entry.content, keys });
         }
-        if (merged.movedFrom !== null) setCollectionMeta(collectionKey, { entityLore: merged.record });
-        log.lifecycle(`${LOG} ${keptName}: its entry${merged.movedFrom === null ? '' : `, written as ${merged.movedFrom},`} is keyed by every merged name`);
+        setCollectionMeta(collectionKey, { entityLore: merged.record });
+        log.lifecycle(`${LOG} ${keptName}: its entry${merged.movedFrom === null ? '' : `, written as ${merged.movedFrom},`} is keyed by every merged name, and due again`);
         if (merged.alsoWritten.length) {
             // toastr is SillyTavern's page global, absent where no page is loaded.
-            globalThis.toastr?.warning(`${merged.alsoWritten.join(', ')} also ${merged.alsoWritten.length === 1 ? 'has an entry' : 'have entries'} in "${record.bookName}". `
+            globalThis.toastr?.warning(`${merged.alsoWritten.join(', ')} also ${merged.alsoWritten.length === 1 ? 'has an entry' : 'have entries'} in "${bookName}". `
                 + `Entity-Lore keeps writing ${keptName}'s; delete the other in World Info if it says the same.`, TOAST_TITLE);
         }
     } catch (error) {
@@ -304,9 +369,44 @@ async function adoptMergedEntry({ collectionKey, keptName, otherNames }) {
 }
 
 /**
+ * A name StoryArc's Entity tab split off an entity (D17): the entity's entry, written and still in its book, loses that
+ * name from its keys at once, and is due again, written afresh from the events of the names it keeps, as its text, and
+ * so LoreBase's keys and vectors of it, hold the split name's too. With no model call, LoreBase and Entity-Lore on or
+ * off; during a run, once it ends. Nothing while the name check matches the split name to the entry (§4.3), which then
+ * reads that name's events still.
+ * @param {{collectionKey: string, keptName: string, splitName: string}} split - collectionKey: the collection's
+ *   registry key; keptName: the entity's; splitName: the name split off it
+ */
+export function onEntityNameSplit(split) {
+    adoptNameChange(() => adoptSplitName(split));
+}
+
+/** onEntityNameSplit's work: the book's entry saved, then the record. Never throws: what fails is logged. */
+async function adoptSplitName({ collectionKey, keptName, splitName }) {
+    try {
+        const book = await recordWithBookEntries(collectionKey);
+        const split = book && withSplitName(book.record, { keptName, splitName }, book.bookEntries.map(entry => entry.uid));
+        if (!split) return;
+        await saveKeyedWithout(book, split.uid, splitName);
+        setCollectionMeta(collectionKey, { entityLore: split.record });
+        log.lifecycle(`${LOG} ${keptName}: ${splitName} split off, so its entry is keyed without it and written afresh at the next run`);
+    } catch (error) {
+        log.warn(`${LOG} ${keptName}: after ${splitName} split off, its entry could not be keyed without it and marked to be written afresh:`, error);
+    }
+}
+
+/** Save a book's entry keyed without a name, in any case, its title and text as they are; nothing when no key is that name. */
+async function saveKeyedWithout(book, uid, name) {
+    const entry = book.bookEntries.find(each => String(each.uid) === String(uid));
+    const keys = (entry.key ?? []).filter(key => !isSameName(key, name));
+    if (keys.length !== (entry.key ?? []).length) await saveLorebookEntry(book.record.bookName, uid, { comment: entry.comment, content: entry.content, keys });
+}
+
+/**
  * The open chat's characters as Entity-Lore sees them: its collection in use and stored events, StoryArc's merges and
- * people, the record, its book's entries, what excludes a name here, and each person's state (§4.2). A record whose
- * book is gone starts over (D13), and each entry gone from its book reads as deleted (§6).
+ * people, the record, once the changes to it under way are made (recordTurn), its book's entries, what excludes a name
+ * here, and each person's state (§4.2). A record whose book is gone starts over (D13), and each entry gone from its
+ * book reads as deleted (§6).
  * @param {object} settings - VectFox settings
  * @returns {Promise<{problem: string}|{registryKey: string, events: object[], merges: object, rows: object[], record: object,
  *   bookEntries: object[], exclusions: object, states: object[]}>}
@@ -317,7 +417,8 @@ async function readChatEntities(settings) {
     const { registryKey, events } = story;
     const merges = readEntityMerges([registryKey]);
     const rows = listEntities(events, merges, 'people');
-    let record = readEntityLoreRecord(getCollectionMeta(registryKey).entityLore);
+    await recordTurn.last;
+    let record = storedRecordOf(registryKey);
     let bookEntries = [];
     if (record.bookName && !world_names.includes(record.bookName)) {
         record = withBookStartedOver(record);
@@ -384,9 +485,9 @@ async function writeDueEntries(settings, run, scope) {
         ask: askTextOnLoreBase(resolveLoreBaseLlmConfig(settings), { timeoutMs: CALL_TIMEOUT_MS, contextLabel: CONTEXT_LABEL }),
         writeName: buildEntityNameWriter(chat.merges, chat.events),
         languageName: chineseScriptNameOf(readStoryLanguage(chatMessages(), settings)),
-        saves: Promise.resolve(),
+        bookTurn: { last: Promise.resolve() },
     };
-    if (JSON.stringify(job.record) !== JSON.stringify(readEntityLoreRecord(getCollectionMeta(chat.registryKey).entityLore))) saveRecord(job);
+    if (JSON.stringify(job.record) !== JSON.stringify(storedRecordOf(chat.registryKey))) saveRecord(job);
     const planned = scope.pickFrom(chat.states);
     const due = scope.dueToCheck(chat.states);
     const outcome = planned.length ? await writeOnPanel(job, { planned, due, scope }) : null;
@@ -467,7 +568,7 @@ async function checkNames(job, due) {
 async function keyWrittenEntry(job, title, name) {
     const written = recordOfName(job.record, title);
     if (written?.state !== RECORD_STATE.written || !job.record.bookName) return;
-    await inBookTurn(job, async () => {
+    await inTurn(job.bookTurn, async () => {
         const entry = Object.values((await loadWorldInfo(job.record.bookName))?.entries ?? {}).find(each => String(each.uid) === written.uid);
         if (!entry) return;
         const keys = entryKeysOf({ name: title, otherNames: [name] }, entry.key ?? []);
@@ -483,12 +584,14 @@ async function writeOneEntry(job, pick) {
     try {
         const standingEntry = isRewrite ? (await bookEntryOf(job, pick.uid))?.content ?? null : null;
         if (isRewrite && standingEntry === null) return;
-        content = await entryText(job, pick, otherNames, standingEntry);
+        // A rewrite keeps what the entry holds (§5.2), which after a split, or Allow again on a name matched to it, holds
+        // that name's events (D17).
+        content = await entryText(job, pick, otherNames, isWrittenAfreshAfter(pick.namesChangedBy) ? null : standingEntry);
     } catch (error) {
         failCall(job, pick.name, error);
         return;
     }
-    await inBookTurn(job, () => (isRewrite ? saveRewrite(job, pick, otherNames, content) : saveNewEntry(job, pick, otherNames, content)))
+    await inTurn(job.bookTurn, () => (isRewrite ? saveRewrite(job, pick, otherNames, content) : saveNewEntry(job, pick, otherNames, content)))
         .catch((error) => {
             job.outcome.bookProblem = `The lorebook could not be saved: ${String(error?.message ?? error).slice(0, 200)}`;
             log.error(`${LOG} ${pick.name}: the lorebook could not be saved, so the run stops:`, error);
@@ -508,12 +611,19 @@ function failCall(job, what, error) {
     log.warn(`${LOG} ${what}:`, error);
 }
 
-/** Run a step of the book's saves after the ones before it, as each saves a loaded copy of the whole book. */
-function inBookTurn(job, step) {
-    const turn = job.saves.then(step);
-    // EXPECTED: the caller handles the step's failure on `turn`; the chain only waits for the step to end.
-    job.saves = turn.catch(() => {});
-    return turn;
+/**
+ * Run a step after the steps before it in a turn, one at a time: a run's saves of its book, as each saves a loaded copy
+ * of the whole book (`job.bookTurn`), or the changes to the record made outside a run (recordTurn). A step never waits
+ * for its own turn, which would wait for it.
+ * @param {{last: Promise<unknown>}} turn
+ * @param {() => unknown} step
+ * @returns {Promise<unknown>} The step's own outcome, its failure the caller's to handle
+ */
+function inTurn(turn, step) {
+    const done = turn.last.then(step);
+    // EXPECTED: the caller handles the step's failure on `done`; the turn only waits for the step to end.
+    turn.last = done.catch(() => {});
+    return done;
 }
 
 /** The lines of every event naming any of `names`, each once, oldest first, as StoryArc reads them, with one time each (§4.4). */
@@ -524,7 +634,8 @@ function eventLinesOf(job, names) {
 
 /**
  * An entry's text from LoreBase's model (§4.4, §5.2): from the events of the character and the names matched to it, or,
- * above one slice, from the notes a call writes on each slice; a rewrite reads the entry as it stands too.
+ * above one slice, from the notes a call writes on each slice; a rewrite reads the entry as it stands too, unless it is
+ * written afresh after a split or Allow again (D17).
  * @returns {Promise<string>}
  * @throws {Error} When a call fails or its answer is no entry or no notes
  */

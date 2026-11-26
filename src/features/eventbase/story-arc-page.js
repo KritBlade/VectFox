@@ -13,7 +13,7 @@
 
 import { log } from '../../sillytavern/log.js';
 import { notice } from '../../shared/gui-dna/gui-dna-core.js';
-import { announceEntityNamesMerged } from './eventbase-announcements.js';
+import { announceEntityNameSplit, announceEntityNamesMerged } from './eventbase-announcements.js';
 import { readEntityMerges, readHiddenEntityNames, saveEntityMerges, saveHiddenEntityNames } from './story-arc-entities.js';
 import { buildEntityNameWriter, entityNamesLeftAlone, filterEntities, isHiddenEntityName, listEntities, mergeEntityNames, separateHiddenEntities, showEntityNameAgain, splitEntityName, withKeptEntityNames } from './story-arc-entity-core.js';
 import { ENTITY_MERGE_TARGET_ID, ENTITY_SPLIT_NAME_ID, entityListMarkup, hiddenNamesButton } from './story-arc-entity-ui.js';
@@ -148,7 +148,9 @@ async function runEntityAction(action, name) {
         await confirmMerge(name);
         return;
     } else if (action === 'split-confirm') {
-        applyMerges(splitEntityName(page.merges, name, elementOf(ENTITY_SPLIT_NAME_ID).value));
+        const splitName = elementOf(ENTITY_SPLIT_NAME_ID).value;
+        applyMerges(splitEntityName(page.merges, name, splitName));
+        announceEntityNameSplit({ collectionKey: page.collectionKey, keptName: name, splitName });
         return;
     }
     paintEntityTab();

@@ -107,6 +107,7 @@ vi.mock('../src/features/entity-lore/index.js', () => ({
     ENTITY_LORE_SETTING: { enabled: 'entity_lore_enabled', writeAtEvents: 'entity_lore_write_at_events', rewriteEveryEvents: 'entity_lore_rewrite_every_events' },
     REWRITE_EVERY_EVENTS: { default: 30 },
     WRITE_AT_EVENTS: { default: 10 },
+    onEntityNameSplit: vi.fn(),
     onEntityNamesMerged: vi.fn(),
     onEventBaseRunEnded: vi.fn(),
 }));

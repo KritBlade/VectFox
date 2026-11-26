@@ -6,7 +6,9 @@
  *
  * Guards that:
  *   - each state's row has §3's pill and buttons, its event count, its other names and, for a same_as, the hint to
- *     merge the names on StoryArc's Entity tab; each button names its character and entry,
+ *     merge the names on StoryArc's Entity tab; each button names its character and entry; Lock is offered wherever
+ *     Entity-Lore would write the character, and a locked row offers Open entry, when it has one, and Unlock; an
+ *     entry due again as its names changed on StoryArc's Entity tab says why,
  *   - the list pages 20 rows at a time, its page kept within the pages there are, and says why it is empty,
  *   - the notice says what to turn on first while Entity-Lore is off, that it is paused while it is on, and offers the
  *     button to where it is fixed; LoreBase or StoryArc not acting disables the switch, the model not set does not,
@@ -17,7 +19,7 @@
 /* global document -- this file runs under the jsdom environment */
 import { describe, expect, it } from 'vitest';
 
-import { ENTITY_LORE_FIX_AT, ENTITY_LORE_NEED, ENTITY_STATE, EXCLUSION } from '../src/features/entity-lore/entity-lore-core.js';
+import { ENTITY_LORE_FIX_AT, ENTITY_LORE_NEED, ENTITY_STATE, EXCLUSION, NAMES_CHANGED_BY } from '../src/features/entity-lore/entity-lore-core.js';
 import {
     ENTITY_LORE_ACTION, ENTITY_LORE_ROWS_PER_PAGE, entityLoreBookLine, entityLoreLastRunText, entityLoreListMarkup, entityLoreNoticeMarkup,
     entityLoreProblemMarkup, isSwitchGatedBy,
@@ -32,14 +34,17 @@ const row = (name, state, extra = {}) => ({ name, otherNames: [], eventCount: 12
 const rowOf = (state, extra) => drawn(entityLoreListMarkup({ rows: [row('Tamsin', state, extra)], pageIndex: 0, isSearching: false }).list);
 const pillsOf = holder => [...holder.querySelectorAll('.vfx-pill')].map(pill => pill.textContent);
 const buttonsOf = holder => [...holder.querySelectorAll('button')].map(button => button.textContent || button.title);
+const LOCK = "Lock: Entity-Lore leaves this character's entry as it is";
 
 describe("a character's row (§3's table)", () => {
     it.each([
-        [ENTITY_STATE.waiting, { eventCount: 7, writeAt: 10 }, ['7 events', 'Waiting, 7 of 10 events'], []],
-        [ENTITY_STATE.due, {}, ['12 events', 'Due'], ['Write now']],
-        [ENTITY_STATE.written, { uid: '3', writtenAtEvents: 30 }, ['12 events', 'Written at 30 events'], ['Open entry', 'Rewrite now']],
-        [ENTITY_STATE.rewriteDue, { uid: '3', writtenAtEvents: 10 }, ['12 events', 'Rewrite due'], ['Open entry', 'Rewrite now']],
-        [ENTITY_STATE.editedByUser, { uid: '3', writtenAtEvents: 10 }, ['12 events', 'Edited by you'], ['Open entry', 'Rewrite anyway']],
+        [ENTITY_STATE.waiting, { eventCount: 7, writeAt: 10 }, ['7 events', 'Waiting, 7 of 10 events'], [LOCK]],
+        [ENTITY_STATE.due, {}, ['12 events', 'Due'], ['Write now', LOCK]],
+        [ENTITY_STATE.written, { uid: '3', writtenAtEvents: 30 }, ['12 events', 'Written at 30 events'], ['Open entry', 'Rewrite now', LOCK]],
+        [ENTITY_STATE.rewriteDue, { uid: '3', writtenAtEvents: 10 }, ['12 events', 'Rewrite due'], ['Open entry', 'Rewrite now', LOCK]],
+        [ENTITY_STATE.editedByUser, { uid: '3', writtenAtEvents: 10 }, ['12 events', 'Edited by you'], ['Open entry', 'Rewrite anyway', LOCK]],
+        [ENTITY_STATE.locked, { uid: '3', writtenAtEvents: 30 }, ['12 events', 'Locked'], ['Open entry', 'Unlock']],
+        [ENTITY_STATE.locked, {}, ['12 events', 'Locked'], ['Unlock']],
         [ENTITY_STATE.deletedByUser, {}, ['12 events', 'Deleted by you'], ['Allow again']],
         [ENTITY_STATE.notNamed, {}, ['12 events', 'Not a named character'], ['Allow again']],
         [ENTITY_STATE.sameAs, { sameAs: 'Tamsin Vale' }, ['12 events', 'Same as Tamsin Vale'], ['Allow again']],
@@ -68,6 +73,16 @@ describe("a character's row (§3's table)", () => {
         expect([...holder.querySelectorAll('.vfx-row-sub')].map(line => line.textContent)).toEqual([
             'Also known as: Tam', "To count the two as one, merge their names on StoryArc's Entity tab.",
         ]);
+    });
+
+    it("says why an entry is due again when its names changed, on StoryArc's Entity tab or by Allow again", () => {
+        const subsOf = extra => [...rowOf(ENTITY_STATE.rewriteDue, { uid: '3', ...extra }).querySelectorAll('.vfx-row-sub')].map(line => line.textContent);
+        expect(subsOf({ namesChangedBy: NAMES_CHANGED_BY.merge })).toEqual(["Names were merged on StoryArc's Entity tab, so the next run rewrites it with every name's events."]);
+        expect(subsOf({ namesChangedBy: NAMES_CHANGED_BY.split }))
+            .toEqual(["A name was split off on StoryArc's Entity tab, so the next run writes it afresh, without that name's events."]);
+        expect(subsOf({ namesChangedBy: NAMES_CHANGED_BY.allowAgain }))
+            .toEqual(["A name marked Same as this one was allowed again, so the next run writes it afresh, without that name's events."]);
+        expect(subsOf({})).toEqual([]);
     });
 });
 

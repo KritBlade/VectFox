@@ -54,7 +54,9 @@ import { mountSettingsPanel, mountWandMenu, refreshAutoSyncCheckbox, scheduleMan
 import { initializeDatabaseBrowser } from './features/database-browser/index.js';
 import { KEY_CALLS_AT_ONCE_DEFAULT, LORE_BUDGET_DEFAULT, PICK_LIMIT_DEFAULT, initializeLoreBase, prepareLoreBesideRetrieval } from './features/lorebase/index.js';
 import { initializeReplyLore } from './features/reply-lore/index.js';
-import { ENTITY_LORE_SETTING, REWRITE_EVERY_EVENTS, WRITE_AT_EVENTS, onEntityNamesMerged, onEventBaseRunEnded } from './features/entity-lore/index.js';
+import {
+    ENTITY_LORE_SETTING, REWRITE_EVERY_EVENTS, WRITE_AT_EVENTS, onEntityNameSplit, onEntityNamesMerged, onEventBaseRunEnded,
+} from './features/entity-lore/index.js';
 import {
     announceCollectionInUseChanged, announceEventBaseEventsRemoved, announceEventBaseRunEnded, announceLlmCallFinished,
     announcePublicApiReady, announcePurgedCollection, askMessageSources, markOwnRequestWhenSwitchedOn, publishPublicApi,
@@ -68,8 +70,8 @@ setInsertedCollectionRegistrar(registerCollection);
 // public API's mark on the signal of each LLM call's request, written while the PublicAPI page's switch is on, and the
 // message sources other extensions register, which story order asks about each message it reads. An EventBase run that
 // ends is told to Entity-Lore too, which writes the entries it made due, the public API's failure leaving it told; and
-// names merged on StoryArc's Entity tab are told to Entity-Lore alone, which makes an entry under any of them the kept
-// name's.
+// names merged on StoryArc's Entity tab, or split off there, are told to Entity-Lore alone, which keys the entity's
+// entry to match and has it written again.
 setEventBaseListeners({
     onRunEnded: (run) => {
         try {
@@ -81,6 +83,7 @@ setEventBaseListeners({
     onEventsRemoved: announceEventBaseEventsRemoved,
     onCollectionInUseChanged: announceCollectionInUseChanged,
     onEntityNamesMerged,
+    onEntityNameSplit,
 });
 setPurgedCollectionListener(announcePurgedCollection);
 setLlmCallFinishedListener(announceLlmCallFinished);

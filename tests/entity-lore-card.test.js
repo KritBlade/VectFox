@@ -11,7 +11,8 @@
  *   - the characters are read only while the card is shown, again as its tab opens, and drawn with the book line,
  *     searched by name and paged,
  *   - each row's button does what its state offers: Write now and Rewrite now write that entry, Rewrite anyway asks
- *     first, Allow again forgets the name, Open entry opens LoreBase's editor, each reading the characters again; one
+ *     first, Allow again forgets the name, Lock and Unlock lock the row's character, Open entry opens LoreBase's editor,
+ *     each reading the characters again; one
  *     that did nothing says why in a toast as well as on the status line, which sits above the rows, often out of view,
  *   - the notice's button opens the StoryArc page or the Main tab,
  *   - the status line says why a button did nothing, else this chat's last run, and a run's end reads the rows again.
@@ -46,7 +47,8 @@ vi.mock('../src/features/entity-lore/index.js', async () => {
     return {
         ...core,
         ...ui,
-        allowEntityLoreAgain: vi.fn(() => ({ problem: null })),
+        allowEntityLoreAgain: vi.fn(async () => ({ problem: null })),
+        lockEntityLoreCharacter: vi.fn(async () => ({ problem: null })),
         entityLoreBlocker: settings => core.entityLoreBlocker({
             loreBaseReason: settings.lorebase_enabled ? null : 'Use LoreBase is off.',
             isLoreBaseSwitchedOn: settings.lorebase_enabled === true,
@@ -65,7 +67,9 @@ const { saveSettingsDebounced } = await import('../src/sillytavern/settings.js')
 const { confirmPopup } = await import('../src/sillytavern/popup.js');
 const { showPanelTab } = await import('../src/features/settings-panel/panel-shell.js');
 const { editLoreBookEntry } = await import('../src/features/lorebase/index.js');
-const { allowEntityLoreAgain, readEntityLoreCharacters, runEntityLoreNow, writeEntityLoreEntryNow } = await import('../src/features/entity-lore/index.js');
+const {
+    allowEntityLoreAgain, lockEntityLoreCharacter, readEntityLoreCharacters, runEntityLoreNow, writeEntityLoreEntryNow,
+} = await import('../src/features/entity-lore/index.js');
 const { ENTITY_LORE_ELEMENT_ID, WORLDINFO_TAB, WORLDINFO_TABS_ID, worldInfoPageMarkup } = await import('../src/features/settings-panel/worldinfo-page-markup.js');
 const { showSubTab } = await import('../src/shared/gui-dna/gene-behaviours.js');
 const { bindEntityLoreCard, refreshEntityLoreCard } = await import('../src/features/settings-panel/entity-lore-card.js');
@@ -238,6 +242,27 @@ describe("a row's buttons", () => {
         expect(readEntityLoreCharacters).toHaveBeenCalledTimes(2);
     });
 
+    it("lock the row's character and unlock it, each reading the rows again", async () => {
+        const LOCK = "Lock: Entity-Lore leaves this character's entry as it is";
+        buttonFor('Tamsin', LOCK).click();
+        await settle();
+        expect(lockEntityLoreCharacter).toHaveBeenCalledWith(expect.objectContaining({ name: 'Tamsin', otherNames: [] }), true);
+        expect(readEntityLoreCharacters).toHaveBeenCalledTimes(1);
+
+        host.characters.states[0] = character('Tamsin', 'locked');
+        refreshEntityLoreCard();
+        await settle();
+        expect(buttonFor('Tamsin', LOCK)).toBeUndefined();
+        buttonFor('Tamsin', 'Unlock').click();
+        await settle();
+        expect(lockEntityLoreCharacter).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'Tamsin', state: 'locked' }), false);
+
+        lockEntityLoreCharacter.mockResolvedValueOnce({ problem: 'Entity-Lore is writing already; the progress panel shows it.' });
+        buttonFor('Hollis', LOCK).click();
+        await settle();
+        expect(toastr.warning).toHaveBeenLastCalledWith('Entity-Lore is writing already; the progress panel shows it.', 'VectFox Entity-Lore');
+    });
+
     it('say why they did nothing in a toast as well as on the status line, as the rows sit below it', async () => {
         writeEntityLoreEntryNow.mockResolvedValueOnce({ problem: 'Use Entity-Lore is off.' });
         buttonFor('Tamsin', 'Write now').click();
@@ -245,7 +270,7 @@ describe("a row's buttons", () => {
         expect(toastr.warning.mock.calls).toEqual([['Use Entity-Lore is off.', 'VectFox Entity-Lore']]);
         expect(status().textContent).toBe('Use Entity-Lore is off.');
 
-        allowEntityLoreAgain.mockReturnValueOnce({ problem: 'Entity-Lore is writing already; the progress panel shows it.' });
+        allowEntityLoreAgain.mockResolvedValueOnce({ problem: 'Entity-Lore is writing already; the progress panel shows it.' });
         buttonFor('the ferryman', 'Allow again').click();
         await settle();
         expect(toastr.warning).toHaveBeenLastCalledWith('Entity-Lore is writing already; the progress panel shows it.', 'VectFox Entity-Lore');

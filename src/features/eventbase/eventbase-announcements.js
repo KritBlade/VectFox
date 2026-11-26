@@ -2,26 +2,32 @@
  * What EventBase tells the listeners src/index.js sets at start-up: a run that ended, finished, stopped or failed;
  * events removed from a collection; and the collection the open chat uses, when that changes (followCollectionInUse
  * in eventbase-chat-collections.js), which the public API sends on as `vectfox_eventbase_*` events, Entity-Lore hearing
- * of each run too; and names StoryArc's Entity tab merged into one entity, which Entity-Lore hears alone. A whole
- * collection purged is told by the vector backend's own listener (setPurgedCollectionListener). A listener that throws
- * is logged and never fails the work it hears of.
+ * of each run too; and names StoryArc's Entity tab merged into one entity, or split off one, which Entity-Lore hears
+ * alone. A whole collection purged is told by the vector backend's own listener (setPurgedCollectionListener). A
+ * listener that throws is logged and never fails the work it hears of.
  */
 import { log } from '../../sillytavern/log.js';
 
-/** @type {{onRunEnded: Function|null, onEventsRemoved: Function|null, onCollectionInUseChanged: Function|null, onEntityNamesMerged: Function|null}} */
-const listeners = { onRunEnded: null, onEventsRemoved: null, onCollectionInUseChanged: null, onEntityNamesMerged: null };
+/**
+ * @type {{onRunEnded: Function|null, onEventsRemoved: Function|null, onCollectionInUseChanged: Function|null,
+ *   onEntityNamesMerged: Function|null, onEntityNameSplit: Function|null}}
+ */
+const listeners = { onRunEnded: null, onEventsRemoved: null, onCollectionInUseChanged: null, onEntityNamesMerged: null, onEntityNameSplit: null };
 
 /**
- * Sets the listeners told of EventBase's runs, removals and collection in use, and of StoryArc's merged names. One left
- * out hears nothing.
+ * Sets the listeners told of EventBase's runs, removals and collection in use, and of the names StoryArc merged and
+ * split. One left out hears nothing.
  * @param {object} set
  * @param {(run: {collectionId: string, eventsAdded: number, windowsProcessed: number}) => void} [set.onRunEnded]
  * @param {(collectionId: string, eventIds: string[]|null) => void} [set.onEventsRemoved]
  * @param {(inUse: {chatId: string|null, collectionId: string|null}) => void} [set.onCollectionInUseChanged]
  * @param {(merge: {collectionKey: string, keptName: string, otherNames: string[]}) => void} [set.onEntityNamesMerged]
+ * @param {(split: {collectionKey: string, keptName: string, splitName: string}) => void} [set.onEntityNameSplit]
  */
-export function setEventBaseListeners({ onRunEnded = null, onEventsRemoved = null, onCollectionInUseChanged = null, onEntityNamesMerged = null } = {}) {
-    Object.assign(listeners, { onRunEnded, onEventsRemoved, onCollectionInUseChanged, onEntityNamesMerged });
+export function setEventBaseListeners({
+    onRunEnded = null, onEventsRemoved = null, onCollectionInUseChanged = null, onEntityNamesMerged = null, onEntityNameSplit = null,
+} = {}) {
+    Object.assign(listeners, { onRunEnded, onEventsRemoved, onCollectionInUseChanged, onEntityNamesMerged, onEntityNameSplit });
 }
 
 /**
@@ -75,4 +81,13 @@ export function announceCollectionInUseChanged(inUse) {
  */
 export function announceEntityNamesMerged(merge) {
     tell('onEntityNamesMerged', merge);
+}
+
+/**
+ * StoryArc's Entity tab split a name off an entity, saved in the collection's metadata.
+ * @param {{collectionKey: string, keptName: string, splitName: string}} split - collectionKey: the collection's
+ *   registry key; keptName: the name the entity goes by; splitName: the name split off it, an entity of its own now
+ */
+export function announceEntityNameSplit(split) {
+    tell('onEntityNameSplit', split);
 }

@@ -20,9 +20,16 @@
  *     a time,
  *   - the card reads each character's state as a run does, saving nothing; a row's button writes one due character's
  *     entry after the name check on that name, or a written one again, an edited one from the entry as the user left
- *     it; Allow again forgets a name, refused during a run; each run's end is told, and the last outcome kept,
+ *     it; Allow again forgets a name, and Lock keeps a character from every run, each refused during a run; each run's
+ *     end is told, and the last outcome kept,
  *   - names merged on StoryArc's Entity tab make an entry written under any of them the kept name's at once, keyed by
- *     every name, with no model call and whatever is switched off, after a run under way ends.
+ *     every name and due again, rewritten from the entry as it stands; a name split off one comes off its keys at once,
+ *     and its entry is written afresh from the events of the names it keeps, as is the entry a name the name check
+ *     matched was matched to, once Allow again forgets that name; each with no model call and whatever is switched off,
+ *     after a run under way ends, in order; a split changes nothing for a name the name check matched; a failed Allow
+ *     again says why,
+ *   - the changes to the record made outside a run go one at a time, Lock's too, and a run reads the record once they
+ *     are made.
  *
  * Names are made up and match no story.
  */
@@ -127,7 +134,7 @@ vi.mock('../src/features/lorebase/index.js', () => ({
     writeMissing: vi.fn(async () => ({})),
 }));
 
-const { createLorebook, createLorebookEntry, saveLorebookEntry } = await import('../src/sillytavern/world-info.js');
+const { createLorebook, createLorebookEntry, loadWorldInfo, saveLorebookEntry } = await import('../src/sillytavern/world-info.js');
 const { confirmPopup } = await import('../src/sillytavern/popup.js');
 const { progressTracker } = await import('../src/shared/progress-tracker.js');
 const { notifyInvalidModel } = await import('../src/shared/model-config-notifier.js');
@@ -135,8 +142,8 @@ const { log } = await import('../src/sillytavern/log.js');
 const { readChatStoryEvents } = await import('../src/features/eventbase/index.js');
 const { addLoreBookToChat, regenerateKeysOfEntries, saveEntryWithVectors, writeMissing } = await import('../src/features/lorebase/index.js');
 const {
-    allowEntityLoreAgain, lastEntityLoreRun, onEntityLoreRunEnded, onEntityNamesMerged, onEventBaseRunEnded, readEntityLoreCharacters, runEntityLoreNow,
-    writeEntityLoreEntryNow,
+    allowEntityLoreAgain, lastEntityLoreRun, lockEntityLoreCharacter, onEntityLoreRunEnded, onEntityNameSplit, onEntityNamesMerged, onEventBaseRunEnded,
+    readEntityLoreCharacters, runEntityLoreNow, writeEntityLoreEntryNow,
 } = await import('../src/features/entity-lore/index.js');
 const { entryContentHash } = await import('../src/features/entity-lore/entity-lore-core.js');
 
@@ -242,6 +249,7 @@ describe('a run (§4.2 to §4.6)', () => {
                 'the ferryman': { state: 'not_named' },
                 Tamsin: { state: 'written', uid: '0', writtenAtEvents: 12, contentHash: entryContentHash(entryAbout('Tamsin')) },
             },
+            lockedNames: [],
         });
         expect(writeMissing).toHaveBeenCalledWith(host.settings, ['keys', 'vectors'], { bookNames: [BOOK] });
         expect(progressTracker.show).toHaveBeenCalledWith('Entity-Lore', 4, 'Entries', { unitLabel: 'Entries' });
@@ -467,7 +475,7 @@ describe("the card's rows (§3)", () => {
     it('forgets a name on Allow again, so it is counted as new; refused while a run writes', async () => {
         host.events = eventsNaming('the ferryman', 12);
         host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: '', entries: { 'The Ferryman': { state: 'not_named' }, Hollis: { state: 'deleted', uid: '4' } } } };
-        expect(allowEntityLoreAgain('the ferryman')).toEqual({ problem: null });
+        expect(await allowEntityLoreAgain('the ferryman')).toEqual({ problem: null });
         expect(record().entries).toEqual({ Hollis: { state: 'deleted', uid: '4' } });
         expect((await readEntityLoreCharacters()).states[0]).toMatchObject({ name: 'the ferryman', state: 'due' });
 
@@ -476,9 +484,42 @@ describe("the card's rows (§3)", () => {
         host.ask = vi.fn(async () => { await held; return JSON.stringify({ names: [] }); });
         onEventBaseRunEnded({ collectionId: 'harbor-collection', eventsAdded: 1 });
         await vi.waitFor(() => expect(host.ask).toHaveBeenCalled());
-        expect(allowEntityLoreAgain('Hollis')).toEqual({ problem: 'Entity-Lore is writing already; the progress panel shows it.' });
+        expect(await allowEntityLoreAgain('Hollis')).toEqual({ problem: 'Entity-Lore is writing already; the progress panel shows it.' });
         release();
         await settle();
+    });
+
+    it('locks a character from every run, its entry left as it is, and unlocks it; refused while a run writes', async () => {
+        host.events = [...eventsNaming('Tamsin', 60), ...eventsNaming('Hollis', 12)];
+        writtenBook({ 0: { uid: 0, comment: 'Tamsin', key: ['Tamsin'], content: 'Tamsin trades salt.' } });
+        host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: BOOK, entries: { Tamsin: { state: 'written', uid: '0', writtenAtEvents: 12, contentHash: entryContentHash('Tamsin trades salt.') } } } };
+        expect(await lockEntityLoreCharacter({ name: 'Tamsin', otherNames: [] }, true)).toEqual({ problem: null });
+        expect(await lockEntityLoreCharacter({ name: 'Hollis', otherNames: [] }, true)).toEqual({ problem: null });
+        expect(record().lockedNames).toEqual(['Tamsin', 'Hollis']);
+        expect((await readEntityLoreCharacters()).states.map(({ name, state }) => [name, state])).toEqual([['Tamsin', 'locked'], ['Hollis', 'locked']]);
+
+        await runAfterEventBase();
+        expect(await runEntityLoreNow()).toEqual({ problem: 'No entry is due now.', isNothingDue: true });
+        expect(host.ask).not.toHaveBeenCalled();
+        expect(host.books[BOOK].entries[0].content).toBe('Tamsin trades salt.');
+
+        expect(await lockEntityLoreCharacter({ name: 'Hollis', otherNames: [] }, false)).toEqual({ problem: null });
+        expect(record().lockedNames).toEqual(['Tamsin']);
+        let release;
+        const held = new Promise((resolve) => { release = resolve; });
+        const model = answering();
+        host.ask = vi.fn(async (messages) => {
+            if (isCheck(messages)) await held;
+            return model(messages);
+        });
+        onEventBaseRunEnded({ collectionId: 'harbor-collection', eventsAdded: 3 });
+        await settle();
+        expect(await lockEntityLoreCharacter({ name: 'Tamsin', otherNames: [] }, false)).toEqual({ problem: 'Entity-Lore is writing already; the progress panel shows it.' });
+        release();
+        await settle();
+        expect(checkedNames()).toEqual(['Hollis']);
+        expect(host.books[BOOK].entries[0].content).toBe('Tamsin trades salt.');
+        expect(record().lockedNames).toEqual(['Tamsin']);
     });
 
     it("tells each run's end, whatever it wrote, and keeps the outcome of the last that tried an entry", async () => {
@@ -492,8 +533,9 @@ describe("the card's rows (§3)", () => {
     });
 });
 
-describe("names merged on StoryArc's Entity tab (D14)", () => {
+describe("names merged or split on StoryArc's Entity tab, and a matched name allowed again (D14, D17)", () => {
     const MERGE = { collectionKey: REGISTRY_KEY, keptName: 'Tamsin', otherNames: ['Marrow'] };
+    const SPLIT = { collectionKey: REGISTRY_KEY, keptName: 'Tamsin', splitName: 'Marrow' };
     const writtenAs = (name, uid) => ({ state: 'written', uid: String(uid), writtenAtEvents: 12, contentHash: entryContentHash(entryAbout(name)) });
     const bookOf = (entries) => {
         host.worldNames.push(BOOK);
@@ -501,20 +543,34 @@ describe("names merged on StoryArc's Entity tab (D14)", () => {
         host.books[BOOK] = { entries: Object.fromEntries(entries.map(entry => [entry.uid, entry])) };
     };
 
-    it("make an entry written under a merged name the kept name's at once, keyed by every name, with no model call, whatever is off", async () => {
+    it("make an entry written under a merged name the kept name's at once, keyed by every name, due again, with no model call, whatever is off", async () => {
         bookOf([{ uid: 0, comment: 'Marrow', key: ['Marrow', 'the ferry witch'], content: entryAbout('Marrow') }]);
         host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: BOOK, entries: { Marrow: writtenAs('Marrow', 0) } } };
         host.settings = { ...host.settings, entity_lore_enabled: false, lorebase_enabled: false, story_arc_mode_enabled: false };
         onEntityNamesMerged(MERGE);
         await settle();
         expect(host.books[BOOK].entries[0]).toEqual({ uid: 0, comment: 'Tamsin', key: ['Tamsin', 'Marrow', 'the ferry witch'], content: entryAbout('Marrow') });
-        expect(record()).toEqual({ bookName: BOOK, entries: { Tamsin: writtenAs('Marrow', 0) } });
+        expect(record()).toEqual({ bookName: BOOK, entries: { Tamsin: { ...writtenAs('Marrow', 0), namesChangedBy: 'merge' } }, lockedNames: [] });
         expect(host.ask).not.toHaveBeenCalled();
 
         host.events = [...eventsNaming('Tamsin', 6), ...eventsNaming('Marrow', 8)];
         host.merges = { Tamsin: ['Marrow'] };
         const { states } = await readEntityLoreCharacters(host.settings);
-        expect(states.map(({ name, state }) => [name, state])).toEqual([['Tamsin', 'written']]);
+        expect(states.map(({ name, state }) => [name, state])).toEqual([['Tamsin', 'rewrite_due']]);
+    });
+
+    it("rewrite a merged entity's entry at the next run from the entry as it stands, with every name's events", async () => {
+        bookOf([{ uid: 0, comment: 'Tamsin', key: ['Tamsin'], content: entryAbout('Tamsin') }]);
+        host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: BOOK, entries: { Tamsin: writtenAs('Tamsin', 0) } } };
+        onEntityNamesMerged(MERGE);
+        await settle();
+        host.events = [...eventsNaming('Tamsin', 12), ...eventsNaming('Marrow', 3)];
+        host.merges = { Tamsin: ['Marrow'] };
+        await runAfterEventBase();
+        const prompt = host.ask.mock.calls[0][0][1].content;
+        expect(prompt).toContain(`Tamsin's entry as it stands:\n\n${entryAbout('Tamsin')}`);
+        expect(prompt.match(/^- #/gmu)).toHaveLength(15);
+        expect(record().entries.Tamsin).toEqual({ state: 'written', uid: '0', writtenAtEvents: 15, contentHash: entryContentHash(entryAbout('Tamsin')) });
     });
 
     it("key the kept name's own entry by the merged names, its title as it was, and say when another name has an entry too", async () => {
@@ -531,13 +587,13 @@ describe("names merged on StoryArc's Entity tab (D14)", () => {
             0: { uid: 0, comment: 'Tamsin', key: ['Tamsin', 'Marrow'], content: entryAbout('Tamsin') },
             1: { uid: 1, comment: 'Marrow', key: ['Marrow'], content: entryAbout('Marrow') },
         });
-        expect(record()).toEqual(entityLore);
+        expect(record()).toEqual({ ...entityLore, entries: { ...entityLore.entries, Tamsin: { ...writtenAs('Tamsin', 0), namesChangedBy: 'merge' } }, lockedNames: [] });
         expect(globalThis.toastr.warning).toHaveBeenCalledWith(
             `Marrow also has an entry in "${BOOK}". Entity-Lore keeps writing Tamsin's; delete the other in World Info if it says the same.`, 'VectFox Entity-Lore');
         vi.unstubAllGlobals();
     });
 
-    it('wait for a run under way to end, as the run saves the record it read', async () => {
+    it('wait for a run under way to end, each in the order it was made, as the run saves the record it read', async () => {
         bookOf([{ uid: 0, comment: 'Marrow', key: ['Marrow'], content: entryAbout('Marrow') }]);
         host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: BOOK, entries: { Marrow: writtenAs('Marrow', 0) } } };
         host.events = eventsNaming('Hollis', 12);
@@ -551,12 +607,132 @@ describe("names merged on StoryArc's Entity tab (D14)", () => {
         onEventBaseRunEnded({ collectionId: 'harbor-collection', eventsAdded: 3 });
         await settle();
         onEntityNamesMerged(MERGE);
+        onEntityNameSplit(SPLIT);
         await settle();
-        expect(host.books[BOOK].entries[0].comment).toBe('Marrow');
+        expect(host.books[BOOK].entries[0]).toMatchObject({ comment: 'Marrow', key: ['Marrow'] });
         release();
         await settle();
-        expect(record().entries).toEqual({ Hollis: expect.objectContaining({ state: 'written', uid: '1' }), Tamsin: writtenAs('Marrow', 0) });
-        expect(host.books[BOOK].entries[0].comment).toBe('Tamsin');
+        expect(record().entries).toEqual({ Hollis: expect.objectContaining({ state: 'written', uid: '1' }), Tamsin: { ...writtenAs('Marrow', 0), namesChangedBy: 'split' } });
+        expect(host.books[BOOK].entries[0]).toMatchObject({ comment: 'Tamsin', key: ['Tamsin'] });
+    });
+
+    it.each([
+        ['a name split off on StoryArc', {}, async () => {
+            onEntityNameSplit(SPLIT);
+            await settle();
+        }, 'split'],
+        ['a name the name check matched, allowed again', { Marrow: { state: 'same_as', sameAs: 'Tamsin' } }, async () => {
+            expect(await allowEntityLoreAgain('MARROW')).toEqual({ problem: null });
+        }, 'allow_again'],
+    ])("%s: out of the entry's keys at once, with no model call, whatever is off, and the entry written afresh at the next run", async (_, matched, change, mark) => {
+        bookOf([{ uid: 0, comment: 'Tamsin', key: ['Tamsin', 'marrow', 'the ferry witch'], content: entryAbout('Tamsin') }]);
+        host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: BOOK, entries: { Tamsin: writtenAs('Tamsin', 0), ...matched } } };
+        host.settings = { ...host.settings, entity_lore_enabled: false, lorebase_enabled: false, story_arc_mode_enabled: false };
+        await change();
+        expect(host.books[BOOK].entries[0]).toEqual({ uid: 0, comment: 'Tamsin', key: ['Tamsin', 'the ferry witch'], content: entryAbout('Tamsin') });
+        expect(record().entries).toEqual({ Tamsin: { ...writtenAs('Tamsin', 0), namesChangedBy: mark } });
+        expect(host.ask).not.toHaveBeenCalled();
+
+        host.settings = { ...host.settings, entity_lore_enabled: true, lorebase_enabled: true, story_arc_mode_enabled: true };
+        host.events = [...eventsNaming('Tamsin', 14, 'Tamsin mends nets.'), ...eventsNaming('Marrow', 9, 'Marrow rows the ferry.')];
+        await runAfterEventBase();
+        const prompt = host.ask.mock.calls[0][0][1].content;
+        expect(prompt).not.toContain('as it stands');
+        expect(prompt).not.toContain('Marrow');
+        expect(prompt.match(/^- #/gmu)).toHaveLength(14);
+        expect(saveEntryWithVectors).toHaveBeenCalledWith(BOOK, '0', { comment: 'Tamsin', content: entryAbout('Tamsin'), keys: ['Tamsin', 'the ferry witch'] }, host.settings);
+        expect(regenerateKeysOfEntries).toHaveBeenCalledWith(BOOK, [expect.objectContaining({ uid: 0 })], host.settings);
+        expect(record().entries.Tamsin).toEqual({ state: 'written', uid: '0', writtenAtEvents: 14, contentHash: entryContentHash(entryAbout('Tamsin')) });
+    });
+
+    it('leave the entry as it is on a split of a name the name check matched to it, as it reads that name\'s events still', async () => {
+        bookOf([{ uid: 0, comment: 'Tamsin', key: ['Tamsin', 'Marrow'], content: entryAbout('Tamsin') }]);
+        const entityLore = { bookName: BOOK, entries: { Tamsin: writtenAs('Tamsin', 0), Marrow: { state: 'same_as', sameAs: 'Tamsin' } }, lockedNames: [] };
+        host.collectionMeta[REGISTRY_KEY] = { entityLore };
+        onEntityNameSplit(SPLIT);
+        await settle();
+        expect(host.books[BOOK].entries[0].key).toEqual(['Tamsin', 'Marrow']);
+        expect(record()).toEqual(entityLore);
+        expect(saveLorebookEntry).not.toHaveBeenCalled();
+    });
+
+    it('say why Allow again failed, the record and the keys as they were', async () => {
+        bookOf([{ uid: 0, comment: 'Tamsin', key: ['Tamsin', 'Marrow'], content: entryAbout('Tamsin') }]);
+        const entityLore = { bookName: BOOK, entries: { Tamsin: writtenAs('Tamsin', 0), Marrow: { state: 'same_as', sameAs: 'Tamsin' } } };
+        host.collectionMeta[REGISTRY_KEY] = { entityLore };
+        loadWorldInfo.mockRejectedValueOnce(new Error('The server did not answer.'));
+        expect(await allowEntityLoreAgain('Marrow')).toEqual({ problem: 'Allow again failed: The server did not answer.' });
+        expect(record()).toEqual(entityLore);
+        expect(host.books[BOOK].entries[0].key).toEqual(['Tamsin', 'Marrow']);
+        expect(log.warn).toHaveBeenCalledWith('[VectFox-EntityLore] Marrow: Allow again failed, so its record is as it was:', expect.any(Error));
+    });
+
+    it('are made one at a time outside a run, with Lock and Unlock, and a run reads the record once they are made', async () => {
+        bookOf([{ uid: 0, comment: 'Tamsin', key: ['Tamsin', 'Marrow'], content: entryAbout('Tamsin') }]);
+        host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: BOOK, entries: { Tamsin: writtenAs('Tamsin', 0), Marrow: { state: 'same_as', sameAs: 'Tamsin' } } } };
+        host.events = [...eventsNaming('Tamsin', 14), ...eventsNaming('Marrow', 9), ...eventsNaming('Hollis', 12)];
+        let release;
+        const held = new Promise((resolve) => { release = resolve; });
+        loadWorldInfo.mockImplementationOnce(async (bookName) => {
+            await held;
+            return structuredClone(host.books[bookName]);
+        });
+        const allowed = allowEntityLoreAgain('Marrow');
+        const locked = lockEntityLoreCharacter({ name: 'Hollis', otherNames: [] }, true);
+        onEventBaseRunEnded({ collectionId: 'harbor-collection', eventsAdded: 3 });
+        await settle();
+        expect(host.ask).not.toHaveBeenCalled();
+        release();
+        expect(await allowed).toEqual({ problem: null });
+        expect(await locked).toEqual({ problem: null });
+        await settle();
+        expect(record().lockedNames).toEqual(['Hollis']);
+        expect(record().entries.Marrow).toBeUndefined();
+        expect(host.ask.mock.calls.map(([messages]) => entryNameOf(messages))).toEqual(['Tamsin']);
+        expect(host.ask.mock.calls[0][0][1].content).not.toContain('as it stands');
+    });
+
+    it('are made, once a run ends, before the next run reads the record, one that starts while they are made too', async () => {
+        bookOf([{ uid: 0, comment: 'Marrow', key: ['Marrow'], content: entryAbout('Marrow') }]);
+        host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: BOOK, entries: { Marrow: writtenAs('Marrow', 0) } } };
+        host.events = [...eventsNaming('Marrow', 12), ...eventsNaming('Hollis', 12)];
+        let releaseCheck;
+        const checkHeld = new Promise((resolve) => { releaseCheck = resolve; });
+        const model = answering();
+        host.ask = vi.fn(async (messages) => {
+            if (isCheck(messages)) await checkHeld;
+            return model(messages);
+        });
+        // The merge made during the first run loads the book once that run has written Hollis; that load waits.
+        const loadBook = loadWorldInfo.getMockImplementation();
+        let releaseLoad;
+        const loadHeld = new Promise((resolve) => { releaseLoad = resolve; });
+        let isLoadHeld = false;
+        loadWorldInfo.mockImplementation(async (bookName) => {
+            if (bookName === BOOK && record().entries.Hollis && !isLoadHeld) {
+                isLoadHeld = true;
+                await loadHeld;
+            }
+            return loadBook(bookName);
+        });
+        try {
+            onEventBaseRunEnded({ collectionId: 'harbor-collection', eventsAdded: 3 });
+            await settle();
+            host.merges = { Tamsin: ['Marrow'] };
+            onEntityNamesMerged(MERGE);
+            releaseCheck();
+            await settle();
+            expect(isLoadHeld).toBe(true);
+            host.events = [...host.events, ...eventsNaming('Corin', 12)];
+            onEventBaseRunEnded({ collectionId: 'harbor-collection', eventsAdded: 3 });
+            await settle();
+            releaseLoad();
+            await settle();
+        } finally {
+            loadWorldInfo.mockImplementation(loadBook);
+        }
+        expect(createLorebookEntry.mock.calls.map(([, entry]) => entry.comment)).toEqual(['Hollis', 'Corin']);
+        expect(record().entries.Tamsin).toMatchObject({ state: 'written', uid: '0' });
     });
 });
 

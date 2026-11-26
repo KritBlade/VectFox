@@ -5,7 +5,7 @@
  * fixed; Write at and Rewrite every; the line naming the chat's book; Run now; the status line, the last run's outcome
  * in this chat or why a button did nothing, which a row's button says in a toast as well, as the rows sit below the
  * status line, often out of view; and the open chat's characters, each with its state and the buttons that state
- * offers, searched by name and paged. The switch and the notice are drawn as the page opens, as LoreBase's switch
+ * offers, Lock and Unlock among them, searched by name and paged. The switch and the notice are drawn as the page opens, as LoreBase's switch
  * changes and as the chat changes; the characters are read only while the card is shown, again as its tab opens, as
  * the chat changes, as either count is set and as a run ends.
  */
@@ -17,7 +17,8 @@ import { showSubTab } from '../../shared/gui-dna/gene-behaviours.js';
 import {
     ENTITY_LORE_ACTION, ENTITY_LORE_FIX_AT, ENTITY_LORE_SETTING, allowEntityLoreAgain, entityLoreBlocker, entityLoreBookLine, entityLoreLastRunText,
     entityLoreListMarkup, entityLoreNoticeMarkup, entityLoreProblemMarkup, isEntityLoreOn, isSwitchGatedBy, lastEntityLoreRun,
-    onEntityLoreRunEnded, readEntityLoreCharacters, rewriteEveryEventsOf, runEntityLoreNow, writeAtEventsOf, writeEntityLoreEntryNow,
+    lockEntityLoreCharacter, onEntityLoreRunEnded, readEntityLoreCharacters, rewriteEveryEventsOf, runEntityLoreNow, writeAtEventsOf,
+    writeEntityLoreEntryNow,
 } from '../entity-lore/index.js';
 import { filterEntities } from '../eventbase/index.js';
 import { editLoreBookEntry, onLoreBaseSwitchChange } from '../lorebase/index.js';
@@ -172,7 +173,13 @@ async function runAction({ entityLoreAction: action, name, uid, fixAt }) {
         return;
     }
     if (action === ENTITY_LORE_ACTION.allowAgain) {
-        showRowMessage(allowEntityLoreAgain(name).problem);
+        showRowMessage((await allowEntityLoreAgain(name)).problem);
+        await readCharacters();
+        return;
+    }
+    if (action === ENTITY_LORE_ACTION.lock || action === ENTITY_LORE_ACTION.unlock) {
+        const row = card.characters?.states?.find(each => each.name === name) ?? { name, otherNames: [] };
+        showRowMessage((await lockEntityLoreCharacter(row, action === ENTITY_LORE_ACTION.lock)).problem);
         await readCharacters();
         return;
     }

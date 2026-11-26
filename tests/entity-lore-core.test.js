@@ -5,14 +5,18 @@
  * Guards that:
  *   - the switch is off unless turned on, and Write at and Rewrite every read as whole numbers in their ranges,
  *   - the record reads back only what it can use, finds a kept name in any case, and each change gives a new record,
+ *   - a character is locked by any of its names and unlocked by all of them; a locked one is never due, its entry kept,
  *   - a missing book starts the record over: its written entries are due again, the user's and the name check's answers kept,
  *   - names merged into one entity make its entry the kept name's, or else the first other name's the book holds, moved
- *     to the kept name with the names matched to it; another name's entry is named,
+ *     to the kept name with the names matched to it, and due again; another name's entry is named; a name split off one
+ *     makes the kept name's entry due again, written afresh, which a later merge leaves so, unless the name check
+ *     matched the name to it; Allow again on a name the name check matched does so to the entry it was matched to,
  *   - an entry's hash ignores line endings and the ends of its text, so SillyTavern's own save is not the user's edit,
  *   - a character is excluded by any of its names, in any case: the chat's character, the persona, another lorebook's
  *     entry, or the card's description,
  *   - each character's state follows the record first, then the exclusions and Write at, and a rewrite falls due at
- *     the count it was written at plus Rewrite every,
+ *     the count it was written at plus Rewrite every, or at once when its names changed, on StoryArc's Entity tab or by
+ *     Allow again,
  *   - what keeps Entity-Lore from running is named first by LoreBase, then StoryArc mode, then LoreBase's model, each
  *     with its fix and where the panel makes it,
  *   - a run writes new entries before rewrites, most events first, at most its limit; a row's button writes its own
@@ -26,11 +30,13 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-    ENTITY_LORE_FIX_AT, ENTITY_LORE_NEED, ENTITY_STATE, ENTRIES_PER_AUTOMATIC_RUN, EVENT_SLICE_TOKENS, EXCLUSION, RECORD_STATE,
+    ENTITY_LORE_FIX_AT, ENTITY_LORE_NEED, ENTITY_STATE, ENTRIES_PER_AUTOMATIC_RUN, EVENT_SLICE_TOKENS, EXCLUSION, NAMES_CHANGED_BY, RECORD_STATE,
     REWRITE_EVERY_EVENTS, WRITE_AT_EVENTS, dueCounts, entityLoreBlocker, entityLoreStates, entriesForName, entriesForRun, entryContentHash,
     entryKeysOf, exclusionOf, isEntityLoreOn,
-    readEntityLoreRecord, recordOfName, rewriteEveryEventsOf, sliceEventLines, withBookName, withBookStartedOver, withEntryForgotten,
-    withMergedEntry, withMissingEntriesDeleted, withNameCheckAnswer, withOneEventTime, withWrittenEntry, writeAtEventsOf,
+    isCharacterLocked, isWrittenAfreshAfter, readEntityLoreRecord, recordOfName, rewriteEveryEventsOf, sliceEventLines, withBookName,
+    withBookStartedOver, withCharacterLocked, withMergedEntry, withMissingEntriesDeleted, withNameAllowedAgain, withNameCheckAnswer, withOneEventTime,
+    withSplitName, withWrittenEntry,
+    writeAtEventsOf,
 } from '../src/features/entity-lore/entity-lore-core.js';
 
 const row = (name, eventCount, otherNames = []) => ({ name, otherNames, eventCount });
@@ -54,14 +60,15 @@ describe('the settings', () => {
 });
 
 describe('the record', () => {
-    it('reads back only the book name and the entries it can use', () => {
-        expect(emptyRecord()).toEqual({ bookName: '', entries: {} });
-        expect(readEntityLoreRecord({ bookName: 7, entries: [] })).toEqual({ bookName: '', entries: {} });
+    it('reads back only the book name, the entries and the locked names it can use', () => {
+        expect(emptyRecord()).toEqual({ bookName: '', entries: {}, lockedNames: [] });
+        expect(readEntityLoreRecord({ bookName: 7, entries: [], lockedNames: 'Mira' })).toEqual({ bookName: '', entries: {}, lockedNames: [] });
         const stored = {
             bookName: 'VectFox NPCs - Harbor',
             entries: { Mira: { state: 'written', uid: '4', writtenAtEvents: 12, contentHash: '9' }, Corin: { state: 'lost' }, Tess: 'written' },
+            lockedNames: ['Corin', ' ', 7, 'Bram'],
         };
-        expect(readEntityLoreRecord(stored)).toEqual({ bookName: 'VectFox NPCs - Harbor', entries: { Mira: stored.entries.Mira } });
+        expect(readEntityLoreRecord(stored)).toEqual({ bookName: 'VectFox NPCs - Harbor', entries: { Mira: stored.entries.Mira }, lockedNames: ['Corin', 'Bram'] });
         expect(readEntityLoreRecord(stored).entries.Mira).not.toBe(stored.entries.Mira);
     });
 
@@ -82,7 +89,7 @@ describe('the record', () => {
 
     it('forgets a kept name in any case on Allow again', () => {
         const record = withNameCheckAnswer(withNameCheckAnswer(emptyRecord(), 'Bram', { state: RECORD_STATE.notNamed }), 'Tess', { state: RECORD_STATE.notNamed });
-        expect(withEntryForgotten(record, 'BRAM').entries).toEqual({ Tess: { state: 'not_named' } });
+        expect(withNameAllowedAgain(record, 'BRAM', [])).toEqual({ record: { ...record, entries: { Tess: { state: 'not_named' } } }, unmatched: null });
     });
 
     it('marks deleted only the written entries whose uid the book no longer holds', () => {
@@ -102,8 +109,9 @@ describe('the record', () => {
         record = withMissingEntriesDeleted(withWrittenEntry(record, 'Bram', { uid: 5, writtenAtEvents: 12, content: 'b' }), [4]);
         record = withNameCheckAnswer(record, 'the bus driver', { state: RECORD_STATE.notNamed });
         record = withNameCheckAnswer(record, 'Corrie', { state: RECORD_STATE.sameAs, sameAs: 'Corin' });
-        const after = withBookStartedOver(record);
+        const after = withBookStartedOver(withCharacterLocked(record, row('Bram', 12), true));
         expect(after.bookName).toBe('');
+        expect(after.lockedNames).toEqual(['Bram']);
         expect(Object.keys(after.entries)).toEqual(['Bram', 'the bus driver', 'Corrie']);
         expect(entityLoreStates([row('Mira', 40)], { record: after, writeAt: 10, rewriteEvery: 30 })[0].state).toBe(ENTITY_STATE.due);
         expect(record.entries.Mira.state).toBe('written');
@@ -187,6 +195,27 @@ describe('entityLoreStates', () => {
         ]);
     });
 
+    it('makes an entry due again at once when its names changed on StoryArc (D17), unless the user edited or locked it', () => {
+        const uids = [0, 1, 2, 3];
+        let record = emptyRecord();
+        for (const [uid, name] of ['Mira', 'Corin', 'Tess', 'Bram'].entries()) record = withWrittenEntry(record, name, { uid, writtenAtEvents: 12, content: name });
+        record = withSplitName(record, { keptName: 'Mira', splitName: 'Mirabel' }, uids).record;
+        for (const name of ['Corin', 'Tess', 'Bram']) record = withMergedEntry(record, { keptName: name, otherNames: [`${name} Vale`] }, uids).record;
+        record = withCharacterLocked(record, row('Bram', 13), true);
+        const bookEntries = [{ uid: 0, content: 'Mira' }, { uid: 1, content: 'Corin' }, { uid: 2, content: 'Tess, changed by hand' }, { uid: 3, content: 'Bram' }];
+        const states = entityLoreStates([row('Mira', 13), row('Corin', 13), row('Tess', 13), row('Bram', 13)], { record, ...options, bookEntries });
+        expect(states.map(({ name, state, namesChangedBy = null }) => [name, state, namesChangedBy])).toEqual([
+            ['Mira', ENTITY_STATE.rewriteDue, NAMES_CHANGED_BY.split],
+            ['Corin', ENTITY_STATE.rewriteDue, NAMES_CHANGED_BY.merge],
+            ['Tess', ENTITY_STATE.editedByUser, null],
+            ['Bram', ENTITY_STATE.locked, null],
+        ]);
+        expect(entriesForName(states, 'Mira')).toEqual([expect.objectContaining({ state: ENTITY_STATE.rewriteDue, namesChangedBy: NAMES_CHANGED_BY.split })]);
+        const rewritten = withWrittenEntry(record, 'Mira', { uid: 0, writtenAtEvents: 13, content: 'Mira again' });
+        expect(entityLoreStates([row('Mira', 13)], { record: rewritten, ...options, bookEntries: [{ uid: 0, content: 'Mira again' }] })[0].state)
+            .toBe(ENTITY_STATE.written);
+    });
+
     it('gives the same states for the same names and counts, and keeps each row as it was', () => {
         const rows = [row('Mira', 10, ['Mirabel']), row('Corin', 3)];
         const first = entityLoreStates(rows, { record: emptyRecord(), ...options });
@@ -264,10 +293,43 @@ describe('entryKeysOf', () => {
     });
 });
 
-describe('withMergedEntry (D14)', () => {
+describe('a lock (T3)', () => {
+    it('locks a character under its kept name, finds it by any of its names in any case, and unlocks every one of them', () => {
+        const locked = withCharacterLocked(emptyRecord(), row('Mira', 12), true);
+        expect(locked.lockedNames).toEqual(['Mira']);
+        expect(isCharacterLocked(locked, row('mira', 12))).toBe(true);
+        expect(isCharacterLocked(locked, row('Mirabel', 12, ['MIRA']))).toBe(true);
+        expect(isCharacterLocked(locked, row('Corin', 12))).toBe(false);
+        expect(withCharacterLocked(withCharacterLocked(locked, row('Corin', 12), true), row('Mirabel', 12, ['Mira']), false).lockedNames).toEqual(['Corin']);
+        expect(emptyRecord().lockedNames).toEqual([]);
+    });
+
+    it('makes a locked character never due, its entry kept, while one deleted, not named, matched or excluded stays so', () => {
+        let record = withWrittenEntry(emptyRecord(), 'Mira', { uid: 4, writtenAtEvents: 12, content: 'a' });
+        record = withWrittenEntry(record, 'Corin', { uid: 5, writtenAtEvents: 12, content: 'b' });
+        record = withNameCheckAnswer(record, 'the bus driver', { state: RECORD_STATE.notNamed });
+        for (const name of ['Mira', 'Corin', 'Tess', 'Bram', 'the bus driver', 'Keeper Orrin']) record = withCharacterLocked(record, row(name, 1), true);
+        const rows = [row('Mira', 90), row('Corin', 90), row('Tess', 40), row('Bram', 3), row('the bus driver', 40), row('Keeper Orrin', 40)];
+        const states = entityLoreStates(rows, {
+            record, writeAt: 10, rewriteEvery: 30, chat: { characterNames: ['Keeper Orrin'] }, bookEntries: [{ uid: 4, content: 'a' }, { uid: 5, content: 'edited' }],
+        });
+        expect(states.map(({ name, state }) => [name, state])).toEqual([
+            ['Mira', ENTITY_STATE.locked], ['Corin', ENTITY_STATE.locked], ['Tess', ENTITY_STATE.locked], ['Bram', ENTITY_STATE.locked],
+            ['the bus driver', ENTITY_STATE.notNamed], ['Keeper Orrin', ENTITY_STATE.excluded],
+        ]);
+        expect(states[0]).toMatchObject({ uid: '4', writtenAtEvents: 12 });
+        expect(entriesForRun(states)).toEqual([]);
+        expect(dueCounts(states)).toEqual({ newCount: 0, rewriteCount: 0 });
+        expect(entriesForName(states, 'Mira')).toEqual([]);
+        expect(entityLoreStates([row('Mira', 90)], { record: withMissingEntriesDeleted(record, []), writeAt: 10, rewriteEvery: 30 })[0].state)
+            .toBe(ENTITY_STATE.deletedByUser);
+    });
+});
+
+describe("names merged or split on StoryArc's Entity tab, and a matched name allowed again (D14, D17)", () => {
     const written = (record, name, uid) => withWrittenEntry(record, name, { uid, writtenAtEvents: 12, content: `${name} keeps the ferry.` });
 
-    it("moves an entry written under a merged name to the kept name, with the names matched to it", () => {
+    it("moves an entry written under a merged name to the kept name, with the names matched to it, due again", () => {
         let record = written(emptyRecord(), 'Marrow', 4);
         record = withNameCheckAnswer(withNameCheckAnswer(record, 'the ferry witch', { state: RECORD_STATE.sameAs, sameAs: 'Marrow' }), 'Tamsin', { state: RECORD_STATE.notNamed });
         const merged = withMergedEntry(record, { keptName: 'Tamsin', otherNames: ['Marrow'] }, [4, 7]);
@@ -276,8 +338,9 @@ describe('withMergedEntry (D14)', () => {
                 bookName: '',
                 entries: {
                     'the ferry witch': { state: RECORD_STATE.sameAs, sameAs: 'Tamsin' },
-                    Tamsin: { ...recordOfName(record, 'Marrow') },
+                    Tamsin: { ...recordOfName(record, 'Marrow'), namesChangedBy: NAMES_CHANGED_BY.merge },
                 },
+                lockedNames: [],
             },
             uid: '4', movedFrom: 'Marrow', alsoWritten: [],
         });
@@ -286,10 +349,43 @@ describe('withMergedEntry (D14)', () => {
 
     it("keeps the kept name's own entry and names another name's, and finds none the book no longer holds", () => {
         const record = written(written(emptyRecord(), 'Tamsin', 2), 'marrow', 4);
-        expect(withMergedEntry(record, { keptName: 'Tamsin', otherNames: ['Marrow'] }, [2, 4])).toEqual({ record, uid: '2', movedFrom: null, alsoWritten: ['Marrow'] });
+        expect(withMergedEntry(record, { keptName: 'Tamsin', otherNames: ['Marrow'] }, [2, 4])).toEqual({
+            record: { ...record, entries: { ...record.entries, Tamsin: { ...record.entries.Tamsin, namesChangedBy: NAMES_CHANGED_BY.merge } } },
+            uid: '2', movedFrom: null, alsoWritten: ['Marrow'],
+        });
         expect(withMergedEntry(record, { keptName: 'Tamsin', otherNames: ['Marrow'] }, [4]).movedFrom).toBe('Marrow');
         expect(withMergedEntry(record, { keptName: 'Tamsin', otherNames: ['Marrow'] }, [])).toBeNull();
         expect(withMergedEntry(withNameCheckAnswer(emptyRecord(), 'Marrow', { state: RECORD_STATE.notNamed }), { keptName: 'Tamsin', otherNames: ['Marrow'] }, [4])).toBeNull();
+    });
+
+    it("marks the kept name's entry to be written afresh once a name is split off, which a later merge leaves so", () => {
+        const record = written(emptyRecord(), 'Tamsin', 2);
+        const split = withSplitName(record, { keptName: 'Tamsin', splitName: 'Marrow' }, [2]);
+        expect(split).toEqual({ record: { ...record, entries: { Tamsin: { ...record.entries.Tamsin, namesChangedBy: NAMES_CHANGED_BY.split } } }, uid: '2', title: 'Tamsin' });
+        expect(record.entries.Tamsin.namesChangedBy).toBeUndefined();
+        const mergedAgain = withMergedEntry(split.record, { keptName: 'Tamsin', otherNames: ['Marrow'] }, [2]);
+        expect(recordOfName(mergedAgain.record, 'Tamsin').namesChangedBy).toBe(NAMES_CHANGED_BY.split);
+    });
+
+    it('marks nothing on a split with no entry of the kept name the book holds, or of a name the name check matched to it', () => {
+        const record = written(emptyRecord(), 'Tamsin', 2);
+        expect(withSplitName(record, { keptName: 'Tamsin', splitName: 'Marrow' }, [])).toBeNull();
+        expect(withSplitName(written(emptyRecord(), 'Marrow', 4), { keptName: 'Tamsin', splitName: 'Marrow' }, [4])).toBeNull();
+        const matched = withNameCheckAnswer(record, 'marrow', { state: RECORD_STATE.sameAs, sameAs: 'Tamsin' });
+        expect(withSplitName(matched, { keptName: 'Tamsin', splitName: 'Marrow' }, [2])).toBeNull();
+    });
+
+    it('marks the entry a name was matched to, to be written afresh, once Allow again forgets the name, which a later merge leaves so', () => {
+        const record = withNameCheckAnswer(written(emptyRecord(), 'Tamsin', 2), 'Marrow', { state: RECORD_STATE.sameAs, sameAs: 'tamsin' });
+        const allowed = withNameAllowedAgain(record, 'MARROW', [2]);
+        expect(allowed).toEqual({
+            record: { ...record, entries: { Tamsin: { ...record.entries.Tamsin, namesChangedBy: NAMES_CHANGED_BY.allowAgain } } },
+            unmatched: { title: 'Tamsin', uid: '2' },
+        });
+        const mergedAgain = withMergedEntry(allowed.record, { keptName: 'Tamsin', otherNames: ['Corin'] }, [2]);
+        expect(recordOfName(mergedAgain.record, 'Tamsin').namesChangedBy).toBe(NAMES_CHANGED_BY.allowAgain);
+        expect(withNameAllowedAgain(record, 'Marrow', [])).toEqual({ record: { ...record, entries: { Tamsin: record.entries.Tamsin } }, unmatched: null });
+        expect([NAMES_CHANGED_BY.merge, NAMES_CHANGED_BY.split, NAMES_CHANGED_BY.allowAgain, undefined].map(isWrittenAfreshAfter)).toEqual([false, true, true, false]);
     });
 });
 

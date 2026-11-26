@@ -1,10 +1,11 @@
 /**
  * @vitest-environment jsdom
  *
- * StoryArc's Entity tab tells of each merge it saves (src/features/eventbase/story-arc-page.js), on the page's real
- * code and markup: once Merge is confirmed and saved, EventBase's announcements hear the collection, the kept name and
- * every other name of the entity now, which src/index.js passes on to Entity-Lore (D14 of
- * InternalProject/Vectfox/plans/entity-lore.md); a merge the user cancels tells nothing.
+ * StoryArc's Entity tab tells of each merge and split it saves (src/features/eventbase/story-arc-page.js), on the
+ * page's real code and markup: once Merge is confirmed and saved, EventBase's announcements hear the collection, the
+ * kept name and every other name of the entity now; once Split is saved, the collection, the kept name and the name
+ * split off it. src/index.js passes each on to Entity-Lore (D14 and D17 of InternalProject/Vectfox/plans/entity-lore.md).
+ * A merge the user cancels tells nothing.
  *
  * Names are made up and match no story.
  */
@@ -39,7 +40,10 @@ vi.mock('../src/features/eventbase/story-arc-entities.js', () => ({
     saveHiddenEntityNames: () => {},
 }));
 vi.mock('../src/features/eventbase/story-arc-retrieval.js', () => ({ findStoryWebEvents: async () => ({}) }));
-vi.mock('../src/features/eventbase/eventbase-announcements.js', () => ({ announceEntityNamesMerged: merge => host.announced.push(merge) }));
+vi.mock('../src/features/eventbase/eventbase-announcements.js', () => ({
+    announceEntityNamesMerged: merge => host.announced.push({ merge }),
+    announceEntityNameSplit: split => host.announced.push({ split }),
+}));
 
 function press(action, name) {
     [...document.querySelectorAll(`[data-entity-action="${action}"]`)].find(button => button.dataset.name === name).click();
@@ -51,7 +55,7 @@ function mergeInto(sourceName, targetName) {
     press('merge-confirm', sourceName);
 }
 
-describe("StoryArc Entity tab, a merge's announcement", () => {
+describe('StoryArc Entity tab, the announcements of its merges and splits', () => {
     beforeEach(async () => {
         vi.resetModules();
         vi.stubGlobal('matchMedia', () => ({ matches: false }));
@@ -65,7 +69,7 @@ describe("StoryArc Entity tab, a merge's announcement", () => {
     it('tells of the merge once it is saved: the collection, the kept name and every other name of the entity now', async () => {
         mergeInto('Elsie', 'Mara');
 
-        await vi.waitFor(() => expect(host.announced).toEqual([{ collectionKey: 'qdrant:a-collection', keptName: 'Mara', otherNames: ['Marigold', 'Elsie'] }]));
+        await vi.waitFor(() => expect(host.announced).toEqual([{ merge: { collectionKey: 'qdrant:a-collection', keptName: 'Mara', otherNames: ['Marigold', 'Elsie'] } }]));
         expect(host.savedMerges).toEqual([{ key: 'qdrant:a-collection', merges: { Mara: ['Marigold', 'Elsie'] } }]);
     });
 
@@ -76,5 +80,14 @@ describe("StoryArc Entity tab, a merge's announcement", () => {
 
         expect(host.savedMerges).toEqual([]);
         expect(host.announced).toEqual([]);
+    });
+
+    it('tells of a split once it is saved: the collection, the kept name and the name split off it', async () => {
+        press('split', 'Mara');
+        document.getElementById('VectFox_story_arc_entity_split_name').value = 'Marigold';
+        press('split-confirm', 'Mara');
+
+        await vi.waitFor(() => expect(host.announced).toEqual([{ split: { collectionKey: 'qdrant:a-collection', keptName: 'Mara', splitName: 'Marigold' } }]));
+        expect(host.savedMerges).toEqual([{ key: 'qdrant:a-collection', merges: {} }]);
     });
 });

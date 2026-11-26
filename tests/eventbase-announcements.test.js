@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../src/sillytavern/log.js', () => ({ log: { warn: vi.fn(), error: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn() } }));
 
 const {
-    announceCollectionInUseChanged, announceEntityNamesMerged, announceEventsRemoved, announceRunEnded, setEventBaseListeners,
+    announceCollectionInUseChanged, announceEntityNameSplit, announceEntityNamesMerged, announceEventsRemoved, announceRunEnded, setEventBaseListeners,
 } = await import('../src/features/eventbase/eventbase-announcements.js');
 const { log } = await import('../src/sillytavern/log.js');
 
@@ -21,12 +21,13 @@ afterEach(() => {
 
 describe("EventBase's announcements", () => {
     it('tells each listener its own kind only', () => {
-        const heard = { runs: [], removals: [], inUse: [], merges: [] };
+        const heard = { runs: [], removals: [], inUse: [], merges: [], splits: [] };
         setEventBaseListeners({
             onRunEnded: run => heard.runs.push(run),
             onEventsRemoved: (collectionId, eventIds) => heard.removals.push([collectionId, eventIds]),
             onCollectionInUseChanged: inUse => heard.inUse.push(inUse),
             onEntityNamesMerged: merge => heard.merges.push(merge),
+            onEntityNameSplit: split => heard.splits.push(split),
         });
 
         announceRunEnded({ collectionId: HARBOR_EVENTS, eventsAdded: 3, windowsProcessed: 2 });
@@ -34,12 +35,14 @@ describe("EventBase's announcements", () => {
         announceEventsRemoved(HARBOR_EVENTS, null);
         announceCollectionInUseChanged({ chatId: null, collectionId: null });
         announceEntityNamesMerged({ collectionKey: `qdrant:${HARBOR_EVENTS}`, keptName: 'Mara', otherNames: ['Marigold'] });
+        announceEntityNameSplit({ collectionKey: `qdrant:${HARBOR_EVENTS}`, keptName: 'Mara', splitName: 'Marigold' });
 
         expect(heard).toEqual({
             runs: [{ collectionId: HARBOR_EVENTS, eventsAdded: 3, windowsProcessed: 2 }],
             removals: [[HARBOR_EVENTS, ['evt-gate']], [HARBOR_EVENTS, null]],
             inUse: [{ chatId: null, collectionId: null }],
             merges: [{ collectionKey: `qdrant:${HARBOR_EVENTS}`, keptName: 'Mara', otherNames: ['Marigold'] }],
+            splits: [{ collectionKey: `qdrant:${HARBOR_EVENTS}`, keptName: 'Mara', splitName: 'Marigold' }],
         });
     });
 
