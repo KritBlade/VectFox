@@ -660,18 +660,52 @@ export function namesMatchedTo(record, name) {
 }
 
 /**
- * Run now's question (§4.1): how many entries it writes and rewrites, and what that costs; the name check is asked only
- * when there are new entries.
+ * Run now's question (§4.1), in plain words: what it writes, into which lorebook, and the requests it makes on
+ * LoreBase's model. The name check comes first only when there are new entries. Lines for confirmPopup, each count
+ * and the book's name a value, never part of a fixed sentence.
  *
- * @param {{newCount: number, rewriteCount: number}} counts - From dueCounts, at least one above 0
- * @returns {string}
+ * @param {object} run
+ * @param {number} run.newCount - From dueCounts; with rewriteCount, at least one above 0
+ * @param {number} run.rewriteCount
+ * @param {string} run.bookName - The chat's book, or the one its first entry makes
+ * @param {boolean} run.isBookMade - Whether that book is made yet
+ * @returns {object[]} confirmPopup's lines (src/sillytavern/popup-core.js)
  */
-export function runNowQuestion({ newCount, rewriteCount }) {
-    const entries = count => counted(count, 'entry', 'entries');
-    const asked = newCount
-        ? `Write ${entries(newCount)}${rewriteCount ? ` and rewrite ${rewriteCount}` : ''}`
-        : `Rewrite ${entries(rewriteCount)}`;
-    return `${asked}? Each is one call on LoreBase's model${newCount ? ', after one call that checks the names' : ''}.`;
+export function runNowQuestion({ newCount, rewriteCount, bookName, isBookMade }) {
+    const countOf = number => ({ name: String(number) });
+    const book = { name: bookName };
+    if (!newCount) {
+        return [
+            { icon: 'fa-users-viewfinder', parts: [{ text: 'Rewrite ' }, countOf(rewriteCount), { text: rewriteCount === 1 ? ' lorebook entry?' : ' lorebook entries?' }] },
+            { parts: [{ text: "Each is written again from the character's whole story so far, in this chat's lorebook " }, book, { text: '.' }] },
+            { text: "Each takes one request to LoreBase's model, a few for a very long story, and LoreBase writes their keys and vectors again." },
+        ];
+    }
+    const rewrites = rewriteCount
+        ? [{ text: ', and rewrite ' }, countOf(rewriteCount), { text: rewriteCount === 1 ? ' existing one?' : ' existing ones?' }]
+        : [{ text: '?' }];
+    return [
+        {
+            icon: 'fa-users-viewfinder',
+            parts: [
+                { text: newCount === 1 ? 'Write a lorebook entry for ' : 'Write lorebook entries for ' }, countOf(newCount),
+                { text: newCount === 1 ? ' character' : ' characters' }, ...rewrites,
+            ],
+        },
+        {
+            parts: [
+                { text: isBookMade ? "One entry per character, from the story's events about them, into this chat's lorebook "
+                    : "One entry per character, from the story's events about them, into a new lorebook for this chat, " },
+                book, { text: '.' },
+            ],
+        },
+        {
+            text: "First, one request to LoreBase's model checks which names are named characters: a job or a title gets no entry, "
+                + "and another name of a character joins that character's entry. Each entry then takes one more request, a few for a "
+                + 'very long story, and LoreBase writes their keys and vectors.',
+        },
+        ...(rewriteCount ? [{ text: "A rewrite writes an existing entry again from the character's whole story so far, one request each." }] : []),
+    ];
 }
 
 /**

@@ -386,12 +386,30 @@ describe('Run now (§4.1)', () => {
         host.events = ['Ash', 'Bryn', 'Cole', 'Dara', 'Esme', 'Finn', 'Gale'].flatMap((name, index) => eventsNaming(name, 10 + index));
         host.isYes = false;
         expect(await runEntityLoreNow()).toEqual({ problem: null });
-        expect(confirmPopup.mock.calls[0][0][0].text).toBe("Write 7 entries? Each is one call on LoreBase's model, after one call that checks the names.");
+        const [question, buttons] = confirmPopup.mock.calls[0];
+        expect(question[0].parts).toEqual([{ text: 'Write lorebook entries for ' }, { name: '7' }, { text: ' characters' }, { text: '?' }]);
+        expect(question[1].parts).toEqual([{ text: "One entry per character, from the story's events about them, into a new lorebook for this chat, " }, { name: BOOK }, { text: '.' }]);
+        expect(buttons).toEqual({ okButton: 'Write' });
         expect(host.ask).not.toHaveBeenCalled();
 
         host.isYes = true;
         await runEntityLoreNow();
         expect(createLorebookEntry).toHaveBeenCalledTimes(7);
+    });
+
+    it('asks about the rewrites alone, with Rewrite, when no new entry is due', async () => {
+        host.events = eventsNaming('Tamsin', 45);
+        host.worldNames.push(BOOK);
+        host.chatBooks.push(BOOK);
+        host.books[BOOK] = { entries: { 0: { uid: 0, comment: 'Tamsin', key: ['Tamsin'], content: 'Tamsin trades salt.' } } };
+        host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: BOOK, entries: { Tamsin: { state: 'written', uid: '0', writtenAtEvents: 12, contentHash: entryContentHash('Tamsin trades salt.') } } } };
+        host.isYes = false;
+        await runEntityLoreNow();
+        const [question, buttons] = confirmPopup.mock.calls[0];
+        expect(question[0].parts).toEqual([{ text: 'Rewrite ' }, { name: '1' }, { text: ' lorebook entry?' }]);
+        expect(question[1].parts).toEqual([{ text: "Each is written again from the character's whole story so far, in this chat's lorebook " }, { name: BOOK }, { text: '.' }]);
+        expect(buttons).toEqual({ okButton: 'Rewrite' });
+        expect(host.ask).not.toHaveBeenCalled();
     });
 
     it("says why it writes nothing: Entity-Lore off, or no entry due, asking nothing", async () => {

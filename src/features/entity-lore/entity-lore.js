@@ -149,8 +149,8 @@ export function onEventBaseRunEnded({ collectionId, eventsAdded }) {
 }
 
 /**
- * Run now (§4.1): every entry due, once the user says yes to how many. During a run, its progress panel comes to the
- * front instead.
+ * Run now (§4.1): every entry due, once the user says yes to Run now's question, which says what it writes, into which
+ * lorebook, and the requests it makes. During a run, its progress panel comes to the front instead.
  * @returns {Promise<{problem: string|null, isNothingDue?: boolean}>} Why nothing ran, or null when the run ran or the
  *   user said no; isNothingDue when no entry was due, which turning the switch on says nothing of
  */
@@ -166,7 +166,8 @@ export async function runEntityLoreNow() {
     if (chat.problem) return { problem: chat.problem };
     const counts = dueCounts(chat.states);
     if (!counts.newCount && !counts.rewriteCount) return { problem: 'No entry is due now.', isNothingDue: true };
-    if (!await confirmPopup([{ icon: 'fa-users-viewfinder', text: runNowQuestion(counts) }], { okButton: 'Write' })) return { problem: null };
+    const question = runNowQuestion({ ...counts, bookName: chat.record.bookName || npcBookName(getCurrentChatId()), isBookMade: Boolean(chat.record.bookName) });
+    if (!await confirmPopup(question, { okButton: counts.newCount ? 'Write' : 'Rewrite' })) return { problem: null };
     await runEntityLore(settings, wholeRun(Number.POSITIVE_INFINITY));
     return { problem: null };
 }

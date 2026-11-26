@@ -26,7 +26,9 @@
  *     character's entry, new or again, an edited one only as accepted,
  *   - an entry's keys are its names, then the keys it already had, each once in any case,
  *   - an event as an entry's call reads it has one time: its DateTime to the minute, or else its scene_time,
- *   - a character's events are cut into slices that fit, oldest first.
+ *   - a character's events are cut into slices that fit, oldest first,
+ *   - Run now's question says in plain words what it writes, into which lorebook, and the requests it makes, each
+ *     count and the book's name a value.
  *
  * Names are made up and match no story.
  */
@@ -36,7 +38,7 @@ import {
     ENTITY_LORE_FIX_AT, ENTITY_LORE_NEED, ENTITY_STATE, ENTRIES_PER_AUTOMATIC_RUN, EVENT_SLICE_TOKENS, EXCLUSION, NAMES_CHANGED_BY, RECORD_STATE,
     REWRITE_EVERY_EVENTS, WRITE_AT_EVENTS, dueCounts, entityLoreBlocker, entityLoreStates, entriesForName, entriesForRun, entryContentHash,
     entryKeysOf, exclusionOf, isEntityLoreOn,
-    isCharacterLocked, isWrittenAfreshAfter, readEntityLoreRecord, recordOfName, rewriteEveryEventsOf, sliceEventLines, withBookName,
+    isCharacterLocked, isWrittenAfreshAfter, readEntityLoreRecord, recordOfName, rewriteEveryEventsOf, runNowQuestion, sliceEventLines, withBookName,
     withBookStartedOver, withCharacterLocked, withMergedEntry, withMissingEntriesDeleted, withNameAllowedAgain, withNameCheckAnswer, withOneEventTime,
     withSplitName, withWrittenEntry,
     writeAtEventsOf,
@@ -433,5 +435,44 @@ describe('sliceEventLines', () => {
     it('cuts the lines into slices that fit, oldest first, with a line too long for any slice alone', () => {
         expect(sliceEventLines(['aaaa', 'bbbb', 'cc', 'dddddddddd', 'e'], tokensOf, 8)).toEqual([['aaaa', 'bbbb'], ['cc'], ['dddddddddd'], ['e']]);
         expect(EVENT_SLICE_TOKENS).toBe(30000);
+    });
+});
+
+describe("Run now's question (§4.1)", () => {
+    const linesText = lines => lines.map(line => (line.parts ?? [line]).map(part => part.text ?? part.name).join(''));
+    const CHECK_LINE = "First, one request to LoreBase's model checks which names are named characters: a job or a title gets no entry, and "
+        + "another name of a character joins that character's entry. Each entry then takes one more request, a few for a very long story, "
+        + 'and LoreBase writes their keys and vectors.';
+
+    it('says in plain words what it writes, into which lorebook, and the requests it makes, each count and the book a value', () => {
+        const lines = runNowQuestion({ newCount: 25, rewriteCount: 0, bookName: 'VectFox NPCs - Harbor', isBookMade: true });
+        expect(linesText(lines)).toEqual([
+            'Write lorebook entries for 25 characters?',
+            "One entry per character, from the story's events about them, into this chat's lorebook VectFox NPCs - Harbor.",
+            CHECK_LINE,
+        ]);
+        expect(lines[0]).toEqual({ icon: 'fa-users-viewfinder', parts: [{ text: 'Write lorebook entries for ' }, { name: '25' }, { text: ' characters' }, { text: '?' }] });
+        expect(lines[1].parts[1]).toEqual({ name: 'VectFox NPCs - Harbor' });
+        expect(lines[2]).toEqual({ text: CHECK_LINE });
+    });
+
+    it('names the new lorebook the first entry makes, says one character in the singular, and adds the rewrites', () => {
+        expect(linesText(runNowQuestion({ newCount: 1, rewriteCount: 1, bookName: 'VectFox NPCs - Harbor', isBookMade: false }))).toEqual([
+            'Write a lorebook entry for 1 character, and rewrite 1 existing one?',
+            "One entry per character, from the story's events about them, into a new lorebook for this chat, VectFox NPCs - Harbor.",
+            CHECK_LINE,
+            "A rewrite writes an existing entry again from the character's whole story so far, one request each.",
+        ]);
+        expect(linesText(runNowQuestion({ newCount: 3, rewriteCount: 4, bookName: 'VectFox NPCs - Harbor', isBookMade: true }))[0])
+            .toBe('Write lorebook entries for 3 characters, and rewrite 4 existing ones?');
+    });
+
+    it('asks about the rewrites alone when no new entry is due, with no name check', () => {
+        expect(linesText(runNowQuestion({ newCount: 0, rewriteCount: 4, bookName: 'VectFox NPCs - Harbor', isBookMade: true }))).toEqual([
+            'Rewrite 4 lorebook entries?',
+            "Each is written again from the character's whole story so far, in this chat's lorebook VectFox NPCs - Harbor.",
+            "Each takes one request to LoreBase's model, a few for a very long story, and LoreBase writes their keys and vectors again.",
+        ]);
+        expect(linesText(runNowQuestion({ newCount: 0, rewriteCount: 1, bookName: 'VectFox NPCs - Harbor', isBookMade: true }))[0]).toBe('Rewrite 1 lorebook entry?');
     });
 });
