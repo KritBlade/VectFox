@@ -116,7 +116,7 @@ vi.mock('../src/features/lorebase/lorebase-jev.js', () => ({
     askJev: vi.fn(async () => host.jevAnswer),
 }));
 vi.mock('../src/features/lorebase/lorebase-vectors.js', () => ({
-    initializeLoreBaseVectors: vi.fn(),
+    followEditedBooks: vi.fn(),
     bookVectors: vi.fn(async bookNames => {
         if (host.vectorsReadError) throw host.vectorsReadError;
         return new Map(bookNames.map(bookName => [bookName, new Map()]));

@@ -8,7 +8,7 @@
     "css": "src/vectfox.css",
     "author": "Kritbalde",
     "version": "3.6.262",
-    "similharity_minimum_version": "3.4.14",
+    "similharity_minimum_version": "3.4.20",
     "homePage": "https://github.com/KritBlade/VectFox",
     "description": "Chat memory from EventBase events, with StoryArc, Agent Mode and LoreBase lorebook picks",
     "auto_update": true,

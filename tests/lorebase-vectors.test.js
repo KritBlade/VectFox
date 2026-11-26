@@ -5,7 +5,8 @@
  * current by what is written and deleted; writes in batches of whole entries, stored before the stale points are
  * deleted; a wrong embedding setup fails the rest of a run at once; a stop leaves the batches not yet sent; the points
  * of entries no longer selected deleted; Delete all; what the session knew of one book's vectors and failures
- * forgotten once Remove from LoreBase deletes them; an edit SillyTavern saves written again in the background; and,
+ * forgotten once Remove from LoreBase deletes them; an edit SillyTavern saves written again in the background, after the
+ * keys of the entries the book no longer holds are deleted (pruneBookKeys, tests/lorebase-keys.test.js); and,
  * for the Database Browser's rows, a book tenant read whole with its dense vectors in the collection named, a vectors
  * file's points stored with their vectors, and a tenant deleted; a reply's search, both texts over every book taking
  * part in the collection LoreBase reads now. The vector API is a stand-in holding points in memory, routed by the real
@@ -37,6 +38,9 @@ vi.mock('../src/sillytavern/events.js', () => ({
 }));
 vi.mock('../src/sillytavern/world-info.js', () => ({ loadWorldInfo: async bookName => host.books[bookName] }));
 vi.mock('../src/shared/model-config-notifier.js', () => ({ notifyInvalidModel: vi.fn() }));
+vi.mock('../src/features/lorebase/lorebase-keys.js', () => ({
+    pruneBookKeys: vi.fn(async (bookName) => { host.calls.push({ action: 'prune keys', bookName }); }),
+}));
 vi.mock('../src/features/embedding/index.js', () => ({
     getModelFromSettings: settings => settings.embedding_model ?? 'baai/bge-m3',
     // A piece size of 8 words, so a long message is cut to its newest words.
@@ -408,7 +412,7 @@ describe('an edit SillyTavern saves', () => {
         vi.useFakeTimers();
         Object.assign(host.settings.vectfox, SETTINGS);
         selectEntries([lighthouse, buoy]);
-        vectors.initializeLoreBaseVectors();
+        vectors.followEditedBooks();
         await vectors.writeBookVectors(BOOK, [lighthouse, buoy], [lighthouse], host.settings.vectfox);
         host.calls = [];
         const edited = { ...lighthouse, content: '[History]\nThe lighthouse was raised in the year of the long storm.\n[Keeper]\nKeeper Wren trims the wick.' };
@@ -419,11 +423,23 @@ describe('an edit SillyTavern saves', () => {
         expect(deleted()[0].hashes).toEqual([core.entryPoints(lighthouse, bookId)[1].hash]);
     });
 
+    it('deletes the keys of the entries the book no longer holds first, once the saves settle', async () => {
+        vi.useFakeTimers();
+        Object.assign(host.settings.vectfox, SETTINGS);
+        selectEntries([lighthouse, buoy]);
+        vectors.followEditedBooks();
+        await vectors.writeBookVectors(BOOK, [lighthouse, buoy], [lighthouse, buoy], host.settings.vectfox);
+        host.calls = [];
+        await saveEdit([lighthouse]);
+        expect(host.calls[0]).toEqual({ action: 'prune keys', bookName: BOOK });
+        expect(host.calls.filter(call => call.action === 'prune keys')).toHaveLength(1);
+    });
+
     it('writes once for a burst of saves', async () => {
         vi.useFakeTimers();
         Object.assign(host.settings.vectfox, SETTINGS);
         selectEntries([buoy]);
-        vectors.initializeLoreBaseVectors();
+        vectors.followEditedBooks();
         await vectors.writeBookVectors(BOOK, [buoy], [buoy], host.settings.vectfox);
         host.calls = [];
         host.handlers.worldinfo_updated(BOOK);
@@ -436,7 +452,7 @@ describe('an edit SillyTavern saves', () => {
         vi.useFakeTimers();
         Object.assign(host.settings.vectfox, SETTINGS, { lorebase_enabled: false });
         selectEntries([buoy]);
-        vectors.initializeLoreBaseVectors();
+        vectors.followEditedBooks();
         await vectors.writeBookVectors(BOOK, [buoy], [buoy], host.settings.vectfox);
         host.calls = [];
         await saveEdit([{ ...buoy, content: 'Two red buoys mark the reef.' }]);

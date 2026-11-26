@@ -5,12 +5,15 @@
  * plans/executed/vectfox-multi-collection-per-chat.md). A book's keys are written as many calls at once as the WorldInfo page's
  * Entries at once (1 to 8), each entry's state kept for this session and told to the key listeners. lorebase-storage.js
  * runs them on the progress panel, whose Stop drops the calls not yet sent (stopKeyRun), stores a keys file's keys
- * (writeImportedKeys), and deletes one book's keys or every book's (deleteBookKeys, deleteAllKeys). The user can also
- * edit one entry's keys, or have the model write them again to read first; nothing rewrites keys on its own. While an
- * entry's keys are written or after they fail, the selection screen says so for its row.
+ * (writeImportedKeys), and deletes one book's keys or every book's (deleteBookKeys, deleteAllKeys). As SillyTavern
+ * saves a book, the keys of the entries it no longer holds are deleted (pruneBookKeys), since SillyTavern gives a new
+ * entry the first free uid, often a deleted entry's. The user can also edit one entry's keys, or have the model write
+ * them again to read first; nothing rewrites keys on its own. While an entry's keys are written or after they fail,
+ * the selection screen says so for its row.
  */
 import { log } from '../../sillytavern/log.js';
 import { extension_settings } from '../../sillytavern/settings.js';
+import { loadWorldInfo } from '../../sillytavern/world-info.js';
 import { notifyInvalidModel } from '../../shared/model-config-notifier.js';
 import { PLUGIN_UPDATE_INSTRUCTIONS, similharityStanding } from '../../shared/similharity-plugin.js';
 import { askOnLoreBase, resolveLoreBaseLlmConfig } from './lorebase-connection.js';
@@ -21,7 +24,7 @@ import { postLoreBaseRoute } from './lorebase-routes.js';
 import { keyWritingProblem } from './lorebase-setup.js';
 import { entryTitle } from './lorebase-splitter.js';
 
-// Similharity takes at most this many entries in one write (MOST_ENTRIES_PER_WRITE in its lorebase-keys.js).
+// Similharity takes at most this many entries in one write or delete (MOST_ENTRIES_PER_WRITE in its lorebase-keys.js).
 const ENTRIES_PER_WRITE = 2000;
 const UNREADABLE_ANSWER = 'its answer held no list of keys';
 
@@ -308,6 +311,19 @@ export async function writeImportedKeys(bookName, entries) {
 }
 
 /**
+ * Refuse a delete that names what it deletes to a Similharity older than the floor in manifest.json, which reads only
+ * part of what it names and would delete more.
+ * @param {string} what - The delete, as "Deleting one lorebook's keys"
+ * @throws {Error} When Similharity is older than the floor
+ */
+function refuseOldSimilharity(what) {
+    const { isCurrent, version, requiredVersion } = similharityStanding();
+    if (isCurrent) return;
+    throw new Error(`${what} needs Similharity ${requiredVersion} or later${version ? `, and ${version} is installed` : ''},`
+        + ` so nothing was deleted. ${PLUGIN_UPDATE_INSTRUCTIONS}`);
+}
+
+/**
  * Delete the LoreBase keys of the named books' entries, of this SillyTavern user, and forget those this session knew,
  * telling the key listeners. lorebase-storage.js calls it once no keys are being written. A Similharity older than the
  * floor in manifest.json does not read the books named and would delete every book's keys, so nothing is sent to one.
@@ -316,11 +332,7 @@ export async function writeImportedKeys(bookName, entries) {
  * @throws {Error} When Similharity is older than the floor, or cannot delete them
  */
 export async function deleteBookKeys(bookNames) {
-    const { isCurrent, version, requiredVersion } = similharityStanding();
-    if (!isCurrent) {
-        throw new Error(`Deleting one lorebook's keys needs Similharity ${requiredVersion} or later${version ? `, and ${version} is installed` : ''},`
-            + ` so nothing was deleted. ${PLUGIN_UPDATE_INSTRUCTIONS}`);
-    }
+    refuseOldSimilharity("Deleting one lorebook's keys");
     const { deleted } = await postKeysRoute('delete', { books: bookNames });
     for (const bookName of bookNames) {
         storedKeys.set(bookName, new Map());
@@ -329,6 +341,57 @@ export async function deleteBookKeys(bookNames) {
     }
     log.lifecycle(`LoreBase: deleted the keys of ${deleted} entries in ${bookNames.length} lorebooks`);
     return deleted;
+}
+
+/**
+ * Delete the LoreBase keys of some of a book's entries, of this SillyTavern user, and forget those this session knew,
+ * telling the key listeners. A Similharity older than the floor in manifest.json does not read the uids and would
+ * delete every key of the book, so nothing is sent to one.
+ * @param {string} bookName
+ * @param {string[]} uids
+ * @returns {Promise<number>} How many entries' keys were deleted
+ * @throws {Error} When Similharity is older than the floor, or cannot delete them; those deleted before stay deleted
+ */
+async function deleteEntryKeys(bookName, uids) {
+    refuseOldSimilharity("Deleting the keys of a lorebook's deleted entries");
+    let deleted = 0;
+    try {
+        for (let start = 0; start < uids.length; start += ENTRIES_PER_WRITE) {
+            const batch = uids.slice(start, start + ENTRIES_PER_WRITE);
+            deleted += (await postKeysRoute('delete', { books: [bookName], uids: batch })).deleted;
+            for (const uid of batch) {
+                storedKeys.get(bookName)?.delete(uid);
+                writeStates.get(bookName)?.delete(uid);
+            }
+        }
+    } finally {
+        tellListeners(bookName);
+    }
+    return deleted;
+}
+
+/**
+ * Delete the keys of the entries a book no longer holds, once SillyTavern saved it without them: SillyTavern gives a
+ * new entry the first free uid, often a deleted entry's, which would read as keyed by that entry's keys and get none of
+ * its own. The keys of every entry the book holds stay, selected or not. Read from Similharity once a session, then as
+ * this session wrote and deleted them. A book SillyTavern cannot load deletes nothing. Never throws: what fails is
+ * logged, and the book's next save tries again.
+ * @param {string} bookName
+ * @returns {Promise<void>}
+ */
+export async function pruneBookKeys(bookName) {
+    try {
+        const book = await loadWorldInfo(bookName);
+        if (!book?.entries) return;
+        const held = new Set(Object.values(book.entries).map(entry => String(entry.uid)));
+        if (!storedKeys.has(bookName)) await readBookKeys([bookName]);
+        const gone = [...storedKeys.get(bookName).keys()].filter(uid => !held.has(uid));
+        if (!gone.length) return;
+        const deleted = await deleteEntryKeys(bookName, gone);
+        log.lifecycle(`LoreBase: deleted the keys of ${deleted} entries lorebook "${bookName}" no longer holds`);
+    } catch (error) {
+        log.warn(`LoreBase: the keys of the entries lorebook "${bookName}" no longer holds could not be deleted:`, error);
+    }
 }
 
 /**

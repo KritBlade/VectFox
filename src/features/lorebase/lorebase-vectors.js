@@ -9,7 +9,8 @@
  * While an entry's vectors are written, and after they fail, its state is kept for this session and told to the vector
  * listeners, so the selection screen's row and the books card say so (§7.1, §7.3). An
  * edit SillyTavern saves writes the changed parts of the entries that had vectors again in the background and deletes
- * their gone parts; the points of an entry no longer selected go when the selection screen closes. For the Database
+ * their gone parts, after the keys of the entries the book no longer holds are deleted (pruneBookKeys in
+ * lorebase-keys.js); the points of an entry no longer selected go when the selection screen closes. For the Database
  * Browser's rows (§3.2 and §3.3 of InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md), a book tenant's
  * points are read whole, vectors included, in whichever collection holds them, and its View chunks reads them there
  * (tenantChunkSource), a vectors file's points are stored with
@@ -29,6 +30,7 @@ import {
 } from '../vector-backend/index.js';
 import { getLoreBook, loadDecidedEntries } from './lorebase-books.js';
 import { POOL_SEATS } from './lorebase-jev-core.js';
+import { pruneBookKeys } from './lorebase-keys.js';
 import { writingFailuresMessage } from './lorebase-keys-core.js';
 import { entryTitle } from './lorebase-splitter.js';
 import { isLoreBaseBackend, isLoreBaseSwitchedOn } from './lorebase-switch.js';
@@ -41,8 +43,8 @@ import {
 const ALL_POINTS = Number.MAX_SAFE_INTEGER;
 // Points per insert batch when the settings name none, as the vector API's insert batches them.
 const DEFAULT_BATCH_SIZE = 50;
-// How long after SillyTavern's last save of a book its edited entries' vectors are written, so a burst of saves while
-// the user types writes once.
+// How long after SillyTavern's last save of a book its keys and vectors are brought up to date, so a burst of saves
+// while the user types does it once.
 const EDIT_SETTLE_MS = 2000;
 
 // What Qdrant holds, as last read or written in this session: Qdrant collection -> book name -> hash -> {uid, modelKey},
@@ -527,15 +529,17 @@ export function forgetVectorWriteFailures() {
 }
 
 /**
- * After SillyTavern saves an edited book: write the changed parts of its entries that had vectors, and delete what no
- * entry it decides holds, in the background (§4.3). Only while LoreBase is on, on Qdrant, with VectFox on; turning it on
- * finds what changed while it was off. Never throws.
+ * After SillyTavern saves an edited book: delete the keys of the entries it no longer holds (pruneBookKeys), then write
+ * the changed parts of its entries that had vectors, and delete what no entry it decides holds, in the background
+ * (§4.3). Only while LoreBase is on, on Qdrant, with VectFox on; turning it on finds what changed while it was off.
+ * Never throws.
  * @param {string} bookName
  * @returns {Promise<void>}
  */
 async function refreshEditedBook(bookName) {
     const settings = extension_settings.vectfox;
     if (!isVectFoxEnabled(settings) || !isLoreBaseSwitchedOn(settings) || !isLoreBaseBackend(settings) || !getLoreBook(bookName)) return;
+    await pruneBookKeys(bookName);
     try {
         const decidedEntries = await loadDecidedEntries(bookName);
         const stored = (await bookVectors([bookName], settings)).get(bookName);
@@ -549,9 +553,10 @@ async function refreshEditedBook(bookName) {
 }
 
 /**
- * Follow SillyTavern's saves of edited books, each written once its saves settle. Called once at start-up.
+ * Follow SillyTavern's saves of edited books, each brought up to date once its saves settle (refreshEditedBook).
+ * Called once at start-up.
  */
-export function initializeLoreBaseVectors() {
+export function followEditedBooks() {
     eventSource.on(event_types.WORLDINFO_UPDATED, bookName => {
         if (!bookName) return;
         clearTimeout(editTimers.get(bookName));

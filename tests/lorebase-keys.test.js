@@ -5,16 +5,18 @@
  * Similharity's key route, a failed one is marked and named in a toast; and nothing is written off Qdrant or without
  * LoreBase's model; one entry's keys are regenerated to read, or stored as the user edited them; every write names the
  * entry's title, which a read gives back; a keys file's keys are stored with no LLM call; one book's keys are deleted
- * alone; and every call makes Similharity's Qdrant ready first. The progress panel's runs and Delete all are LoreBase's
+ * alone; the keys of the entries a book no longer holds are deleted, so a new entry SillyTavern gives a deleted one's
+ * uid gets keys of its own; and every call makes Similharity's Qdrant ready first. The progress panel's runs and Delete all are LoreBase's
  * storage module's (tests/lorebase-storage.test.js). Similharity's routes are a fetch stand-in holding the keys and
  * titles in memory.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const host = vi.hoisted(() => ({ connection: { ok: true }, ask: null, getBackend: null, order: [], standing: null }));
+const host = vi.hoisted(() => ({ connection: { ok: true }, ask: null, getBackend: null, order: [], standing: null, books: {} }));
 
 vi.mock('../src/sillytavern/log.js', () => ({ log: { warn: vi.fn(), error: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn() } }));
 vi.mock('../src/sillytavern/requests.js', () => ({ getRequestHeaders: () => ({ 'Content-Type': 'application/json' }) }));
+vi.mock('../src/sillytavern/world-info.js', () => ({ loadWorldInfo: async bookName => host.books[bookName] ?? null }));
 vi.mock('../src/shared/model-config-notifier.js', () => ({ notifyInvalidModel: vi.fn() }));
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: { vectfox: { vector_backend: 'qdrant' } }, saveSettingsDebounced: vi.fn() }));
 vi.mock('../src/features/vector-backend/index.js', () => ({ getBackend: (...args) => host.getBackend(...args) }));
@@ -52,6 +54,7 @@ beforeEach(async () => {
     storedTitles = {};
     routeCalls = [];
     host.order = [];
+    host.books = {};
     host.standing = { isFound: true, version: '3.4.14', requiredVersion: '3.4.14', isCurrent: true };
     host.getBackend = vi.fn(async () => { host.order.push('ready'); });
     globalThis.fetch = vi.fn(async (url, { body }) => {
@@ -61,6 +64,12 @@ beforeEach(async () => {
         if (url.endsWith('/read')) {
             const of = all => Object.fromEntries(request.books.map(book => [book, { ...(all[book] ?? {}) }]));
             return { ok: true, json: async () => ({ books: of(stored), titles: of(storedTitles) }) };
+        }
+        if (url.endsWith('/delete') && request.uids) {
+            const book = stored[request.books[0]] ?? {};
+            const deleted = request.uids.filter(uid => Object.hasOwn(book, uid)).length;
+            for (const uid of request.uids) delete book[uid];
+            return { ok: true, json: async () => ({ deleted }) };
         }
         if (url.endsWith('/delete')) {
             const books = request.books ?? Object.keys(stored);
@@ -278,6 +287,53 @@ describe('titles, a keys file, and one book', () => {
             "Deleting one lorebook's keys needs Similharity 3.4.14 or later, and 3.4.13 is installed, so nothing was deleted. Update Similharity.");
         expect(globalThis.fetch).not.toHaveBeenCalled();
         expect(stored).toEqual({ [BOOK]: { 0: ['lighthouse'] }, 'Desert Atlas': { 5: ['dunes'] } });
+    });
+});
+
+describe('the keys of the entries a book no longer holds', () => {
+    const DELETE_ROUTE = '/api/plugins/similharity/lorebase/keys/delete';
+    const READ_ROUTE = '/api/plugins/similharity/lorebase/keys/read';
+
+    it('are deleted as the book is saved without them, and those of every entry it holds stay, selected or not', async () => {
+        stored = { [BOOK]: { 0: ['lighthouse'], 2: ['old pier'], 5: ['buoy'] }, 'Desert Atlas': { 2: ['dunes'] } };
+        host.books[BOOK] = { entries: { 0: entry(0, 'Lighthouse'), 5: entry(5, 'Buoy') } };
+        await keysModule.pruneBookKeys(BOOK);
+        expect(routeCalls.at(-1)).toEqual({ url: DELETE_ROUTE, request: { books: [BOOK], uids: ['2'] } });
+        expect(stored).toEqual({ [BOOK]: { 0: ['lighthouse'], 5: ['buoy'] }, 'Desert Atlas': { 2: ['dunes'] } });
+        expect(keysModule.keyStateOf(BOOK, '2')).toEqual({ status: 'missing' });
+        expect(keysModule.keyStateOf(BOOK, '5')).toEqual({ status: 'ready', keys: ['buoy'] });
+    });
+
+    it("so a new entry SillyTavern gives a deleted one's uid gets keys of its own", async () => {
+        stored = { [BOOK]: { 0: ['lighthouse'] } };
+        host.books[BOOK] = { entries: {} };
+        await keysModule.pruneBookKeys(BOOK);
+        expect(await keysModule.writeKeys(BOOK, [entry(0, 'Tidewardens')], QDRANT)).toEqual({ written: 1, failed: 0, stopped: 0 });
+        expect(stored[BOOK]).toEqual({ 0: ['keys from Tidewardens'] });
+    });
+
+    it('are read once a session, and nothing is deleted while the book holds every keyed entry or SillyTavern cannot load it', async () => {
+        stored = { [BOOK]: { 0: ['lighthouse'] } };
+        host.books[BOOK] = { entries: { 0: entry(0, 'Lighthouse') } };
+        await keysModule.pruneBookKeys(BOOK);
+        await keysModule.pruneBookKeys(BOOK);
+        delete host.books[BOOK];
+        await keysModule.pruneBookKeys(BOOK);
+        expect(routeCalls.map(call => call.url)).toEqual([READ_ROUTE]);
+        expect(stored).toEqual({ [BOOK]: { 0: ['lighthouse'] } });
+    });
+
+    it("are not sent to a Similharity older than the floor, which would delete every key of the book, and the console says why", async () => {
+        stored = { [BOOK]: { 0: ['lighthouse'], 2: ['old pier'] } };
+        host.books[BOOK] = { entries: { 0: entry(0, 'Lighthouse') } };
+        host.standing = { isFound: true, version: '3.4.19', requiredVersion: '3.4.20', isCurrent: false };
+        await keysModule.pruneBookKeys(BOOK);
+        expect(routeCalls.map(call => call.url)).toEqual([READ_ROUTE]);
+        expect(stored[BOOK]).toEqual({ 0: ['lighthouse'], 2: ['old pier'] });
+        const { log } = await import('../src/sillytavern/log.js');
+        expect(log.warn).toHaveBeenCalledWith(`LoreBase: the keys of the entries lorebook "${BOOK}" no longer holds could not be deleted:`, expect.objectContaining({
+            message: "Deleting the keys of a lorebook's deleted entries needs Similharity 3.4.20 or later, and 3.4.19 is installed, so nothing was deleted. Update Similharity.",
+        }));
     });
 });
 

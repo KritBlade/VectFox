@@ -35,7 +35,7 @@ import { replyModel } from './lorebase-setup.js';
 import { isLoreBaseActive, loreBaseInactiveReason } from './lorebase-switch.js';
 import { initializeLoreBaseTester, keepReplyScan, recordReplyReport } from './lorebase-tester.js';
 import { settleVectorStorageConflict } from './lorebase-vector-storage.js';
-import { bookVectors, initializeLoreBaseVectors, searchReplyPool } from './lorebase-vectors.js';
+import { bookVectors, followEditedBooks, searchReplyPool } from './lorebase-vectors.js';
 import { isEntryReady } from './lorebase-readiness.js';
 
 const LOREBASE = 'LoreBase';
@@ -66,13 +66,13 @@ async function followChatRename(renamed) {
 /**
  * Follow generations, so a reply first settles Vector Storage's World Info search with the user, and renamed
  * characters and chats, so a book locked to one stays locked to it; arm every World Info scan; let the tester follow
- * each reply; and keep the vectors of edited books current. Called once at start-up, after followGenerations
+ * each reply; and keep the keys and vectors of edited books current. Called once at start-up, after followGenerations
  * (src/shared/last-generation.js), which keeps whether a quiet generation is quiet-to-loud for the pick.
  */
 export function initializeLoreBase() {
     initializeLoreBaseDelivery();
     initializeLoreBaseTester();
-    initializeLoreBaseVectors();
+    followEditedBooks();
     eventSource.on(event_types.GENERATION_AFTER_COMMANDS, async (type, options, isDryRun) => {
         // A dry run reaches no interceptor, so it must not stand in for the generation that does.
         if (isDryRun) return;

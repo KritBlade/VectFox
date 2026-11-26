@@ -66,7 +66,7 @@ Under the books, one line adds up the books locked to this chat, like `2 books l
 
 Need only one of the 2? **Generate keys** writes just the missing keys, and **Generate vectors** just the missing vectors. Generate vectors never calls the LoreBase model, so it costs almost nothing. It's the one to press after you switch your embedding model.
 
-You don't have to keep them up to date. Edit an entry in World Info, and VectFox writes the vectors of the parts you changed again by itself. Turn an entry off, and its vectors are deleted when you close this screen, unless another selection of the book still has it on. Its keys stay, in case you turn it back on.
+You don't have to keep them up to date. Edit an entry in World Info, and VectFox writes the vectors of the parts you changed again by itself. Turn an entry off, and its vectors are deleted when you close this screen, unless another selection of the book still has it on. Its keys stay, in case you turn it back on. Delete an entry in World Info while LoreBase is on, and its keys and vectors go with it. So the next entry you make there gets keys of its own, never the old one's.
 
 ## Saving them, putting them back, deleting one book
 
