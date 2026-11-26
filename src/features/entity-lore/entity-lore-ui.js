@@ -98,8 +98,8 @@ const EXCLUSION_TEXTS = {
 // again on a name the name check matched to it (D17).
 const NAMES_CHANGED_HINTS = {
     [NAMES_CHANGED_BY.merge]: "Names were merged on StoryArc's Entity tab, so the next run rewrites it with every name's events.",
-    [NAMES_CHANGED_BY.split]: "A name was split off on StoryArc's Entity tab, so the next run writes it afresh, without that name's events.",
-    [NAMES_CHANGED_BY.allowAgain]: "A name marked Same as this one was allowed again, so the next run writes it afresh, without that name's events.",
+    [NAMES_CHANGED_BY.split]: "A name was split off on StoryArc's Entity tab, so the next run writes it again from scratch, from the events of the names shown on this row.",
+    [NAMES_CHANGED_BY.allowAgain]: "A name marked Same as this one was allowed again, so the next run writes it again from scratch, from the events of the names shown on this row.",
 };
 
 // Each state's pill (§3's table).

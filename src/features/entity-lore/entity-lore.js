@@ -14,9 +14,10 @@
  * good (D18), and its Lock keeps a character from every run (T3).
  * Names merged on StoryArc's Entity tab make an entry written under any of them
  * the kept name's at once (D14), keyed by every name and due again (D17); a
- * name split off one comes off its keys at once, and its entry is written
- * afresh, without that name's events (D17), as is the entry a name was matched
- * to once Allow again clears that name. Each waits for a run under way. The
+ * name split off one comes off its keys at once, and the split asks whether its
+ * entry is written afresh at the next run, from the events of the names it has
+ * then, or kept as it is (D17, D21); the entry a name was matched to is written
+ * afresh once Allow again clears that name. Each waits for a run under way. The
  * changes to the record made outside a run go one at a time, and the record is
  * read for a run or the card once those under way are made.
  *
@@ -60,7 +61,8 @@ import {
 import {
     ENTITY_LORE_SETTING, ENTITY_STATE, ENTRIES_PER_AUTOMATIC_RUN, RECORD_STATE, dueCounts, entityLoreBlocker as blockerOf, entityLoreStates,
     entriesForName, entriesForRun, entryContentHash, entryKeysOf, isEntityLoreOn, isSameName, isWrittenAfreshAfter, namesMatchedTo, npcBookName,
-    readEntityLoreRecord, recordOfName, rewriteEveryEventsOf, runNowQuestion, runOutcomeText, sliceEventLines, withBookName, withBookStartedOver,
+    readEntityLoreRecord, recordOfName, rewriteEveryEventsOf, runNowQuestion, runOutcomeText, sliceEventLines, splitQuestion, withBookName,
+    withBookStartedOver,
     withCharacterLocked, withMergedEntry, withMissingEntriesDeleted, withNameAllowedAgain, withNameCheckAnswer, withOneEventTime, withSplitName,
     withWrittenEntry, writeAtEventsOf, writtenEntryTitles,
 } from './entity-lore-core.js';
@@ -376,28 +378,59 @@ async function adoptMergedEntry({ collectionKey, keptName, otherNames }) {
 
 /**
  * A name StoryArc's Entity tab split off an entity (D17): the entity's entry, written and still in its book, loses that
- * name from its keys at once, and is due again, written afresh from the events of the names it keeps, as its text, and
- * so LoreBase's keys and vectors of it, hold the split name's too. With no model call, LoreBase and Entity-Lore on or
- * off; during a run, once it ends. Nothing while the name check matches the split name to the entry (§4.3), which then
- * reads that name's events still.
+ * name from its keys. The split asks at once whether the entry is written again from scratch at the next run, from the
+ * events of the names it keeps, as its text, and so LoreBase's keys and vectors of it, hold the split name's too, or
+ * kept as it is (D21); an entry the user edited stays theirs (D4), so it is not asked about. With no model call,
+ * LoreBase and Entity-Lore on or off; during a run, the change waits for its end. Nothing while the name check matches
+ * the split name to the entry (§4.3), which then reads that name's events still.
  * @param {{collectionKey: string, keptName: string, splitName: string}} split - collectionKey: the collection's
  *   registry key; keptName: the entity's; splitName: the name split off it
  */
 export function onEntityNameSplit(split) {
-    adoptNameChange(() => adoptSplitName(split));
+    void askThenAdoptSplit(split);
 }
 
-/** onEntityNameSplit's work: the book's entry saved, then the record. Never throws: what fails is logged. */
-async function adoptSplitName({ collectionKey, keptName, splitName }) {
+/** onEntityNameSplit's work: the question at the split, then the change, in the record's turn or once a run ends. */
+async function askThenAdoptSplit(split) {
+    const isWrittenAgain = await isSplitEntryWrittenAgain(split);
+    adoptNameChange(() => adoptSplitName(split, isWrittenAgain));
+}
+
+/**
+ * Whether the entry a split touches is written again from scratch (D21): asked when it is Entity-Lore's own text still,
+ * the question opening on Keep as it is, as yes costs requests; yes, unasked, when it is none or the user's (D4), which
+ * no run rewrites. Never throws: a record that cannot be read is logged, and the entry kept as it is.
+ * @returns {Promise<boolean>}
+ */
+async function isSplitEntryWrittenAgain({ collectionKey, keptName, splitName }) {
+    try {
+        const book = await recordWithBookEntries(collectionKey);
+        const split = book && withSplitName(book.record, { keptName, splitName }, book.bookEntries.map(entry => entry.uid));
+        const bookEntry = split && book.bookEntries.find(entry => String(entry.uid) === split.uid);
+        if (!bookEntry || entryContentHash(bookEntry.content) !== recordOfName(book.record, split.title)?.contentHash) return true;
+        const question = splitQuestion({ title: split.title, splitName });
+        return Boolean(await confirmPopup(question, { okButton: 'Write again', cancelButton: 'Keep as it is', isCostly: true }));
+    } catch (error) {
+        log.warn(`${LOG} ${keptName}: after ${splitName} split off, its record could not be read to ask about its entry, so the entry is kept as it is:`, error);
+        return false;
+    }
+}
+
+/** The split's change: the book's entry saved without the split name, then the record, when the entry is written again. Never throws: what fails is logged. */
+async function adoptSplitName({ collectionKey, keptName, splitName }, isWrittenAgain) {
     try {
         const book = await recordWithBookEntries(collectionKey);
         const split = book && withSplitName(book.record, { keptName, splitName }, book.bookEntries.map(entry => entry.uid));
         if (!split) return;
         await saveKeyedWithout(book, split.uid, splitName);
+        if (!isWrittenAgain) {
+            log.lifecycle(`${LOG} ${keptName}: ${splitName} split off, so its entry is keyed without it and kept as it is, as the user chose`);
+            return;
+        }
         setCollectionMeta(collectionKey, { entityLore: split.record });
         log.lifecycle(`${LOG} ${keptName}: ${splitName} split off, so its entry is keyed without it and written afresh at the next run`);
     } catch (error) {
-        log.warn(`${LOG} ${keptName}: after ${splitName} split off, its entry could not be keyed without it and marked to be written afresh:`, error);
+        log.warn(`${LOG} ${keptName}: after ${splitName} split off, its entry could not be keyed without it:`, error);
     }
 }
 

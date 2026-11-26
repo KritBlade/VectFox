@@ -665,7 +665,7 @@ describe("names merged or split on StoryArc's Entity tab, and a matched name all
         expect(record().entries.Tamsin).toEqual({ state: 'written', uid: '0', writtenAtEvents: 14, contentHash: entryContentHash(entryAbout('Tamsin')) });
     });
 
-    it('leave the entry as it is on a split of a name the name check matched to it, as it reads that name\'s events still', async () => {
+    it('leave the entry as it is on a split of a name the name check matched to it, as it reads that name\'s events still, and ask nothing', async () => {
         bookOf([{ uid: 0, comment: 'Tamsin', key: ['Tamsin', 'Marrow'], content: entryAbout('Tamsin') }]);
         const entityLore = { bookName: BOOK, entries: { Tamsin: writtenAs('Tamsin', 0), Marrow: { state: 'same_as', sameAs: 'Tamsin' } }, lockedNames: [] };
         host.collectionMeta[REGISTRY_KEY] = { entityLore };
@@ -674,6 +674,54 @@ describe("names merged or split on StoryArc's Entity tab, and a matched name all
         expect(host.books[BOOK].entries[0].key).toEqual(['Tamsin', 'Marrow']);
         expect(record()).toEqual(entityLore);
         expect(saveLorebookEntry).not.toHaveBeenCalled();
+        expect(confirmPopup).not.toHaveBeenCalled();
+    });
+
+    it('ask at a split whether the entry is written again from scratch, opening on Keep as it is, which keys it without the name and leaves it', async () => {
+        bookOf([{ uid: 0, comment: 'Tamsin', key: ['Tamsin', 'Marrow'], content: entryAbout('Tamsin') }]);
+        const entityLore = { bookName: BOOK, entries: { Tamsin: writtenAs('Tamsin', 0) }, lockedNames: [], keptApart: [] };
+        host.collectionMeta[REGISTRY_KEY] = { entityLore };
+        host.isYes = false;
+        onEntityNameSplit(SPLIT);
+        await settle();
+        const [question, buttons] = confirmPopup.mock.calls[0];
+        expect(question[0].parts).toEqual([{ text: 'Write the lorebook entry for ' }, { name: 'Tamsin' }, { text: ' again from scratch?' }]);
+        expect(buttons).toEqual({ okButton: 'Write again', cancelButton: 'Keep as it is', isCostly: true });
+        expect(host.books[BOOK].entries[0]).toEqual({ uid: 0, comment: 'Tamsin', key: ['Tamsin'], content: entryAbout('Tamsin') });
+        expect(record()).toEqual(entityLore);
+        expect(host.ask).not.toHaveBeenCalled();
+    });
+
+    it('ask at the split even while a run is under way, and make the change once it ends', async () => {
+        bookOf([{ uid: 0, comment: 'Tamsin', key: ['Tamsin', 'Marrow'], content: entryAbout('Tamsin') }]);
+        host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: BOOK, entries: { Tamsin: writtenAs('Tamsin', 0) } } };
+        host.events = eventsNaming('Hollis', 12);
+        let release;
+        const held = new Promise((resolve) => { release = resolve; });
+        const model = answering();
+        host.ask = vi.fn(async (messages) => {
+            if (isCheck(messages)) await held;
+            return model(messages);
+        });
+        onEventBaseRunEnded({ collectionId: 'harbor-collection', eventsAdded: 3 });
+        await settle();
+        onEntityNameSplit(SPLIT);
+        await settle();
+        expect(confirmPopup).toHaveBeenCalledTimes(1);
+        expect(host.books[BOOK].entries[0].key).toEqual(['Tamsin', 'Marrow']);
+        release();
+        await settle();
+        expect(host.books[BOOK].entries[0].key).toEqual(['Tamsin']);
+        expect(record().entries.Tamsin).toEqual({ ...writtenAs('Tamsin', 0), namesChangedBy: 'split' });
+    });
+
+    it('ask nothing at a split of a name off an entry the user edited, which stays theirs, and key it without the name', async () => {
+        bookOf([{ uid: 0, comment: 'Tamsin', key: ['Tamsin', 'Marrow'], content: 'Tamsin, as the user wrote her.' }]);
+        host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: BOOK, entries: { Tamsin: writtenAs('Tamsin', 0) } } };
+        onEntityNameSplit(SPLIT);
+        await settle();
+        expect(confirmPopup).not.toHaveBeenCalled();
+        expect(host.books[BOOK].entries[0].key).toEqual(['Tamsin']);
     });
 
     it("keep a name allowed again apart from its entry's character: the name check is told, and a same_as to it anyway reads as named", async () => {

@@ -28,7 +28,8 @@
  *   - an event as an entry's call reads it has one time: its DateTime to the minute, or else its scene_time,
  *   - a character's events are cut into slices that fit, oldest first,
  *   - Run now's question says in plain words what it writes, into which lorebook, and the requests it makes, each
- *     count and the book's name a value.
+ *     count and the book's name a value,
+ *   - a split asks whether the entry is written again from scratch, or kept as it is, the names values.
  *
  * Names are made up and match no story.
  */
@@ -38,7 +39,8 @@ import {
     ENTITY_LORE_FIX_AT, ENTITY_LORE_NEED, ENTITY_STATE, ENTRIES_PER_AUTOMATIC_RUN, EVENT_SLICE_TOKENS, EXCLUSION, NAMES_CHANGED_BY, RECORD_STATE,
     REWRITE_EVERY_EVENTS, WRITE_AT_EVENTS, dueCounts, entityLoreBlocker, entityLoreStates, entriesForName, entriesForRun, entryContentHash,
     entryKeysOf, exclusionOf, isEntityLoreOn,
-    isCharacterLocked, isWrittenAfreshAfter, readEntityLoreRecord, recordOfName, rewriteEveryEventsOf, runNowQuestion, sliceEventLines, withBookName,
+    isCharacterLocked, isWrittenAfreshAfter, readEntityLoreRecord, recordOfName, rewriteEveryEventsOf, runNowQuestion, sliceEventLines, splitQuestion,
+    withBookName,
     withBookStartedOver, withCharacterLocked, withMergedEntry, withMissingEntriesDeleted, withNameAllowedAgain, withNameCheckAnswer, withOneEventTime,
     withSplitName, withWrittenEntry,
     writeAtEventsOf,
@@ -474,5 +476,20 @@ describe("Run now's question (§4.1)", () => {
             "Each takes one request to LoreBase's model, a few for a very long story, and LoreBase writes their keys and vectors again.",
         ]);
         expect(linesText(runNowQuestion({ newCount: 0, rewriteCount: 1, bookName: 'VectFox NPCs - Harbor', isBookMade: true }))[0]).toBe('Rewrite 1 lorebook entry?');
+    });
+});
+
+describe('the question a split asks (D21)', () => {
+    it('asks whether the entry is written again from scratch or kept as it is, the split name coming off its keys either way', () => {
+        const lines = splitQuestion({ title: 'Tamsin', splitName: 'Marrow' });
+        expect(lines.map(line => (line.parts ?? [line]).map(part => part.text ?? part.name).join(''))).toEqual([
+            'Write the lorebook entry for Tamsin again from scratch?',
+            'It was written with the events of Marrow too, the name just split off.',
+            "Write again: the next run writes it from the events of the names it keeps, with requests to LoreBase's model. Keep as it is: its text stays as it stands.",
+            'Either way, Marrow comes off its keys.',
+        ]);
+        expect(lines[0]).toEqual({ icon: 'fa-code-branch', parts: [{ text: 'Write the lorebook entry for ' }, { name: 'Tamsin' }, { text: ' again from scratch?' }] });
+        expect(lines[1].parts[1]).toEqual({ name: 'Marrow' });
+        expect(lines[3].parts[1]).toEqual({ name: 'Marrow' });
     });
 });

@@ -356,6 +356,8 @@ export function withMergedEntry(record, { keptName, otherNames }, bookUids) {
  * @param {object} record
  * @param {{keptName: string, splitName: string}} split - The entity's kept name, and the name split off it
  * @param {Array<string|number>} bookUids - The uids of the entries the book holds now
+ * Its caller saves the record only when the user has the entry written again, as the split asks (D21); the uid keys the
+ * entry without the split name either way.
  * @returns {{record: object, uid: string, title: string}|null} record: a new record; title: the entry's kept name, as
  *   the record spells it
  */
@@ -705,6 +707,27 @@ export function runNowQuestion({ newCount, rewriteCount, bookName, isBookMade })
                 + 'very long story, and LoreBase writes their keys and vectors.',
         },
         ...(rewriteCount ? [{ text: "A rewrite writes an existing entry again from the character's whole story so far, one request each." }] : []),
+    ];
+}
+
+/**
+ * The question a split on StoryArc's Entity tab asks at once (D21), when it splits a name off a character whose entry
+ * Entity-Lore wrote: whether the next run writes the entry again from scratch, without the split name's events, or
+ * leaves its text as it stands. Either way the split name comes off the entry's keys. Lines for confirmPopup, each name
+ * a value, never part of a fixed sentence.
+ *
+ * @param {{title: string, splitName: string}} split - title: the entry's, as the record spells it
+ * @returns {object[]} confirmPopup's lines (src/sillytavern/popup-core.js)
+ */
+export function splitQuestion({ title, splitName }) {
+    return [
+        { icon: 'fa-code-branch', parts: [{ text: 'Write the lorebook entry for ' }, { name: title }, { text: ' again from scratch?' }] },
+        { parts: [{ text: 'It was written with the events of ' }, { name: splitName }, { text: ' too, the name just split off.' }] },
+        {
+            text: "Write again: the next run writes it from the events of the names it keeps, with requests to LoreBase's model. "
+                + 'Keep as it is: its text stays as it stands.',
+        },
+        { parts: [{ text: 'Either way, ' }, { name: splitName }, { text: ' comes off its keys.' }] },
     ];
 }
 

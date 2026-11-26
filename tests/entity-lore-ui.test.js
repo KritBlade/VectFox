@@ -102,9 +102,9 @@ describe("a character's row (§3's table)", () => {
         const subsOf = extra => [...rowOf(ENTITY_STATE.rewriteDue, { uid: '3', ...extra }).querySelectorAll('.vfx-row-sub')].map(line => line.textContent);
         expect(subsOf({ namesChangedBy: NAMES_CHANGED_BY.merge })).toEqual(["Names were merged on StoryArc's Entity tab, so the next run rewrites it with every name's events."]);
         expect(subsOf({ namesChangedBy: NAMES_CHANGED_BY.split }))
-            .toEqual(["A name was split off on StoryArc's Entity tab, so the next run writes it afresh, without that name's events."]);
+            .toEqual(["A name was split off on StoryArc's Entity tab, so the next run writes it again from scratch, from the events of the names shown on this row."]);
         expect(subsOf({ namesChangedBy: NAMES_CHANGED_BY.allowAgain }))
-            .toEqual(["A name marked Same as this one was allowed again, so the next run writes it afresh, without that name's events."]);
+            .toEqual(["A name marked Same as this one was allowed again, so the next run writes it again from scratch, from the events of the names shown on this row."]);
         expect(subsOf({})).toEqual([]);
     });
 });
