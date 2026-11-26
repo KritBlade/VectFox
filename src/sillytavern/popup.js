@@ -48,11 +48,11 @@ const OTHER_OPEN_POPUPS = `dialog.popup:not(.${PANEL_DIALOG_CLASS})[open], dialo
 
 /**
  * Open one dialog in the GUI-DNA frame. Its content scrolls once taller than the window: SillyTavern's popup clips it otherwise.
- * A destructive dialog opens on Cancel: SillyTavern focuses the button of the default answer, and Enter presses the focused
- * button. Resolves to SillyTavern's answer.
+ * A destructive dialog, and a costly one, opens on Cancel: SillyTavern focuses the button of the default answer, and Enter
+ * presses the focused button. Resolves to SillyTavern's answer.
  */
-function showDialog(content, type, { okButton, cancelButton, isDestructive = false, isPanel = false, isWide = false, popupOptions = {} }) {
-    const defaultResult = isDestructive ? POPUP_RESULT.NEGATIVE : POPUP_RESULT.AFFIRMATIVE;
+function showDialog(content, type, { okButton, cancelButton, isDestructive = false, isCostly = false, isPanel = false, isWide = false, popupOptions = {} }) {
+    const defaultResult = isDestructive || isCostly ? POPUP_RESULT.NEGATIVE : POPUP_RESULT.AFFIRMATIVE;
     const popup = new Popup(content, type, '', { okButton, cancelButton, leftAlign: true, allowVerticalScrolling: true, defaultResult, ...popupOptions });
     popup.dlg.classList.add('vfx-popup', 'vfx-ui');
     if (isPanel) popup.dlg.classList.add(PANEL_DIALOG_CLASS);
@@ -97,11 +97,13 @@ export async function waitForOtherPopupsToClose(maxWaitMs = 1500) {
  * @param {string} [options.cancelButton]
  * @param {boolean} [options.isDestructive] - Yes deletes, removes, replaces or resets something: the dialog opens on Cancel,
  *     so Enter cancels, and its action stays primary
+ * @param {boolean} [options.isCostly] - Yes sends many requests to a model the user pays for: the dialog opens on Cancel
+ *     too, and its action stays primary
  * @returns {Promise<*>}
  */
-export async function confirmPopup(lines, { okButton, cancelButton = 'Cancel', isDestructive = false }) {
+export async function confirmPopup(lines, { okButton, cancelButton = 'Cancel', isDestructive = false, isCostly = false }) {
     try {
-        return await showDialog(dialogTextBlock(lines), POPUP_TYPE.CONFIRM, { okButton, cancelButton, isDestructive });
+        return await showDialog(dialogTextBlock(lines), POPUP_TYPE.CONFIRM, { okButton, cancelButton, isDestructive, isCostly });
     } catch (error) {
         log.warn('A confirm dialog could not open, so it answers no:', error);
         return false;

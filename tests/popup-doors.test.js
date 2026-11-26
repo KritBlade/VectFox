@@ -1,8 +1,8 @@
 /**
  * @vitest-environment jsdom
  *
- * The dialog doors in src/sillytavern/popup.js: a destructive confirm opens on Cancel, so Enter never says yes to it,
- * and any other dialog opens on its action; a confirm that cannot open answers no; a choice answers the value of the
+ * The dialog doors in src/sillytavern/popup.js: a destructive confirm, and a costly one, opens on Cancel, so Enter
+ * never says yes to it, and any other dialog opens on its action; a confirm that cannot open answers no; a choice answers the value of the
  * button pressed, null on Cancel, Escape or a dialog that cannot open; a notice shows its lines, then its
  * body, and a wide one carries .is-wide; a form shows its lines, then the form, focuses the control it names, and
  * submits on Enter in a one-line box only when asked.
@@ -53,6 +53,11 @@ describe('confirmPopup', () => {
             { text: 'Remove ALL of it?', status: 'danger' }, { text: 'Delete one instead.', status: 'success' }, { text: 'Lorebook:', name: 'Harbor Atlas' },
         ], { okButton: 'Remove', isDestructive: true });
         expect([...host.opened[0].content.querySelectorAll('p')].map(paragraph => paragraph.className)).toEqual(['is-danger', 'is-success', '']);
+    });
+
+    it('opens a costly question on Cancel too, and keeps its action primary', async () => {
+        await confirmPopup([{ text: 'Write lorebook entries for 25 characters?' }], { okButton: 'Write', isCostly: true });
+        expect(host.opened[0].options).toMatchObject({ okButton: 'Write', cancelButton: 'Cancel', defaultResult: 0 });
     });
 
     it('opens any other question on its action', async () => {

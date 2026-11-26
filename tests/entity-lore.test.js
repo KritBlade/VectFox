@@ -389,7 +389,7 @@ describe('Run now (§4.1)', () => {
         const [question, buttons] = confirmPopup.mock.calls[0];
         expect(question[0].parts).toEqual([{ text: 'Write lorebook entries for ' }, { name: '7' }, { text: ' characters' }, { text: '?' }]);
         expect(question[1].parts).toEqual([{ text: "One entry per character, from the story's events about them, into a new lorebook for this chat, " }, { name: BOOK }, { text: '.' }]);
-        expect(buttons).toEqual({ okButton: 'Write' });
+        expect(buttons).toEqual({ okButton: 'Write', isCostly: true });
         expect(host.ask).not.toHaveBeenCalled();
 
         host.isYes = true;
@@ -408,7 +408,7 @@ describe('Run now (§4.1)', () => {
         const [question, buttons] = confirmPopup.mock.calls[0];
         expect(question[0].parts).toEqual([{ text: 'Rewrite ' }, { name: '1' }, { text: ' lorebook entry?' }]);
         expect(question[1].parts).toEqual([{ text: "Each is written again from the character's whole story so far, in this chat's lorebook " }, { name: BOOK }, { text: '.' }]);
-        expect(buttons).toEqual({ okButton: 'Rewrite' });
+        expect(buttons).toEqual({ okButton: 'Rewrite', isCostly: true });
         expect(host.ask).not.toHaveBeenCalled();
     });
 
