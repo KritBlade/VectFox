@@ -75,9 +75,9 @@ export function nameCheckMessages({ candidates, entryTitles }) {
         `Names the story's events tag as people, each with how many events name it and one of those events:\n${names}`,
         '',
         'For each name, answer whether it is the proper name of one individual character:',
-        '- named: a personal name, or a nickname used as a name.',
-        '- not_named: a job, a title, a role or a description (a waitress, the bus driver, the boss, the old man, the protagonist), '
-            + 'a group (the guards, the villagers), or a pronoun.',
+        '- named: a personal name, a family name with a title (Lord Ashford, Captain Reyes, Mrs. Hale), or a nickname used as a name.',
+        '- not_named: a job, a title with no name in it, a role or a description (a waitress, the bus driver, the boss, the captain, '
+            + 'the old man, the protagonist), a group (the guards, the villagers), or a pronoun.',
         '- same_as: another name of a character who already has an entry, or of a character another name in this list names. '
             + 'Give that entry\'s title, or that name, exactly as written above. When names in this list are one character, '
             + 'answer named for the one with the most events, and same_as with that name for each of the others.',

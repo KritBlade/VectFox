@@ -39,7 +39,8 @@ describe('the name check (§4.3)', () => {
         expect(prompt).toContain('Entries already written for this story, by title:\n- Captain Brannoc\n');
         expect(prompt).toContain('1. Tamsin: 112 events. One of them: Day 3 | Tamsin crosses the salt flats | cause: the well ran dry | result: she finds the old road\n');
         expect(prompt).toContain('4. Hollis: 1 event. One of them: Day 2 | Hollis sells a map\n');
-        expect(prompt).toContain('- not_named: a job, a title, a role or a description');
+        expect(prompt).toContain('- named: a personal name, a family name with a title (Lord Ashford, Captain Reyes, Mrs. Hale), or a nickname used as a name.\n');
+        expect(prompt).toContain('- not_named: a job, a title with no name in it, a role or a description (a waitress, the bus driver, the boss, the captain, the old man, the protagonist), ');
         expect(prompt).toContain('When names in this list are one character, answer named for the one with the most events, and same_as with that name for each of the others.');
         expect(prompt.endsWith('Return {"names": [{"name": "...", "answer": "named" | "not_named" | "same_as", "same_as": "<title or name>"}, ...]}')).toBe(true);
     });
