@@ -38,7 +38,7 @@ export const REWRITE_EVERY_EVENTS = Object.freeze({ default: 30, min: 10, max: 1
 
 /** The most entries a run after an EventBase run writes (D7); Run now writes every entry that is due. */
 export const ENTRIES_PER_AUTOMATIC_RUN = 5;
-/** The most tokens of events one call reads; more go in slices, each read by a notes call (§4.4). A starting value, tuned in V2. */
+/** The most tokens of events one call reads; more go in slices, each read by a notes call (§4.4). */
 export const EVENT_SLICE_TOKENS = 30000;
 
 /** What the record says of a kept name (§6). */

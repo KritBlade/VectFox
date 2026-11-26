@@ -32,7 +32,7 @@ const ENTRY_SECTIONS = Object.freeze([
     { name: 'Key events', holds: 'the events that changed them or the story, oldest first, one line each: when, what happened, their part, the outcome' },
     { name: 'Relationships', holds: 'each character they are tied to: the tie, how it came about, how it stands' },
 ]);
-// The entry's length (§4.4): starting values, tuned in V2.
+// The entry's length (§4.4): its words, and the lines of its [Key events].
 const ENTRY_WORDS = 600;
 const KEY_EVENT_LINES = 15;
 // An answer with fewer of the section headings, or shorter once read, is not an entry (§4.4).
