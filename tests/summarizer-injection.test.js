@@ -37,6 +37,7 @@ vi.mock('../../../../../script.js', () => ({ setExtensionPrompt: mocks.setExtens
 // host module throws on import (vitest.config.js), so stub them here.
 vi.mock('../../../../extensions.js', () => ({ getContext: vi.fn(() => ({ chat: [] })) }));
 vi.mock('../../../../world-info.js', () => ({ getWorldInfoSettings: vi.fn(() => ({})), getSortedEntries: vi.fn(async () => []) }));
+vi.mock('../../../../utils.js', () => ({}));
 vi.mock('../src/features/vector-backend/backend-registry.js', () => ({ getBackend: vi.fn(async () => ({ listChunks: mocks.listChunks })) }));
 vi.mock('../src/shared/collection-ids.js', () => ({ getChatUUID: mocks.getChatUUID }));
 vi.mock('../src/features/eventbase/eventbase-store.js', () => ({ getVectorizationTip: vi.fn() }));
