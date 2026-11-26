@@ -11,7 +11,8 @@
  *   - the characters are read only while the card is shown, again as its tab opens, and drawn with the book line,
  *     searched by name and paged,
  *   - each row's button does what its state offers: Write now and Rewrite now write that entry, Rewrite anyway asks
- *     first, Allow again forgets the name, Open entry opens LoreBase's editor, each reading the characters again,
+ *     first, Allow again forgets the name, Open entry opens LoreBase's editor, each reading the characters again; one
+ *     that did nothing says why in a toast as well as on the status line, which sits above the rows, often out of view,
  *   - the notice's button opens the StoryArc page or the Main tab,
  *   - the status line says why a button did nothing, else this chat's last run, and a run's end reads the rows again.
  *
@@ -70,6 +71,7 @@ const { showSubTab } = await import('../src/shared/gui-dna/gene-behaviours.js');
 const { bindEntityLoreCard, refreshEntityLoreCard } = await import('../src/features/settings-panel/entity-lore-card.js');
 
 const BOOK = 'VectFox NPCs - Harbor Tales - 2026-01-01';
+const toastr = { warning: vi.fn() };
 const elementOf = id => document.getElementById(id);
 const toggle = () => elementOf(ENTITY_LORE_ELEMENT_ID.enabled);
 const noticeText = () => elementOf(ENTITY_LORE_ELEMENT_ID.notice).textContent;
@@ -85,6 +87,7 @@ const character = (name, state, extra = {}) => ({ name, otherNames: [], eventCou
 
 beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal('toastr', toastr);
     document.body.innerHTML = `<div id="VectFox_settings">${worldInfoPageMarkup()}</div>`;
     Object.assign(host, {
         settings: { entity_lore_enabled: false, story_arc_mode_enabled: true, lorebase_enabled: true },
@@ -233,6 +236,24 @@ describe("a row's buttons", () => {
         buttonFor('Hollis', 'Open entry').click();
         await settle();
         expect(readEntityLoreCharacters).toHaveBeenCalledTimes(2);
+    });
+
+    it('say why they did nothing in a toast as well as on the status line, as the rows sit below it', async () => {
+        writeEntityLoreEntryNow.mockResolvedValueOnce({ problem: 'Use Entity-Lore is off.' });
+        buttonFor('Tamsin', 'Write now').click();
+        await settle();
+        expect(toastr.warning.mock.calls).toEqual([['Use Entity-Lore is off.', 'VectFox Entity-Lore']]);
+        expect(status().textContent).toBe('Use Entity-Lore is off.');
+
+        allowEntityLoreAgain.mockReturnValueOnce({ problem: 'Entity-Lore is writing already; the progress panel shows it.' });
+        buttonFor('the ferryman', 'Allow again').click();
+        await settle();
+        expect(toastr.warning).toHaveBeenLastCalledWith('Entity-Lore is writing already; the progress panel shows it.', 'VectFox Entity-Lore');
+
+        buttonFor('Hollis', 'Rewrite now').click();
+        await settle();
+        expect(toastr.warning).toHaveBeenCalledTimes(2);
+        expect(status().hidden).toBe(true);
     });
 });
 

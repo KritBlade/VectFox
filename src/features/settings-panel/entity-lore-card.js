@@ -3,8 +3,9 @@
  * tab: Use Entity-Lore, which StoryArc mode and LoreBase not acting disable while it is off, and which asks Run now's
  * question as it is turned on; the notice naming what keeps Entity-Lore from running, with the button to where it is
  * fixed; Write at and Rewrite every; the line naming the chat's book; Run now; the status line, the last run's outcome
- * in this chat or why a button did nothing; and the open chat's characters, each with its state and the buttons that
- * state offers, searched by name and paged. The switch and the notice are drawn as the page opens, as LoreBase's switch
+ * in this chat or why a button did nothing, which a row's button says in a toast as well, as the rows sit below the
+ * status line, often out of view; and the open chat's characters, each with its state and the buttons that state
+ * offers, searched by name and paged. The switch and the notice are drawn as the page opens, as LoreBase's switch
  * changes and as the chat changes; the characters are read only while the card is shown, again as its tab opens, as
  * the chat changes, as either count is set and as a run ends.
  */
@@ -25,6 +26,7 @@ import { showPanelTab } from './panel-shell.js';
 import { ENTITY_LORE_ELEMENT_ID, WORLDINFO_TAB, WORLDINFO_TABS_ID } from './worldinfo-page-markup.js';
 
 const LOG = '[VectFox-EntityLore]';
+const TOAST_TITLE = 'VectFox Entity-Lore';
 // The panel page that turns StoryArc mode on (panel-shell-markup.js).
 const STORY_ARC_PAGE = 'storyarc';
 // How long a count waits after its last change before the characters are read again, as dragging its slider changes it often.
@@ -74,6 +76,12 @@ function paintStatus() {
 function showMessage(text) {
     card.message = text ? { chatId: getCurrentChatId() ?? null, text } : null;
     paintStatus();
+}
+
+/** Why a row's button did nothing: on the status line, and in a toast, as the rows sit below the status line, often out of view. */
+function showRowMessage(text) {
+    showMessage(text);
+    if (text) toastr.warning(text, TOAST_TITLE);
 }
 
 /** Draw the book line and the page of characters from the last reading, after the search. */
@@ -164,12 +172,12 @@ async function runAction({ entityLoreAction: action, name, uid, fixAt }) {
         return;
     }
     if (action === ENTITY_LORE_ACTION.allowAgain) {
-        showMessage(allowEntityLoreAgain(name).problem);
+        showRowMessage(allowEntityLoreAgain(name).problem);
         await readCharacters();
         return;
     }
     if (action === ENTITY_LORE_ACTION.rewriteAnyway && !await confirmPopup(REWRITE_ANYWAY_LINES(name), { okButton: 'Rewrite' })) return;
-    if (action === ENTITY_LORE_ACTION.write || action === ENTITY_LORE_ACTION.rewriteAnyway) showMessage((await writeEntityLoreEntryNow(name)).problem);
+    if (action === ENTITY_LORE_ACTION.write || action === ENTITY_LORE_ACTION.rewriteAnyway) showRowMessage((await writeEntityLoreEntryNow(name)).problem);
 }
 
 /** Read the characters again once a count stops changing, as each state's Write at and Rewrite every come from them. */
