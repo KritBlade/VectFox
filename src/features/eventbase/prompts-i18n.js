@@ -133,6 +133,22 @@ export function chineseLanguageNameFor(storyLanguage) {
     return CHINESE_LANGUAGE_NAMES[storyLanguage.chineseScript] ?? CHINESE_LANGUAGE_NAMES.eitherScript;
 }
 
+// The modes whose story is written in Chinese.
+const CHINESE_MODES = new Set(['jieba', 'jieba_tw']);
+
+/**
+ * The name of a Chinese story's script, for a prompt that writes in the story's own language and fixes no script of its
+ * own, as Entity-Lore's do: under a Chinese mode, the script the story's text shows; null for a story in another
+ * language, or one whose text shows no script, which needs no name.
+ *
+ * @param {{promptMode: string, chineseScript: 'traditional'|'simplified'|null}} storyLanguage - From storyLanguageOf
+ * @returns {string|null}
+ */
+export function chineseScriptNameOf(storyLanguage) {
+    if (!CHINESE_MODES.has(storyLanguage.promptMode)) return null;
+    return CHINESE_LANGUAGE_NAMES[storyLanguage.chineseScript] ?? null;
+}
+
 /**
  * What a window's extraction prompt says before the prompt and again after the excerpt when shouldGiveStoryLanguageNotice
  * holds. A status panel, a note or a message the player typed in Chinese, Japanese or Korean otherwise pulls a window's

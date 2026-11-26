@@ -112,9 +112,18 @@ function tellProgressListeners(progress) {
  * @throws {Error} While anything is being written
  */
 function refuseWhileWriting() {
-    if (!panelRun && !isWritingKeys()) return;
+    if (!isLoreBaseWriting()) return;
     progressTracker.reopen();
     throw new Error('LoreBase is already writing keys or vectors; the progress panel shows them. Wait for it, or press Stop there.');
+}
+
+/**
+ * Whether LoreBase writes keys or vectors now, a run or an import on the progress panel or keys still being asked for:
+ * what the guard refuses on. A caller that can leave its writing to a later time asks here, which raises no panel.
+ * @returns {boolean}
+ */
+export function isLoreBaseWriting() {
+    return Boolean(panelRun) || isWritingKeys();
 }
 
 /**
@@ -125,7 +134,8 @@ function refuseWhileWriting() {
  * this one.
  * @param {string} bookName
  * @param {string} uid - The entry's uid
- * @param {{comment: string, content: string}} fields - Its title and text
+ * @param {{comment: string, content: string, keys?: string[]}} fields - Its title and text, and its SillyTavern keys when
+ *   given, as Entity-Lore's rewrite gives them; LoreBase's own keys stay as they are
  * @param {object} settings - VectFox settings
  * @returns {Promise<{isDecided: boolean, failure: {title: string, detail: string}|null, vectorProblem: string|null}>}
  *   isDecided: whether LoreBase decides the entry as saved; failure: why its vectors were not written; vectorProblem:
@@ -150,22 +160,23 @@ export async function saveEntryWithVectors(bookName, uid, fields, settings) {
 
 /**
  * What the selected entries LoreBase decides lack, by book (§4.3, §4.4 of lorebook-multi-vector.md): every book with a
- * selection loaded, its keys read from Similharity now and its vectors as this session holds them, or read from Qdrant
+ * selection loaded, or those of `bookNames` that have one, its keys read from Similharity now and its vectors as this session holds them, or read from Qdrant
  * now when `isRereading`, as turning LoreBase on and the Generate buttons ask, so edits made while SillyTavern was
  * closed are found. Each book with something to write names every entry LoreBase decides in it, those with no keys and
  * not being written, and those without vectors from the embedding model set now. `count` is every entry not ready
  * (isEntryReady), each once; `readyCount` those ready; `decidedCount` every selected entry LoreBase decides. A book that
  * cannot be loaded is logged and counted.
  * @param {object} settings - VectFox settings
- * @param {{isRereading?: boolean}} [options]
+ * @param {{isRereading?: boolean, bookNames?: string[]|null}} [options] - bookNames: the books to read, of those with a
+ *   selection; every one of them when null
  * @returns {Promise<{books: Array<{bookName: string, decidedEntries: object[], keyEntries: object[], vectorEntries: object[]}>,
  *   count: number, readyCount: number, decidedCount: number, unreadBooks: number}>}
  * @throws {Error} When Similharity cannot read the keys or the vectors
  */
-export async function selectedEntriesNotReady(settings, { isRereading = false } = {}) {
+export async function selectedEntriesNotReady(settings, { isRereading = false, bookNames = null } = {}) {
     const loaded = [];
     let unreadBooks = 0;
-    for (const bookName of selectedLoreBookNames()) {
+    for (const bookName of selectedLoreBookNames().filter(name => !bookNames || bookNames.includes(name))) {
         try {
             const entries = await loadDecidedEntries(bookName);
             if (entries.length) loaded.push({ bookName, entries });
@@ -174,9 +185,9 @@ export async function selectedEntriesNotReady(settings, { isRereading = false } 
             unreadBooks += 1;
         }
     }
-    const bookNames = loaded.map(book => book.bookName);
-    await readBookKeys(bookNames);
-    await (isRereading ? readBookVectors(bookNames, settings) : bookVectors(bookNames, settings));
+    const loadedBookNames = loaded.map(book => book.bookName);
+    await readBookKeys(loadedBookNames);
+    await (isRereading ? readBookVectors(loadedBookNames, settings) : bookVectors(loadedBookNames, settings));
     let count = 0;
     let readyCount = 0;
     const books = [];
@@ -314,7 +325,7 @@ async function runOnPanel(settings, { books, count, unreadBooks = 0 }, { kinds, 
 }
 
 /**
- * Write what the selected entries LoreBase decides lack, of `kinds`, in every book with a selection, under the progress
+ * Write what the selected entries LoreBase decides lack, of `kinds`, in every book with a selection or those named, under the progress
  * panel: Generate keys, Generate vectors and Generate all, and with both kinds turning LoreBase on and closing the
  * selection screen (§4.3 of lorebook-multi-vector.md). Vectors are written for every entry lacking them, keys or not,
  * but in a run of both kinds an entry whose keys fail gets none. A run that writes keys reads where to lock as it
@@ -322,15 +333,16 @@ async function runOnPanel(settings, { books, count, unreadBooks = 0 }, { kinds, 
  * locks nothing.
  * @param {object} settings - VectFox settings
  * @param {readonly string[]} kinds - KEYS, VECTORS or BOTH_KINDS
- * @param {{pending?: Awaited<ReturnType<typeof selectedEntriesNotReady>>|null, booksWithChosenLocks?: Iterable<string>}} [options]
- *   pending: what the caller read, else read now, the vectors from Qdrant; booksWithChosenLocks: the books whose lock
- *   the user set on the selection screen that started the run, which keep the locks the user set
+ * @param {{pending?: Awaited<ReturnType<typeof selectedEntriesNotReady>>|null, booksWithChosenLocks?: Iterable<string>,
+ *   bookNames?: string[]|null}} [options] - pending: what the caller read, else read now, the vectors from Qdrant;
+ *   booksWithChosenLocks: the books whose lock the user set on the selection screen that started the run, which keep
+ *   the locks the user set; bookNames: the books to write, as Entity-Lore writes its own book's, every one when null
  * @returns {Promise<WritingRunOutcome>}
  * @throws {Error} When Similharity cannot read the keys or vectors, or while LoreBase writes already
  */
-export async function writeMissing(settings, kinds, { pending = null, booksWithChosenLocks = [] } = {}) {
+export async function writeMissing(settings, kinds, { pending = null, booksWithChosenLocks = [], bookNames = null } = {}) {
     const lockPlace = kinds.includes(KEYS) ? keyRunLockPlace(booksWithChosenLocks) : null;
-    const missing = pending ?? await selectedEntriesNotReady(settings, { isRereading: true });
+    const missing = pending ?? await selectedEntriesNotReady(settings, { isRereading: true, bookNames });
     return runOnPanel(settings, pendingOfKinds(missing, kinds), { kinds, lockPlace });
 }
 

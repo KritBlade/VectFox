@@ -226,6 +226,8 @@ export async function exportCollection(collectionId, settings, collectionInfo = 
                 storyEntityHiddenNames: collectionMeta.storyEntityHiddenNames || [],
                 // EventBase's pointer, how far it has read the chat into this collection, so its import carries on from there
                 ...(collectionMeta.eventbaseProgress ? { eventbaseProgress: collectionMeta.eventbaseProgress } : {}),
+                // Entity-Lore's record of the entries written from these events, and of the names it checked
+                ...(collectionMeta.entityLore ? { entityLore: collectionMeta.entityLore } : {}),
             },
 
             // Chunks (text + metadata + vectors)
@@ -708,6 +710,8 @@ export async function importCollection(exportData, settings, options = {}) {
                 storyEntityMerges: exportData.settings.storyEntityMerges || {},
                 storyEntityHiddenNames: exportData.settings.storyEntityHiddenNames || [],
             });
+            // Entity-Lore's record goes with the events it was counted from; a book the importing account lacks starts it over.
+            if (exportData.settings.entityLore) importedMeta.entityLore = exportData.settings.entityLore;
             // Every chunk is in, so the collection carries on from the file's pointer. A file made before
             // EventBase's pointer was exported has none: the collection's first run then carries on from the
             // furthest window stored.

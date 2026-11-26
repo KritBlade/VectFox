@@ -100,29 +100,48 @@ export function describeLoreBaseConnectionProblem(reason, problem, settings) {
  */
 export function askOnLoreBase(connection) {
     return async (messages, { maxTokens, reasoningEffort, identKeys, onUsage = null }) => {
-        const { content, cutReason, usage } = await postChatCompletion({
-            feature: LLM_CALL_FEATURES.loreBase,
-            messages,
-            model: connection.model,
-            provider: connection.provider,
-            vllmUrl: connection.vllmUrl || '',
-            connectionProfileId: connection.connectionProfileId || '',
-            connectionProfilePage: connection.connectionProfilePage || '',
-            maxTokens,
-            timeoutMs: CALL_TIMEOUT_MS,
-            contextLabel: LOREBASE,
-            authBranch: false,
-            // LoreBase reports a failed call itself, with what goes on without it.
-            shouldNotifyProviderFailure: false,
-            // No temperature: LoreBase's connection never sends one, as the trials sent none.
-            ...connection.parameterStyle,
-            reasoningEffort,
-        });
-        if (cutReason) log.warn(`LoreBase: the provider cut an answer short (${cutReason}); reading what arrived`);
-        onUsage?.(usage);
-        // A thinking model can write its reasoning before the JSON, and what it reasoned is not the answer.
-        return parseJsonArrayFromLlm(stripReasoningBlocks(content), { label: LOREBASE, identKeys });
+        const answer = await callOnLoreBase(connection, messages, { maxTokens, reasoningEffort, timeoutMs: CALL_TIMEOUT_MS, contextLabel: LOREBASE, onUsage });
+        return parseJsonArrayFromLlm(answer, { label: LOREBASE, identKeys });
     };
+}
+
+/**
+ * A call on LoreBase's connection whose answer is text: Entity-Lore's entries and notes, which take longer to write
+ * than a pick, so the caller sets how long a call may take.
+ * @param {object} connection - From resolveLoreBaseLlmConfig, `ok`
+ * @param {{timeoutMs: number, contextLabel: string}} call - How long a call may take, and whose calls they are
+ * @returns {(messages: Array<{role: string, content: string}>, request: {maxTokens: number, reasoningEffort: string|null})
+ *   => Promise<string>} Sends one call and returns its answer without the reasoning a thinking model writes before it;
+ *   throws when the call fails
+ */
+export function askTextOnLoreBase(connection, { timeoutMs, contextLabel }) {
+    return (messages, { maxTokens, reasoningEffort }) => callOnLoreBase(connection, messages, { maxTokens, reasoningEffort, timeoutMs, contextLabel });
+}
+
+/** One call on LoreBase's connection: its answer, the reasoning a thinking model writes before it removed. */
+async function callOnLoreBase(connection, messages, { maxTokens, reasoningEffort, timeoutMs, contextLabel, onUsage = null }) {
+    const { content, cutReason, usage } = await postChatCompletion({
+        feature: LLM_CALL_FEATURES.loreBase,
+        messages,
+        model: connection.model,
+        provider: connection.provider,
+        vllmUrl: connection.vllmUrl || '',
+        connectionProfileId: connection.connectionProfileId || '',
+        connectionProfilePage: connection.connectionProfilePage || '',
+        maxTokens,
+        timeoutMs,
+        contextLabel,
+        authBranch: false,
+        // The caller reports a failed call itself, with what goes on without it.
+        shouldNotifyProviderFailure: false,
+        // No temperature: LoreBase's connection never sends one, as the trials sent none.
+        ...connection.parameterStyle,
+        reasoningEffort,
+    });
+    if (cutReason) log.warn(`${contextLabel}: the provider cut an answer short (${cutReason}); reading what arrived`);
+    onUsage?.(usage);
+    // A thinking model can write its reasoning before the answer, and what it reasoned is not the answer.
+    return stripReasoningBlocks(content);
 }
 
 /**

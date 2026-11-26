@@ -220,7 +220,7 @@ describe('the one read path', () => {
         expect(readers).toEqual(['shared/chat-messages.js']);
     });
 
-    it('gives EventBase and the counts on VectFox\'s pages story order, and the search text, LoreBase\'s scene and the planner the chat as the model reads it', () => {
+    it('gives EventBase and the counts on VectFox\'s pages story order, and the search text, LoreBase\'s scene, the planner and Entity-Lore\'s story language the chat as the model reads it', () => {
         const readsOf = path => [...new Set([...readFileSync(path, 'utf8').matchAll(/\b(chatMessages|storyMessages|openChatStoryOrder)\(\)/g)].map(match => match[1]))].sort();
         const readers = Object.fromEntries(sourceFiles(sourceFolder)
             .map(path => [path.slice(sourceFolder.length).replaceAll('\\', '/'), readsOf(path)])
@@ -237,6 +237,7 @@ describe('the one read path', () => {
             // The chat as the model reads it.
             'features/diagnostics/query-tester.js': ['chatMessages'],
             'features/eventbase/agentic-retrieval.js': ['chatMessages'],
+            'features/entity-lore/entity-lore.js': ['chatMessages'],
             'features/lorebase/lorebase-scene.js': ['chatMessages'],
             'features/lorebase/lorebase-tester.js': ['chatMessages'],
             // Ghosting: story order mapped back to the chat.

@@ -42,14 +42,20 @@ export {
     getChatAutoSyncStatus,
     runEventBaseRetrieval,
 } from './eventbase-workflow.js';
-export { getEventBaseExtractionPrompt } from './prompts-i18n.js';
-export { STORY_LINKS_FILE_TYPE, describeStoryLinkCoverage, describeStoryLinksImport, linkParallelCallsOf } from './story-arc-links-core.js';
+export { formatStoryLine } from './eventbase-injection.js';
+export { chineseScriptNameOf, getEventBaseExtractionPrompt } from './prompts-i18n.js';
+export { isStoryArcActive } from './story-arc-core.js';
+export { readEntityMerges } from './story-arc-entities.js';
+export { buildEntityNameWriter, eventsNamingEntity, holdsName, listEntities, withKeptEntityNames } from './story-arc-entity-core.js';
+export { readStoryLanguage } from './story-language.js';
+export { STORY_LINKS_FILE_TYPE, describeStoryLinkCoverage, describeStoryLinksImport, inTimelineOrder, linkParallelCallsOf } from './story-arc-links-core.js';
 export {
     buildCollectionLinksFile,
     deleteStoryLinks,
     describeStoryLinkPass,
     planStoryLinksDelete,
     planStoryLinksImport,
+    readChatStoryEvents,
     readCollectionLinkCoverage,
     readStoryLinkCoverage,
     runStoryLinkPass,

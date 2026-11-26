@@ -103,6 +103,12 @@ vi.mock('../src/features/lorebase/index.js', () => ({
     initializeLoreBase: vi.fn(),
     prepareLoreBesideRetrieval: vi.fn(async () => {}),
 }));
+vi.mock('../src/features/entity-lore/index.js', () => ({
+    ENTITY_LORE_SETTING: { enabled: 'entity_lore_enabled', writeAtEvents: 'entity_lore_write_at_events', rewriteEveryEvents: 'entity_lore_rewrite_every_events' },
+    REWRITE_EVERY_EVENTS: { default: 30 },
+    WRITE_AT_EVENTS: { default: 10 },
+    onEventBaseRunEnded: vi.fn(),
+}));
 vi.mock('../src/features/keyword-search/index.js', () => ({
     CJK_TOKENIZER_MODES: { intl: 'intl', jieba: 'jieba', jieba_tw: 'jieba_tw' },
     setCjkTokenizerMode: vi.fn(),

@@ -54,6 +54,7 @@ import { mountSettingsPanel, mountWandMenu, refreshAutoSyncCheckbox, scheduleMan
 import { initializeDatabaseBrowser } from './features/database-browser/index.js';
 import { KEY_CALLS_AT_ONCE_DEFAULT, LORE_BUDGET_DEFAULT, PICK_LIMIT_DEFAULT, initializeLoreBase, prepareLoreBesideRetrieval } from './features/lorebase/index.js';
 import { initializeReplyLore } from './features/reply-lore/index.js';
+import { ENTITY_LORE_SETTING, REWRITE_EVERY_EVENTS, WRITE_AT_EVENTS, onEventBaseRunEnded } from './features/entity-lore/index.js';
 import {
     announceCollectionInUseChanged, announceEventBaseEventsRemoved, announceEventBaseRunEnded, announceLlmCallFinished,
     announcePublicApiReady, announcePurgedCollection, askMessageSources, markOwnRequestWhenSwitchedOn, publishPublicApi,
@@ -65,9 +66,16 @@ setDeletedOrImportedCollectionCleanup(clearCachesForDeletedOrImportedCollection)
 setInsertedCollectionRegistrar(registerCollection);
 // What EventBase, the vector backend and the LLM calls tell the public API, which sends it on as vectfox_* events, the
 // public API's mark on the signal of each LLM call's request, written while the PublicAPI page's switch is on, and the
-// message sources other extensions register, which story order asks about each message it reads.
+// message sources other extensions register, which story order asks about each message it reads. An EventBase run that
+// ends is told to Entity-Lore too, which writes the entries it made due, the public API's failure leaving it told.
 setEventBaseListeners({
-    onRunEnded: announceEventBaseRunEnded,
+    onRunEnded: (run) => {
+        try {
+            announceEventBaseRunEnded(run);
+        } finally {
+            onEventBaseRunEnded(run);
+        }
+    },
     onEventsRemoved: announceEventBaseEventsRemoved,
     onCollectionInUseChanged: announceCollectionInUseChanged,
 });
@@ -234,6 +242,11 @@ const defaultSettings = {
     lorebase_pick_limit: PICK_LIMIT_DEFAULT, // Pick limit on the WorldInfo page: the most entries the pick names a reply, 1 to 12, read only on 'high'
     lorebase_enabled: false,                // LoreBase's switch on the WorldInfo page: off until the user turns it on
     lorebase_key_calls_at_once: KEY_CALLS_AT_ONCE_DEFAULT, // Entries at once on the WorldInfo page: entries keyed at once, 1 to 8
+
+    // Entity-Lore (entity-lore plan §8): its switch on the WorldInfo page's Entity-Lore tab, off until the user turns it on, and its two counts
+    [ENTITY_LORE_SETTING.enabled]: false,
+    [ENTITY_LORE_SETTING.writeAtEvents]: WRITE_AT_EVENTS.default,           // Write at: a named character's entry is written at this many events, 3 to 50
+    [ENTITY_LORE_SETTING.rewriteEveryEvents]: REWRITE_EVERY_EVENTS.default, // Rewrite every: written again after this many more events, 10 to 100
 
     // How text splits into words for BM25
     cjk_tokenizer_mode: CJK_TOKENIZER_MODES.intl, // intl | jieba | jieba_tw | tiny_segmenter

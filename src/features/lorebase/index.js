@@ -35,11 +35,16 @@
 // its blocks carry, so the reply lore list (features/reply-lore) tells LoreBase's picks from SillyTavern's own entries.
 //
 // Re-exports only. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
-export { cleanUpLoreBookLocks, onLoreBookChatLocksMoved, selectedLoreBookNames } from './lorebase-books.js';
-export { addLoreBookToChat, booksToAdd, chatBookLocks, newLoreSelectionHere, useLoreSelectionHere } from './lorebase-chat-books.js';
+export {
+    cleanUpLoreBookLocks, ensureLoreSelection, onLoreBookChatLocksMoved, selectedLoreBookNames, selectionInUse, setLoreBookSelection,
+    setLoreSelectionLock,
+} from './lorebase-books.js';
+export {
+    ADD_TO_CHAT, addLoreBookToChat, booksToAdd, chatBookLocks, chatBookNames, chatCharacters, newLoreSelectionHere, useLoreSelectionHere,
+} from './lorebase-chat-books.js';
 export { loreBasePicksCarriedBy } from './lorebase-delivery.js';
 export { editLoreBookEntry } from './lorebase-entry-editor.js';
-export { testLoreBaseConnection } from './lorebase-connection.js';
+export { askTextOnLoreBase, resolveLoreBaseLlmConfig, testLoreBaseConnection } from './lorebase-connection.js';
 export { loreBaseSetupProblem, writingProblem } from './lorebase-setup.js';
 export { JEV_PROFILE_SETTING, resolveJevConnection, testJevConnection } from './lorebase-jev.js';
 export { KEY_CALLS_AT_ONCE_DEFAULT, keyCallsAtOnceOf } from './lorebase-keys-core.js';
@@ -47,7 +52,7 @@ export { deleteOldLorebookCollections } from './lorebase-old-collections.js';
 export { LORE_BUDGET_DEFAULT, loreBudgetOf } from './lorebase-jev-core.js';
 export { PICK_LIMIT_DEFAULT, pickLimitOf } from './lorebase-pick-core.js';
 export { initializeLoreBase, prepareLoreBesideRetrieval, tryLoreBasePick } from './lorebase-reply.js';
-export { FAST_AND_CHEAP, isReplyGeneration, loreBaseAccuracyOf } from './lorebase-reply-core.js';
+export { FAST_AND_CHEAP, THINKING_TOKEN_ALLOWANCE, isReplyGeneration, loreBaseAccuracyOf } from './lorebase-reply-core.js';
 export { openLoreBaseSelection } from './lorebase-selection-screen.js';
 export {
     LOREBASE_KEYS_FILE_TYPE, LOREBASE_VECTORS_FILE_TYPE, describeDelete, describeExport, describeImport, describeImported, modelWords,
@@ -55,12 +60,12 @@ export {
 } from './lorebase-files-core.js';
 export { deleteLoreSelectionAfterConfirm, removeLoreBookAfterConfirm } from './lorebase-removal.js';
 export {
-    deleteStored, deleteStoredRow, exportStored, loreBaseImportRow, loreBaseStorageRows, onWritingProgress, onWritingRunChange, planImport,
-    removableLoreBookNames, storedCountsOfBooks, writeImport, writeMissing,
+    deleteStored, deleteStoredRow, exportStored, isLoreBaseWriting, loreBaseImportRow, loreBaseStorageRows, onWritingProgress, onWritingRunChange,
+    planImport, regenerateKeysOfEntries, removableLoreBookNames, saveEntryWithVectors, storedCountsOfBooks, writeImport, writeMissing,
 } from './lorebase-storage.js';
 export { currentEmbeddingModel, tenantChunkSource } from './lorebase-vectors.js';
 export { BOTH_KINDS, KEYS, VECTORS, kindsLacking } from './lorebase-storage-core.js';
-export { entryTitle } from './lorebase-splitter.js';
-export { isLoreBaseSwitchedOn, onLoreBaseSwitchChange, turnLoreBaseOff } from './lorebase-switch.js';
+export { entryTitle, estimatedTokens } from './lorebase-splitter.js';
+export { isLoreBaseSwitchedOn, loreBaseInactiveReason, onLoreBaseSwitchChange, turnLoreBaseOff } from './lorebase-switch.js';
 export { loreBaseReports, measureLoreBaseReport, onLoreBaseReportsChange } from './lorebase-tester.js';
 export { turnLoreBaseOn } from './lorebase-vector-storage.js';

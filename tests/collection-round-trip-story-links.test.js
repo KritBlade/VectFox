@@ -1,6 +1,6 @@
 /**
- * A collection exported and imported through the Database Browser keeps its StoryArc links, and the entity merges and
- * hidden names of StoryArc's Entity tab.
+ * A collection exported and imported through the Database Browser keeps its StoryArc links, the entity merges and
+ * hidden names of StoryArc's Entity tab, and Entity-Lore's record of the entries written from its events.
  *
  * Runs the real exportCollection, importCollection and link graph. Only the host and the plugin's
  * chunk endpoints are faked; the fake stores points the way the plugin does, where a point's hash
@@ -150,6 +150,22 @@ describe('a Database Browser export and import of a linked collection', () => {
         await importCollection(fileWithNames, SETTINGS, { overwrite: true });
 
         expect(getCollectionMeta(registryKey)).toMatchObject({ storyEntityMerges: { Rose: ['Rosie'] }, storyEntityHiddenNames: ['Waitress'] });
+    });
+
+    it("keeps Entity-Lore's record of the entries written from its events, and imports a collection without one with none", async () => {
+        const registryKey = buildRegistryKey(COLLECTION_ID, SETTINGS);
+        const entityLore = { bookName: 'VectFox NPCs - Kagami', entries: { Rose: { state: 'written', uid: '0', writtenAtEvents: 12, contentHash: '42' }, Waitress: { state: 'not_named' } } };
+        setCollectionMeta(registryKey, { entityLore });
+        const fileWithRecord = await exportCollection(COLLECTION_ID, SETTINGS, { backend: 'qdrant', source: 'openrouter', model: '' });
+        expect(fileWithRecord.settings.entityLore).toEqual(entityLore);
+        extension_settings.vectfox.collections = {};
+
+        await importCollection(fileWithRecord, SETTINGS, { overwrite: true });
+        expect(getCollectionMeta(registryKey).entityLore).toEqual(entityLore);
+
+        extension_settings.vectfox.collections = {};
+        await importCollection(exportFile, SETTINGS, { overwrite: true });
+        expect(getCollectionMeta(registryKey).entityLore).toBeUndefined();
     });
 
     it('imports a file from before hidden names with none hidden', async () => {

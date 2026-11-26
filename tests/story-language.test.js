@@ -54,7 +54,7 @@ vi.mock('../src/sillytavern/log.js', () => ({
     log: { lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn(), warn: vi.fn(), error: vi.fn(), domain: vi.fn(), enabled: () => false },
 }));
 
-const { chineseLanguageNameFor, getAgenticPlannerPrompt, getEventBaseExtractionPrompt, shouldGiveStoryLanguageNotice, storyLanguageOf, STORY_LANGUAGE_NOTICE } = await import('../src/features/eventbase/prompts-i18n.js');
+const { chineseLanguageNameFor, chineseScriptNameOf, getAgenticPlannerPrompt, getEventBaseExtractionPrompt, shouldGiveStoryLanguageNotice, storyLanguageOf, STORY_LANGUAGE_NOTICE } = await import('../src/features/eventbase/prompts-i18n.js');
 const { readStoryLanguage } = await import('../src/features/eventbase/story-language.js');
 const { extractEvents } = await import('../src/features/eventbase/eventbase-extractor.js');
 const { log } = await import('../src/sillytavern/log.js');
@@ -103,6 +103,20 @@ describe('chineseLanguageNameFor', () => {
     it('says only Chinese under a Chinese mode, whose prompt fixes the script', () => {
         expect(chineseLanguageNameFor(storyLanguageOf('jieba_tw', CHINESE))).toBe('中文 (Chinese)');
         expect(chineseLanguageNameFor(storyLanguageOf('jieba', CHINESE))).toBe('中文 (Chinese)');
+    });
+});
+
+describe('chineseScriptNameOf', () => {
+    it("names a Chinese story's script under a Chinese mode, for a prompt that fixes none, as Entity-Lore's", () => {
+        expect(chineseScriptNameOf(storyLanguageOf('jieba_tw', CHINESE))).toBe('繁體中文 (Traditional Chinese)');
+        expect(chineseScriptNameOf(storyLanguageOf('jieba', SIMPLIFIED_CHINESE))).toBe('简体中文 (Simplified Chinese)');
+    });
+
+    it('names none for a story under any other mode, or one whose text shows no script', () => {
+        expect(chineseScriptNameOf(storyLanguageOf('intl', CHINESE))).toBeNull();
+        expect(chineseScriptNameOf(storyLanguageOf('tiny_segmenter', CHINESE))).toBeNull();
+        expect(chineseScriptNameOf(storyLanguageOf('jieba_tw', ENGLISH))).toBeNull();
+        expect(chineseScriptNameOf(storyLanguageOf('jieba', '月光照在山上，海浪拍打岩石。'))).toBeNull();
     });
 });
 

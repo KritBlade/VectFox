@@ -8,8 +8,9 @@
  * names a chat already has a place for; where each counted character stands,
  * which the Entity-Lore tab's rows and a run both read, so the two never
  * disagree; the entries a run writes; an entry's keys; the record kept in the
- * collection's metadata; and the cut of a character's events into slices one
- * call can read.
+ * collection's metadata; the cut of a character's events into slices one
+ * call can read; and what a run names: its book, the titles it wrote, the names
+ * matched to an entry, Run now's question and the run's outcome.
  *
  * Pure: no host or feature imports. What another feature knows, such as
  * whether the card's description holds a name or how many tokens a text is,
@@ -17,6 +18,7 @@
  * ============================================================================
  */
 
+import { counted } from '../../shared/counted.js';
 import { cyrb53 } from '../../shared/point-ids.js';
 
 /** The settings Entity-Lore reads (§8). A missing key reads as its default. */
@@ -358,4 +360,70 @@ export function sliceEventLines(lines, estimateTokens, maxTokens = EVENT_SLICE_T
     }
     if (slice.length) slices.push(slice);
     return slices;
+}
+
+// ---------------------------------------------------------------------------- A run (§4.1, §4.3, §4.6)
+
+/**
+ * The book Entity-Lore writes a chat's entries into (D1), before SillyTavern makes it a file name and numbers it.
+ *
+ * @param {string} chatName
+ * @returns {string}
+ */
+export function npcBookName(chatName) {
+    return `VectFox NPCs - ${chatName}`;
+}
+
+/**
+ * The titles of the entries a record says Entity-Lore wrote, each a kept name: what the name check matches a same_as
+ * against.
+ *
+ * @param {{entries: Record<string, object>}} record
+ * @returns {string[]}
+ */
+export function writtenEntryTitles(record) {
+    return Object.entries(record.entries).filter(([, entry]) => entry.state === RECORD_STATE.written).map(([name]) => name);
+}
+
+/**
+ * The names the name check matched to a kept name, same_as it in any case: its entry reads their events too and is
+ * keyed by them (§4.3, §4.4).
+ *
+ * @param {{entries: Record<string, object>}} record
+ * @param {string} name
+ * @returns {string[]}
+ */
+export function namesMatchedTo(record, name) {
+    return Object.entries(record.entries)
+        .filter(([, entry]) => entry.state === RECORD_STATE.sameAs && isSameName(entry.sameAs ?? '', name))
+        .map(([other]) => other);
+}
+
+/**
+ * Run now's question (§4.1): how many entries it writes and rewrites, and what that costs; the name check is asked only
+ * when there are new entries.
+ *
+ * @param {{newCount: number, rewriteCount: number}} counts - From dueCounts, at least one above 0
+ * @returns {string}
+ */
+export function runNowQuestion({ newCount, rewriteCount }) {
+    const entries = count => counted(count, 'entry', 'entries');
+    const asked = newCount
+        ? `Write ${entries(newCount)}${rewriteCount ? ` and rewrite ${rewriteCount}` : ''}`
+        : `Rewrite ${entries(rewriteCount)}`;
+    return `${asked}? Each is one call on LoreBase's model${newCount ? ', after one call that checks the names' : ''}.`;
+}
+
+/**
+ * What a run did, for the progress panel and the console (§3's status line): the entries written and rewritten, and how
+ * many failed, whose reasons are in the console.
+ *
+ * @param {{written: number, rewritten: number, failed: number}} outcome
+ * @returns {string}
+ */
+export function runOutcomeText({ written, rewritten, failed }) {
+    const parts = [`${counted(written, 'entry', 'entries')} written`];
+    if (rewritten) parts.push(`${rewritten} rewritten`);
+    if (failed) parts.push(`${failed} failed (see the console)`);
+    return parts.join(', ');
 }

@@ -57,15 +57,19 @@ async function saveAddedChatBookNames(bookNames) {
  * chat, the member SillyTavern drafted for the reply it writes now, as its scan loads that member's books alone, and
  * between replies every member not muted, in the group's order, so the WorldInfo page, the selection screen and Try a
  * pick show each member's books and locks, which count on that member's turn. Each by its avatar file name, its name,
- * its file name (which keys its Additional Lorebooks), its own book and its Additional Lorebooks.
- * @returns {Array<{avatar: string, name: string, fileName: string, ownBook: string|null, extraBooks: string[]}>}
+ * its file name (which keys its Additional Lorebooks), its own book and its Additional Lorebooks, and its card's
+ * description, which Entity-Lore reads for the names the card already holds.
+ * @returns {Array<{avatar: string, name: string, fileName: string, ownBook: string|null, extraBooks: string[], description: string}>}
  */
-function chatCharacters() {
+export function chatCharacters() {
     const context = getContext();
     const characterOf = character => {
         const avatar = String(character.avatar);
         const fileName = getCharaFilename(null, { manualAvatarKey: avatar });
-        return { avatar, name: String(character.name ?? ''), fileName, ownBook: character.data?.extensions?.world || null, extraBooks: characterLorebooks(fileName) };
+        return {
+            avatar, name: String(character.name ?? ''), fileName, ownBook: character.data?.extensions?.world || null, extraBooks: characterLorebooks(fileName),
+            description: String(character.description ?? ''),
+        };
     };
     const drafted = context.characterId === undefined || context.characterId === null ? null : context.characters?.[context.characterId];
     if (drafted?.avatar) return [characterOf(drafted)];
