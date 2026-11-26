@@ -2,7 +2,8 @@
  * @vitest-environment jsdom
  *
  * The dialog doors in src/sillytavern/popup.js: a destructive confirm, and a costly one, opens on Cancel, so Enter
- * never says yes to it, and any other dialog opens on its action; a confirm that cannot open answers no; a choice answers the value of the
+ * never says yes to it, and any other dialog opens on its action, the button Enter presses drawn primary
+ * (shared/gui-dna/dialogs.css); a confirm that cannot open answers no; a choice answers the value of the
  * button pressed, null on Cancel, Escape or a dialog that cannot open; a notice shows its lines, then its
  * body, and a wide one carries .is-wide; a form shows its lines, then the form, focuses the control it names, and
  * submits on Enter in a one-line box only when asked.
@@ -10,6 +11,9 @@
 /* global document, KeyboardEvent -- this file runs under the jsdom environment */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const host = vi.hoisted(() => ({ opened: [], failToOpen: false, answer: true }));
 
@@ -42,7 +46,7 @@ beforeEach(() => {
 });
 
 describe('confirmPopup', () => {
-    it('opens a destructive question on Cancel, and keeps its action primary', async () => {
+    it('opens a destructive question on Cancel', async () => {
         await confirmPopup([{ text: 'Delete it?' }], { okButton: 'Delete', isDestructive: true });
         expect(host.opened[0].options).toMatchObject({ okButton: 'Delete', cancelButton: 'Cancel', defaultResult: 0 });
         expect(host.opened[0].dialog.classList.contains('vfx-popup')).toBe(true);
@@ -55,7 +59,7 @@ describe('confirmPopup', () => {
         expect([...host.opened[0].content.querySelectorAll('p')].map(paragraph => paragraph.className)).toEqual(['is-danger', 'is-success', '']);
     });
 
-    it('opens a costly question on Cancel too, and keeps its action primary', async () => {
+    it('opens a costly question on Cancel too', async () => {
         await confirmPopup([{ text: 'Write lorebook entries for 25 characters?' }], { okButton: 'Write', isCostly: true });
         expect(host.opened[0].options).toMatchObject({ okButton: 'Write', cancelButton: 'Cancel', defaultResult: 0 });
     });
@@ -68,6 +72,17 @@ describe('confirmPopup', () => {
     it('answers no when the dialog cannot open', async () => {
         host.failToOpen = true;
         expect(await confirmPopup([{ text: 'Delete it?' }], { okButton: 'Delete', isDestructive: true })).toBe(false);
+    });
+});
+
+describe("the dialogs' look", () => {
+    const dialogsCss = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'shared', 'gui-dna', 'dialogs.css'), 'utf8')
+        .replace(/\r\n/g, '\n');
+
+    it('draws primary the button Enter presses, which SillyTavern marks .menu_button_default: the action, or Cancel in a dialog that opens on it', () => {
+        const primary = dialogsCss.slice(dialogsCss.indexOf('dialog.popup.vfx-popup:not(.is-panel) .popup-controls .menu_button_default {'));
+        expect(primary.slice(0, primary.indexOf('}'))).toContain('background-color: var(--vfx-accent-fill);');
+        expect(dialogsCss).not.toContain('popup-button-ok');
     });
 });
 

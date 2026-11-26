@@ -48,8 +48,8 @@ const OTHER_OPEN_POPUPS = `dialog.popup:not(.${PANEL_DIALOG_CLASS})[open], dialo
 
 /**
  * Open one dialog in the GUI-DNA frame. Its content scrolls once taller than the window: SillyTavern's popup clips it otherwise.
- * A destructive dialog, and a costly one, opens on Cancel: SillyTavern focuses the button of the default answer, and Enter
- * presses the focused button. Resolves to SillyTavern's answer.
+ * A destructive dialog, and a costly one, opens on Cancel: SillyTavern focuses the button of the default answer, which
+ * Enter presses, and marks it .menu_button_default, which dialogs.css draws primary. Resolves to SillyTavern's answer.
  */
 function showDialog(content, type, { okButton, cancelButton, isDestructive = false, isCostly = false, isPanel = false, isWide = false, popupOptions = {} }) {
     const defaultResult = isDestructive || isCostly ? POPUP_RESULT.NEGATIVE : POPUP_RESULT.AFFIRMATIVE;
@@ -96,9 +96,9 @@ export async function waitForOtherPopupsToClose(maxWaitMs = 1500) {
  * @param {string} options.okButton - The action, as a verb
  * @param {string} [options.cancelButton]
  * @param {boolean} [options.isDestructive] - Yes deletes, removes, replaces or resets something: the dialog opens on Cancel,
- *     so Enter cancels, and its action stays primary
+ *     drawn as its primary button, so Enter cancels, and its action is secondary
  * @param {boolean} [options.isCostly] - Yes sends many requests to a model the user pays for: the dialog opens on Cancel
- *     too, and its action stays primary
+ *     too, drawn as its primary button, and its action is secondary
  * @returns {Promise<*>}
  */
 export async function confirmPopup(lines, { okButton, cancelButton = 'Cancel', isDestructive = false, isCostly = false }) {

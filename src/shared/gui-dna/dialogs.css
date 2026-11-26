@@ -68,8 +68,10 @@ dialog.popup.vfx-popup .vfx-dialog-icon {
     margin-inline-end: 6px;
 }
 
-/* The buttons on a bar of their own, right-aligned: each a DNA secondary button, the action the primary one. The panel's
-   Close stays secondary: it performs nothing. Buttons too wide for one row wrap to the next, each label whole. */
+/* The buttons on a bar of their own, right-aligned: each a DNA secondary button, and the one Enter presses the primary
+   one, which SillyTavern marks .menu_button_default: the action, or Cancel in a dialog that opens on it, a destructive
+   or costly one (sillytavern/popup.js). The panel's Close stays secondary: it performs nothing. Buttons too wide for one
+   row wrap to the next, each label whole. */
 dialog.popup.vfx-popup .popup-controls {
     flex-wrap: wrap;
     align-self: stretch;
@@ -104,7 +106,7 @@ dialog.popup.vfx-popup .popup-controls .menu_button:hover {
     filter: none;
 }
 
-dialog.popup.vfx-popup:not(.is-panel) .popup-controls .popup-button-ok {
+dialog.popup.vfx-popup:not(.is-panel) .popup-controls .menu_button_default {
     border-color: var(--vfx-accent-fill);
     background-color: var(--vfx-accent-fill);
     background-image: var(--vfx-accent-gradient);
@@ -113,7 +115,7 @@ dialog.popup.vfx-popup:not(.is-panel) .popup-controls .popup-button-ok {
     font-weight: 600;
 }
 
-dialog.popup.vfx-popup:not(.is-panel) .popup-controls .popup-button-ok:hover {
+dialog.popup.vfx-popup:not(.is-panel) .popup-controls .menu_button_default:hover {
     border-color: var(--vfx-accent-fill-hover);
     background-color: var(--vfx-accent-fill-hover);
     background-image: var(--vfx-accent-gradient-hover);
