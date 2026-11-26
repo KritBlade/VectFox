@@ -39,6 +39,7 @@ import { corePageMarkup } from './core-page-markup.js';
 import { chatHistoryPageMarkup } from './chathistory-page-markup.js';
 import { publicApiPageMarkup } from './publicapi-page-markup.js';
 import { ragPageMarkup } from './rag-page-markup.js';
+import { bindEntityLoreCard, refreshEntityLoreCard } from './entity-lore-card.js';
 import { bindLoreBaseBooksCard, refreshLoreBaseBooks } from './lorebase-books-card.js';
 import { bindLoreBaseModelCard, refreshLoreBaseModelCard } from './lorebase-model-card.js';
 import { bindLoreBaseTester, refreshLoreBaseTester } from './lorebase-tester-card.js';
@@ -130,6 +131,7 @@ function panelTabsWithHooks() {
                 refreshLoreBaseBooks();
                 refreshLoreBaseModelCard();
                 refreshLoreBaseTester();
+                refreshEntityLoreCard();
             },
         },
         storyarc: {
@@ -1420,13 +1422,16 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
         });
 
-    // LoreBase books and tester (WorldInfo page): drawn for the open chat, again on each chat change and as the page opens.
+    // LoreBase books and tester, and Entity-Lore's card (WorldInfo page): drawn for the open chat, again on each chat change
+    // and as the page opens.
     bindLoreBaseBooksCard(settings);
     refreshLoreBaseBooks();
     eventSource.on(event_types.CHAT_CHANGED, refreshLoreBaseBooks);
     bindLoreBaseTester(settings);
     refreshLoreBaseTester();
     eventSource.on(event_types.CHAT_CHANGED, refreshLoreBaseTester);
+    bindEntityLoreCard(settings);
+    eventSource.on(event_types.CHAT_CHANGED, refreshEntityLoreCard);
     // LoreBase's Entries at once: how many entries' keys are written at once, read by each call as it starts.
     bindNumberSetting(settings, { id: 'VectFox_lorebase_key_calls_at_once', key: 'lorebase_key_calls_at_once', initial: keyCallsAtOnceOf(settings.lorebase_key_calls_at_once), isInteger: true });
 

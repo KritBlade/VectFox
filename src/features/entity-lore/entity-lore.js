@@ -3,10 +3,13 @@
  * ENTITY-LORE, THE RUN
  * ============================================================================
  * Writes a lorebook entry for each named character StoryArc counts often
- * (InternalProject/Vectfox/plans/entity-lore.md §4, §5, §7): after an EventBase
- * run that added events to the open chat's collection in use, at most 5
- * entries; on Run now, every entry due, once the user says yes. One run at a
- * time: an EventBase run that ends during one runs one more after it.
+ * (InternalProject/Vectfox/plans/entity-lore.md §3, §4, §5, §7): after an
+ * EventBase run that added events to the open chat's collection in use, at most
+ * 5 entries; on Run now, every entry due, once the user says yes; from a row of
+ * the Entity-Lore card, one character's entry, new or again. One run at a
+ * time: an EventBase run that ends during one runs one more after it. The card
+ * reads each character's state as a run reads it, the last run's outcome, and
+ * what keeps Entity-Lore from running; its Allow again clears a name's record.
  *
  * A run reads the chat's stored events and the record in the collection's
  * metadata, starts the record over when its book is gone (D13) and marks
@@ -41,14 +44,14 @@ import {
 import { parseJsonArrayFromLlm } from '../llm-provider/index.js';
 import {
     ADD_TO_CHAT, BOTH_KINDS, THINKING_TOKEN_ALLOWANCE, addLoreBookToChat, askTextOnLoreBase, chatBookNames, chatCharacters, ensureLoreSelection,
-    estimatedTokens, isLoreBaseWriting, loreBaseInactiveReason, regenerateKeysOfEntries, resolveLoreBaseLlmConfig, saveEntryWithVectors,
-    selectionInUse, setLoreBookSelection, setLoreSelectionLock, writeMissing,
+    estimatedTokens, isLoreBaseSwitchedOn, isLoreBaseWriting, loreBaseInactiveReason, regenerateKeysOfEntries, resolveLoreBaseLlmConfig,
+    saveEntryWithVectors, selectionInUse, setLoreBookSelection, setLoreSelectionLock, writeMissing,
 } from '../lorebase/index.js';
 import {
-    ENTITY_LORE_SETTING, ENTITY_STATE, ENTRIES_PER_AUTOMATIC_RUN, RECORD_STATE, dueCounts, entityLoreStates, entriesForRun, entryContentHash,
-    entryKeysOf, isEntityLoreOn, namesMatchedTo, npcBookName, readEntityLoreRecord, recordOfName, rewriteEveryEventsOf,
-    runNowQuestion, runOutcomeText, sliceEventLines, withBookName, withBookStartedOver, withMissingEntriesDeleted, withNameCheckAnswer,
-    withWrittenEntry, writeAtEventsOf, writtenEntryTitles,
+    ENTITY_LORE_SETTING, ENTITY_STATE, ENTRIES_PER_AUTOMATIC_RUN, RECORD_STATE, dueCounts, entityLoreBlocker as blockerOf, entityLoreStates,
+    entriesForName, entriesForRun, entryContentHash, entryKeysOf, isEntityLoreOn, namesMatchedTo, npcBookName, readEntityLoreRecord, recordOfName,
+    rewriteEveryEventsOf, runNowQuestion, runOutcomeText, sliceEventLines, withBookName, withBookStartedOver, withEntryForgotten,
+    withMissingEntriesDeleted, withNameCheckAnswer, withWrittenEntry, writeAtEventsOf, writtenEntryTitles,
 } from './entity-lore-core.js';
 import {
     NAME_CHECK_ANSWER, entryMessages, nameCheckMessages, notesMessages, readEntryAnswer, readNameCheck, readNotesAnswer,
@@ -65,24 +68,49 @@ const CALL_TIMEOUT_MS = 180000;
 const NAME_CHECK_REQUEST = { maxTokens: 2000 + THINKING_TOKEN_ALLOWANCE, reasoningEffort: 'low' };
 const ENTRY_REQUEST = { maxTokens: 6000 + THINKING_TOKEN_ALLOWANCE, reasoningEffort: null };
 
+const WRITING_ALREADY = 'Entity-Lore is writing already; the progress panel shows it.';
+
 /** @type {{isStopped: boolean, chatId: string}|null} */
 let activeRun = null;
 let isRunAgain = false;
+/** @type {{chatId: string, text: string, isClean: boolean}|null} */
+let lastRun = null;
+const runEndedListeners = new Set();
 
 /**
- * Why Entity-Lore does not run now, or null when it does: its switch on, StoryArc active, LoreBase acting (D8), and
- * LoreBase's model set.
+ * What a run writes: the entries it picks from the states, and the due names its name check asks about. A run after an
+ * EventBase run and Run now ask about every name due, so the record fills up (§4.3); a row's button about its own.
+ * @typedef {{pickFrom: (states: object[]) => object[], dueToCheck: (states: object[]) => object[]}} RunScope
+ */
+const isDue = each => each.state === ENTITY_STATE.due;
+const wholeRun = limit => ({ pickFrom: states => entriesForRun(states, limit), dueToCheck: states => states.filter(isDue) });
+const oneNameRun = name => ({ pickFrom: states => entriesForName(states, name), dueToCheck: states => entriesForName(states, name).filter(isDue) });
+
+/**
+ * What keeps Entity-Lore from running now, its own switch aside (§3, D8), or null when nothing does: LoreBase not
+ * acting, StoryArc mode off, or LoreBase's model not set, each with what to do and where (entityLoreBlocker in
+ * entity-lore-core.js). The card shows it; a run is refused with its fix.
+ * @param {object} [settings] - VectFox settings, the live ones by default
+ * @returns {{need: string, reason: string, fix: string, fixAt: string|null}|null}
+ */
+export function entityLoreBlocker(settings = extension_settings.vectfox) {
+    const connection = resolveLoreBaseLlmConfig(settings);
+    return blockerOf({
+        loreBaseReason: loreBaseInactiveReason(settings),
+        isLoreBaseSwitchedOn: isLoreBaseSwitchedOn(settings),
+        isStoryArcActive: isStoryArcActive(settings),
+        modelProblem: connection.ok ? null : connection.problem ?? "Set LoreBase's model on the Main tab first.",
+    });
+}
+
+/**
+ * Why Entity-Lore does not run now, or null when it does: its switch on, and nothing else keeping it (entityLoreBlocker).
  * @param {object} settings - VectFox settings
  * @returns {string|null}
  */
 function entityLoreProblem(settings) {
     if (!isEntityLoreOn(settings)) return 'Use Entity-Lore is off.';
-    if (!isStoryArcActive(settings)) return 'Turn on StoryArc mode first. Entity-Lore counts characters in its events.';
-    const loreBaseReason = loreBaseInactiveReason(settings);
-    if (loreBaseReason) return `Entity-Lore is paused: ${loreBaseReason}`;
-    const connection = resolveLoreBaseLlmConfig(settings);
-    if (!connection.ok) return connection.problem ?? "Set LoreBase's model on the WorldInfo page first.";
-    return null;
+    return entityLoreBlocker(settings)?.fix ?? null;
 }
 
 /**
@@ -98,51 +126,130 @@ export function onEventBaseRunEnded({ collectionId, eventsAdded }) {
         isRunAgain = true;
         return;
     }
-    void runEntityLore(settings, ENTRIES_PER_AUTOMATIC_RUN);
+    void runEntityLore(settings, wholeRun(ENTRIES_PER_AUTOMATIC_RUN));
 }
 
 /**
- * Run now (§4.1): every entry due, once the user says yes to how many.
- * @returns {Promise<{problem: string|null}>} Why nothing ran, or null when the run ran or the user said no
+ * Run now (§4.1): every entry due, once the user says yes to how many. During a run, its progress panel comes to the
+ * front instead.
+ * @returns {Promise<{problem: string|null, isNothingDue?: boolean}>} Why nothing ran, or null when the run ran or the
+ *   user said no; isNothingDue when no entry was due, which turning the switch on says nothing of
  */
 export async function runEntityLoreNow() {
     const settings = extension_settings.vectfox;
     if (activeRun) {
         progressTracker.reopen();
-        return { problem: 'Entity-Lore is writing already; the progress panel shows it.' };
+        return { problem: WRITING_ALREADY };
     }
     const problem = entityLoreProblem(settings);
     if (problem) return { problem };
     const chat = await readChatEntities(settings);
     if (chat.problem) return { problem: chat.problem };
     const counts = dueCounts(chat.states);
-    if (!counts.newCount && !counts.rewriteCount) return { problem: 'No entry is due now.' };
+    if (!counts.newCount && !counts.rewriteCount) return { problem: 'No entry is due now.', isNothingDue: true };
     if (!await confirmPopup([{ icon: 'fa-users-viewfinder', text: runNowQuestion(counts) }], { okButton: 'Write' })) return { problem: null };
-    await runEntityLore(settings, Number.POSITIVE_INFINITY);
+    await runEntityLore(settings, wholeRun(Number.POSITIVE_INFINITY));
     return { problem: null };
+}
+
+/**
+ * A row's Write now, Rewrite now or Rewrite anyway (§3): one character's entry, new after the name check on that name,
+ * or again, due or not, from the entry as it stands, as the user left it for one they edited (D4). Nothing for a row in
+ * another state. During a run, its progress panel comes to the front instead.
+ * @param {string} name - The row's kept name
+ * @returns {Promise<{problem: string|null}>} Why nothing ran, or null once the run ended
+ */
+export async function writeEntityLoreEntryNow(name) {
+    const settings = extension_settings.vectfox;
+    if (activeRun) {
+        progressTracker.reopen();
+        return { problem: WRITING_ALREADY };
+    }
+    const problem = entityLoreProblem(settings);
+    if (problem) return { problem };
+    await runEntityLore(settings, oneNameRun(name));
+    return { problem: null };
+}
+
+/**
+ * Allow again (§3, §6): the open chat's record forgets a kept name, so it is counted as if new, due at Write at and
+ * asked about by the next name check. Refused while a run writes, as the run saves the record it read.
+ * @param {string} name - The row's kept name
+ * @returns {{problem: string|null}}
+ */
+export function allowEntityLoreAgain(name) {
+    if (activeRun) return { problem: WRITING_ALREADY };
+    const { collection } = collectionInUse(extension_settings.vectfox);
+    if (!collection) return { problem: 'This chat has no collection in use.' };
+    const record = readEntityLoreRecord(getCollectionMeta(collection.registryKey).entityLore);
+    setCollectionMeta(collection.registryKey, { entityLore: withEntryForgotten(record, name) });
+    return { problem: null };
+}
+
+/**
+ * The open chat's characters for the Entity-Lore card (§3): each person's state, as a run reads it, so a row says what
+ * the next run does, and the chat's book: its name, whether it is made yet, and whether this chat loads it. Saves nothing.
+ * @param {object} [settings] - VectFox settings, the live ones by default
+ * @returns {Promise<{problem: string}|{chatId: string, bookName: string, isBookMade: boolean, isBookInChat: boolean, states: object[]}>}
+ */
+export async function readEntityLoreCharacters(settings = extension_settings.vectfox) {
+    const chat = await readChatEntities(settings);
+    if (chat.problem) return { problem: chat.problem };
+    const chatId = getCurrentChatId();
+    const bookName = chat.record.bookName || npcBookName(chatId);
+    return { chatId, bookName, isBookMade: Boolean(chat.record.bookName), isBookInChat: chatBookNames().includes(bookName), states: chat.states };
+}
+
+/**
+ * The last run that wrote or tried an entry since the page loaded: its chat and its outcome, as the progress panel said
+ * it (§3's status line). Null before one.
+ * @returns {{chatId: string, text: string, isClean: boolean}|null}
+ */
+export function lastEntityLoreRun() {
+    return lastRun;
+}
+
+/**
+ * Hear each run end, whatever it wrote: the card reads the states again.
+ * @param {() => void} listener
+ */
+export function onEntityLoreRunEnded(listener) {
+    runEndedListeners.add(listener);
+}
+
+function tellRunEnded() {
+    for (const listener of runEndedListeners) {
+        try {
+            listener();
+        } catch (error) {
+            log.warn(`${LOG} A listener to a run's end failed:`, error);
+        }
+    }
 }
 
 /**
  * One run, then one more when an EventBase run ended during it. Never throws: what fails is logged.
  * @param {object} settings - VectFox settings
- * @param {number} limit - The most entries it writes
+ * @param {RunScope} scope - What it writes
  */
-async function runEntityLore(settings, limit) {
+async function runEntityLore(settings, scope) {
     const run = { isStopped: false, chatId: getCurrentChatId() };
     activeRun = run;
     const stop = () => { run.isStopped = true; };
     eventSource.on(event_types.CHAT_CHANGED, stop);
     try {
-        await writeDueEntries(settings, run, limit);
+        const outcome = await writeDueEntries(settings, run, scope);
+        if (outcome) lastRun = { chatId: run.chatId, ...outcome };
     } catch (error) {
         log.error(`${LOG} The run failed:`, error);
     } finally {
         eventSource.removeListener(event_types.CHAT_CHANGED, stop);
         activeRun = null;
     }
+    tellRunEnded();
     if (!isRunAgain) return;
     isRunAgain = false;
-    if (!entityLoreProblem(settings)) await runEntityLore(settings, ENTRIES_PER_AUTOMATIC_RUN);
+    if (!entityLoreProblem(settings)) await runEntityLore(settings, wholeRun(ENTRIES_PER_AUTOMATIC_RUN));
 }
 
 /**
@@ -211,13 +318,14 @@ async function chatExclusions(ownBookName) {
  * The run's steps on the progress panel: the name check, then each entry, then LoreBase's keys and vectors.
  * @param {object} settings - VectFox settings
  * @param {{isStopped: boolean, chatId: string}} run
- * @param {number} limit
+ * @param {RunScope} scope
+ * @returns {Promise<{text: string, isClean: boolean}|null>} What the panel said, null when no entry was due
  */
-async function writeDueEntries(settings, run, limit) {
+async function writeDueEntries(settings, run, scope) {
     const chat = await readChatEntities(settings);
     if (chat.problem) {
         log.verbose(`${LOG} Nothing to write: ${chat.problem}`);
-        return;
+        return null;
     }
     const job = {
         settings, run, chat, record: chat.record, rewrittenUids: [],
@@ -228,14 +336,18 @@ async function writeDueEntries(settings, run, limit) {
         saves: Promise.resolve(),
     };
     if (JSON.stringify(job.record) !== JSON.stringify(readEntityLoreRecord(getCollectionMeta(chat.registryKey).entityLore))) saveRecord(job);
-    const planned = entriesForRun(chat.states, limit);
-    const due = chat.states.filter(each => each.state === ENTITY_STATE.due);
-    if (planned.length) await writeOnPanel(job, { planned, due, limit });
+    const planned = scope.pickFrom(chat.states);
+    const due = scope.dueToCheck(chat.states);
+    const outcome = planned.length ? await writeOnPanel(job, { planned, due, scope }) : null;
     await writeLoreBaseKeysAndVectors(job);
+    return outcome;
 }
 
-/** The run's name check and entries under the progress panel, with its Stop. */
-async function writeOnPanel(job, { planned, due, limit }) {
+/**
+ * The run's name check and entries under the progress panel, with its Stop.
+ * @returns {Promise<{text: string, isClean: boolean}>} The summary the panel ends on, and whether nothing failed
+ */
+async function writeOnPanel(job, { planned, due, scope }) {
     const { run, outcome } = job;
     let done = 0;
     const advance = () => {
@@ -248,7 +360,7 @@ async function writeOnPanel(job, { planned, due, limit }) {
     if (due.length) {
         progressTracker.updateCurrentItem(`Checking ${counted(due.length, 'name', 'names')}`);
         if (await checkNames(job, due)) {
-            picks = entriesForRun(statesOf(job.settings, { ...job.chat, record: job.record }), limit);
+            picks = scope.pickFrom(statesOf(job.settings, { ...job.chat, record: job.record }));
         } else {
             picks = planned.filter(each => each.state === ENTITY_STATE.rewriteDue);
         }
@@ -268,8 +380,10 @@ async function writeOnPanel(job, { planned, due, limit }) {
     };
     await Promise.all(Array.from({ length: ENTRIES_AT_ONCE }, writeNext));
     const summary = job.outcome.bookProblem ? `${runOutcomeText(outcome)}. ${job.outcome.bookProblem}` : runOutcomeText(outcome);
-    progressTracker.complete(!outcome.failed && !outcome.bookProblem, summary);
+    const isClean = !outcome.failed && !outcome.bookProblem;
+    progressTracker.complete(isClean, summary);
     log.lifecycle(`${LOG} ${summary}${run.isStopped ? ' (stopped)' : ''}`);
+    return { text: summary, isClean };
 }
 
 /**
@@ -427,13 +541,13 @@ async function chatBook(job) {
 
 /**
  * Save an entry written again (§5.3) through LoreBase's entry save, which writes its vectors, its keys its names and
- * those it had. An entry the user edited or deleted meanwhile is left as it is, and one LoreBase cannot save while it
- * writes stays due.
+ * those it had. An entry the user deleted meanwhile is left gone, and one they edited is left as it is, unless they
+ * asked to rewrite it anyway (`isEditAccepted`); one LoreBase cannot save while it writes stays due.
  */
 async function saveRewrite(job, pick, otherNames, content) {
     const entry = await bookEntryOf(job, pick.uid);
     const written = recordOfName(job.record, pick.name);
-    if (!entry || entryContentHash(entry.content) !== written?.contentHash) return;
+    if (!entry || (!pick.isEditAccepted && entryContentHash(entry.content) !== written?.contentHash)) return;
     if (isLoreBaseWriting()) {
         log.lifecycle(`${LOG} ${pick.name}: LoreBase is writing, so its rewrite waits for the next run`);
         return;

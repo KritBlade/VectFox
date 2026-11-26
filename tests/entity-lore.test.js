@@ -16,7 +16,10 @@
  *     one the user edited or deleted is left alone; a book gone starts the record over,
  *   - a failed call leaves its character due and is counted; a model the provider refuses raises the sticky popup and
  *     stops the run; a chat opened during the run gets no book,
- *   - a long arc is written from the notes on each slice, and the book is saved one entry at a time.
+ *   - a long arc is written from the notes on each slice, and the book is saved one entry at a time,
+ *   - the card reads each character's state as a run does, saving nothing; a row's button writes one due character's
+ *     entry after the name check on that name, or a written one again, an edited one from the entry as the user left
+ *     it; Allow again forgets a name, refused during a run; each run's end is told, and the last outcome kept.
  *
  * Names are made up and match no story.
  */
@@ -77,7 +80,9 @@ vi.mock('../src/features/eventbase/index.js', async () => {
         withKeptEntityNames: entities.withKeptEntityNames,
         chineseScriptNameOf: () => null,
         readStoryLanguage: () => ({ promptMode: 'others', isCjkStory: false, chineseScript: null }),
-        collectionInUse: () => ({ collection: host.inUseCollectionId ? { collectionId: host.inUseCollectionId } : null }),
+        collectionInUse: () => ({
+            collection: host.inUseCollectionId ? { collectionId: host.inUseCollectionId, registryKey: `qdrant:${host.inUseCollectionId}` } : null,
+        }),
         isStoryArcActive: settings => settings.story_arc_mode_enabled === true,
         readChatStoryEvents: vi.fn(async () => ({ collectionId: 'harbor-collection', registryKey: 'qdrant:harbor-collection', name: 'Harbor', events: host.events })),
         readEntityMerges: () => host.merges,
@@ -104,6 +109,7 @@ vi.mock('../src/features/lorebase/index.js', () => ({
     ensureLoreSelection: vi.fn(bookName => (host.selections[bookName] ??= { id: 'selection-1', selectedUids: [] })),
     // A character is a token here, so a test makes a long arc with long events.
     estimatedTokens: text => text.length,
+    isLoreBaseSwitchedOn: settings => settings.lorebase_enabled === true,
     isLoreBaseWriting: () => host.isLoreBaseWriting,
     loreBaseInactiveReason: settings => (settings.lorebase_enabled ? null : 'Use LoreBase is off.'),
     regenerateKeysOfEntries: vi.fn(async () => ({})),
@@ -125,7 +131,9 @@ const { notifyInvalidModel } = await import('../src/shared/model-config-notifier
 const { log } = await import('../src/sillytavern/log.js');
 const { readChatStoryEvents } = await import('../src/features/eventbase/index.js');
 const { addLoreBookToChat, regenerateKeysOfEntries, saveEntryWithVectors, writeMissing } = await import('../src/features/lorebase/index.js');
-const { onEventBaseRunEnded, runEntityLoreNow } = await import('../src/features/entity-lore/index.js');
+const {
+    allowEntityLoreAgain, lastEntityLoreRun, onEntityLoreRunEnded, onEventBaseRunEnded, readEntityLoreCharacters, runEntityLoreNow, writeEntityLoreEntryNow,
+} = await import('../src/features/entity-lore/index.js');
 const { entryContentHash } = await import('../src/features/entity-lore/entity-lore-core.js');
 
 const CHAT_ID = 'Harbor Tales - 2026-01-01';
@@ -362,10 +370,109 @@ describe('Run now (§4.1)', () => {
 
     it("says why it writes nothing: Entity-Lore off, or no entry due, asking nothing", async () => {
         host.events = eventsNaming('Tamsin', 4);
-        expect(await runEntityLoreNow()).toEqual({ problem: 'No entry is due now.' });
+        expect(await runEntityLoreNow()).toEqual({ problem: 'No entry is due now.', isNothingDue: true });
         host.settings.entity_lore_enabled = false;
         expect(await runEntityLoreNow()).toEqual({ problem: 'Use Entity-Lore is off.' });
+        host.settings = { ...host.settings, entity_lore_enabled: true, story_arc_mode_enabled: false };
+        expect(await runEntityLoreNow()).toEqual({ problem: 'Turn on StoryArc mode first. Entity-Lore counts characters in its events.' });
         expect(confirmPopup).not.toHaveBeenCalled();
+    });
+});
+
+describe("the card's rows (§3)", () => {
+    const writtenBook = (entries) => {
+        host.worldNames.push(BOOK);
+        host.chatBooks.push(BOOK);
+        host.books[BOOK] = { entries };
+        host.selections[BOOK] = { id: 'selection-1', selectedUids: Object.keys(entries) };
+    };
+
+    it("reads each character's state and the chat's book as a run reads them, saving nothing", async () => {
+        host.events = [...eventsNaming('Tamsin', 12), ...eventsNaming('Hollis', 4), ...eventsNaming('Wren', 11)];
+        const before = await readEntityLoreCharacters();
+        expect(before).toEqual({
+            chatId: CHAT_ID, bookName: BOOK, isBookMade: false, isBookInChat: false,
+            states: [
+                expect.objectContaining({ name: 'Tamsin', eventCount: 12, state: 'due' }),
+                expect.objectContaining({ name: 'Wren', eventCount: 11, state: 'excluded', exclusion: 'persona' }),
+                expect.objectContaining({ name: 'Hollis', eventCount: 4, state: 'waiting', writeAt: 10 }),
+            ],
+        });
+        writtenBook({ 0: { uid: 0, comment: 'Tamsin', key: ['Tamsin'], content: 'Tamsin trades salt.' } });
+        host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: BOOK, entries: { Tamsin: { state: 'written', uid: '0', writtenAtEvents: 12, contentHash: entryContentHash('Tamsin trades salt.') } } } };
+        const { setCollectionMeta } = await import('../src/features/collections/index.js');
+        setCollectionMeta.mockClear();
+        expect(await readEntityLoreCharacters()).toMatchObject({ bookName: BOOK, isBookMade: true, isBookInChat: true, states: [{ name: 'Tamsin', state: 'written', writtenAtEvents: 12 }, {}, {}] });
+        expect(setCollectionMeta).not.toHaveBeenCalled();
+        expect(host.ask).not.toHaveBeenCalled();
+    });
+
+    it("writes one due character's entry now, after the name check on that name alone", async () => {
+        host.events = [...eventsNaming('Tamsin', 12), ...eventsNaming('Ash', 15)];
+        expect(await writeEntityLoreEntryNow('tamsin')).toEqual({ problem: null });
+        expect(checkedNames()).toEqual(['Tamsin']);
+        expect(createLorebookEntry.mock.calls.map(([, fields]) => fields.comment)).toEqual(['Tamsin']);
+        expect(record().entries.Ash).toBeUndefined();
+        expect(lastEntityLoreRun()).toEqual({ chatId: CHAT_ID, text: '1 entry written', isClean: true });
+    });
+
+    it('writes a written entry again now, before Rewrite every, and one the user edited from the entry as they left it', async () => {
+        host.events = [...eventsNaming('Tamsin', 14), ...eventsNaming('Hollis', 12)];
+        writtenBook({
+            0: { uid: 0, comment: 'Tamsin', key: ['Tamsin'], content: 'Tamsin trades salt.' },
+            1: { uid: 1, comment: 'Hollis', key: ['Hollis'], content: 'Hollis sells maps, as the user wrote.' },
+        });
+        host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: BOOK, entries: {
+            Tamsin: { state: 'written', uid: '0', writtenAtEvents: 12, contentHash: entryContentHash('Tamsin trades salt.') },
+            Hollis: { state: 'written', uid: '1', writtenAtEvents: 12, contentHash: entryContentHash('Hollis sells maps.') },
+        } } };
+        await writeEntityLoreEntryNow('Tamsin');
+        expect(saveEntryWithVectors).toHaveBeenCalledWith(BOOK, '0', { comment: 'Tamsin', content: entryAbout('Tamsin'), keys: ['Tamsin'] }, host.settings);
+        expect(record().entries.Tamsin.writtenAtEvents).toBe(14);
+
+        saveEntryWithVectors.mockClear();
+        await writeEntityLoreEntryNow('Hollis');
+        expect(host.ask.mock.calls.at(-1)[0][1].content).toContain("Hollis's entry as it stands:\n\nHollis sells maps, as the user wrote.");
+        expect(saveEntryWithVectors).toHaveBeenCalledWith(BOOK, '1', { comment: 'Hollis', content: entryAbout('Hollis'), keys: ['Hollis'] }, host.settings);
+        expect(record().entries.Hollis).toMatchObject({ state: 'written', writtenAtEvents: 12, contentHash: entryContentHash(entryAbout('Hollis')) });
+        expect(lastEntityLoreRun()).toEqual({ chatId: CHAT_ID, text: '0 entries written, 1 rewritten', isClean: true });
+    });
+
+    it('writes nothing for a name in no state a button writes, and says why while Entity-Lore cannot run', async () => {
+        host.events = [...eventsNaming('Tamsin', 4), ...eventsNaming('Wren', 11)];
+        expect(await writeEntityLoreEntryNow('Tamsin')).toEqual({ problem: null });
+        expect(await writeEntityLoreEntryNow('Wren')).toEqual({ problem: null });
+        expect(host.ask).not.toHaveBeenCalled();
+        expect(progressTracker.show).not.toHaveBeenCalled();
+        host.settings.lorebase_enabled = false;
+        expect(await writeEntityLoreEntryNow('Tamsin')).toEqual({ problem: "Turn on Use LoreBase on the Main tab first. Entity-Lore's entries go through LoreBase." });
+    });
+
+    it('forgets a name on Allow again, so it is counted as new; refused while a run writes', async () => {
+        host.events = eventsNaming('the ferryman', 12);
+        host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: '', entries: { 'The Ferryman': { state: 'not_named' }, Hollis: { state: 'deleted', uid: '4' } } } };
+        expect(allowEntityLoreAgain('the ferryman')).toEqual({ problem: null });
+        expect(record().entries).toEqual({ Hollis: { state: 'deleted', uid: '4' } });
+        expect((await readEntityLoreCharacters()).states[0]).toMatchObject({ name: 'the ferryman', state: 'due' });
+
+        let release;
+        const held = new Promise((resolve) => { release = resolve; });
+        host.ask = vi.fn(async () => { await held; return JSON.stringify({ names: [] }); });
+        onEventBaseRunEnded({ collectionId: 'harbor-collection', eventsAdded: 1 });
+        await vi.waitFor(() => expect(host.ask).toHaveBeenCalled());
+        expect(allowEntityLoreAgain('Hollis')).toEqual({ problem: 'Entity-Lore is writing already; the progress panel shows it.' });
+        release();
+        await settle();
+    });
+
+    it("tells each run's end, whatever it wrote, and keeps the outcome of the last that tried an entry", async () => {
+        const ended = vi.fn();
+        onEntityLoreRunEnded(ended);
+        host.events = eventsNaming('Tamsin', 4);
+        const before = lastEntityLoreRun();
+        await runAfterEventBase();
+        expect(ended).toHaveBeenCalledTimes(1);
+        expect(lastEntityLoreRun()).toBe(before);
     });
 });
 

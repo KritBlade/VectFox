@@ -6,12 +6,13 @@
  * LoreBase's switch, its books for the open chat, each with its state, with the
  * door to its selection screen and Add a lorebook, and LoreBase's model with its
  * setup notice, its Accuracy and the embedding model that writes its vectors.
- * Entity-Lore holds its card, which says the feature is not built yet.
- * LoreBase tester holds the tester.
+ * Entity-Lore holds its card: its switch, its two counts, its book, Run now and
+ * the open chat's characters. LoreBase tester holds the tester.
  * Every control keeps the id settings-panel.js, lorebase-books-card.js,
- * lorebase-model-card.js, lorebase-tester-card.js or connection-rows.js wires
- * it by. The LoreBase book list and the tester's reports are built here as
- * well. Pure: builds strings.
+ * lorebase-model-card.js, lorebase-tester-card.js, entity-lore-card.js or
+ * connection-rows.js wires it by. The LoreBase book list and the tester's
+ * reports are built here as well; the Entity-Lore card's notice, book line and
+ * rows are Entity-Lore's own (entity-lore-ui.js). Pure: builds strings.
  * ============================================================================
  */
 
@@ -165,11 +166,53 @@ function loreBaseTesterCard() {
     </section>`;
 }
 
-// Entity-Lore's card (§3 of entity-lore.md): its switch, sliders, Run now and character list are not built yet.
+/** The Entity-Lore card's elements, by the ids entity-lore-card.js wires. */
+export const ENTITY_LORE_ELEMENT_ID = Object.freeze({
+    card: 'VectFox_entity_lore_card',
+    enabled: 'VectFox_entity_lore_enabled',
+    notice: 'VectFox_entity_lore_notice',
+    writeAt: 'VectFox_entity_lore_write_at_events',
+    rewriteEvery: 'VectFox_entity_lore_rewrite_every_events',
+    book: 'VectFox_entity_lore_book',
+    runNow: 'VectFox_entity_lore_run_now',
+    status: 'VectFox_entity_lore_status',
+    search: 'VectFox_entity_lore_search',
+    list: 'VectFox_entity_lore_list',
+    pager: 'VectFox_entity_lore_pager',
+});
+
+// Entity-Lore's card (§3 of entity-lore.md): Use Entity-Lore, off by default, and the notice entity-lore-card.js fills
+// with what keeps it from running; Write at (10 events by default, 3 to 50, WRITE_AT_EVENTS in entity-lore-core.js) and
+// Rewrite every (30 by default, 10 to 100, REWRITE_EVERY_EVENTS); the line naming the chat's book; Run now and the last
+// run's line; then the open chat's characters, searched by name, a page at a time, which entity-lore-ui.js draws.
 function entityLoreCard() {
-    return `<section id="VectFox_entity_lore_card" class="vfx-card">
+    const id = ENTITY_LORE_ELEMENT_ID;
+    return `<section id="${id.card}" class="vfx-card">
         ${cardHeader({ icon: 'fa-users-viewfinder', title: 'Entity-Lore', description: 'Writes a lorebook entry for each named character StoryArc counts often.' })}
-        <div class="vfx-card-body">${emptyState({ icon: 'fa-person-digging', text: 'Not built yet. Its switch and settings come in a later version.' })}</div>
+        <div class="vfx-card-body vfx-stack">
+            ${switchRow({ id: id.enabled, title: 'Use Entity-Lore', description: 'Off by default. Needs StoryArc mode and Use LoreBase.' })}
+            <div id="${id.notice}"></div>
+            ${field([
+                fieldLabel({ text: 'Write at', forId: id.writeAt }),
+                sliderNumber({ id: id.writeAt, min: 3, max: 50, step: 1, title: 'Events' }),
+                hint({ text: 'A named character gets an entry once this many events name them.' }),
+            ])}
+            ${field([
+                fieldLabel({ text: 'Rewrite every', forId: id.rewriteEvery }),
+                sliderNumber({ id: id.rewriteEvery, min: 10, max: 100, step: 1, title: 'Events' }),
+                hint({ text: 'Their entry is written again from their whole story after this many more events.' }),
+            ])}
+            <p id="${id.book}" class="vfx-hint" hidden></p>
+            ${field([
+                controlRow([buttonWithId({ id: id.runNow, text: 'Run now', icon: 'fa-play' })]),
+                hint({ text: 'Writes every entry due now. Asks first, naming how many.' }),
+            ])}
+            <p id="${id.status}" class="vfx-hint" aria-live="polite" hidden></p>
+            ${groupTitle({ icon: 'fa-users', text: 'Characters' })}
+            ${controlRow([`<input type="text" id="${id.search}" class="vfx-input" placeholder="Search names" title="Search names">`])}
+            <div id="${id.list}" class="vfx-list" aria-live="polite"></div>
+            <div id="${id.pager}"></div>
+        </div>
     </section>`;
 }
 

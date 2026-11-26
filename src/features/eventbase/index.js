@@ -46,7 +46,7 @@ export { formatStoryLine } from './eventbase-injection.js';
 export { chineseScriptNameOf, getEventBaseExtractionPrompt } from './prompts-i18n.js';
 export { isStoryArcActive } from './story-arc-core.js';
 export { readEntityMerges } from './story-arc-entities.js';
-export { buildEntityNameWriter, eventsNamingEntity, holdsName, listEntities, withKeptEntityNames } from './story-arc-entity-core.js';
+export { buildEntityNameWriter, eventsNamingEntity, filterEntities, holdsName, listEntities, withKeptEntityNames } from './story-arc-entity-core.js';
 export { readStoryLanguage } from './story-language.js';
 export { STORY_LINKS_FILE_TYPE, describeStoryLinkCoverage, describeStoryLinksImport, inTimelineOrder, linkParallelCallsOf } from './story-arc-links-core.js';
 export {

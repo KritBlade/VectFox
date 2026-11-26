@@ -11,7 +11,10 @@
  *     entry, or the card's description,
  *   - each character's state follows the record first, then the exclusions and Write at, and a rewrite falls due at
  *     the count it was written at plus Rewrite every,
- *   - a run writes new entries before rewrites, most events first, at most its limit,
+ *   - what keeps Entity-Lore from running is named first by LoreBase, then StoryArc mode, then LoreBase's model, each
+ *     with its fix and where the panel makes it,
+ *   - a run writes new entries before rewrites, most events first, at most its limit; a row's button writes its own
+ *     character's entry, new or again, an edited one only as accepted,
  *   - an entry's keys are its names, then the keys it already had, each once in any case,
  *   - a character's events are cut into slices that fit, oldest first.
  *
@@ -20,8 +23,9 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-    ENTITY_STATE, ENTRIES_PER_AUTOMATIC_RUN, EVENT_SLICE_TOKENS, EXCLUSION, RECORD_STATE, REWRITE_EVERY_EVENTS, WRITE_AT_EVENTS,
-    dueCounts, entityLoreStates, entriesForRun, entryContentHash, entryKeysOf, exclusionOf, isEntityLoreOn,
+    ENTITY_LORE_FIX_AT, ENTITY_LORE_NEED, ENTITY_STATE, ENTRIES_PER_AUTOMATIC_RUN, EVENT_SLICE_TOKENS, EXCLUSION, RECORD_STATE,
+    REWRITE_EVERY_EVENTS, WRITE_AT_EVENTS, dueCounts, entityLoreBlocker, entityLoreStates, entriesForName, entriesForRun, entryContentHash,
+    entryKeysOf, exclusionOf, isEntityLoreOn,
     readEntityLoreRecord, recordOfName, rewriteEveryEventsOf, sliceEventLines, withBookName, withBookStartedOver, withEntryForgotten,
     withMissingEntriesDeleted, withNameCheckAnswer, withWrittenEntry, writeAtEventsOf,
 } from '../src/features/entity-lore/entity-lore-core.js';
@@ -209,6 +213,43 @@ describe('a run', () => {
     it('counts what is due, new and again', () => {
         expect(dueCounts(states)).toEqual({ newCount: 3, rewriteCount: 2 });
         expect(dueCounts([])).toEqual({ newCount: 0, rewriteCount: 0 });
+    });
+
+    it("writes a row's own character from its button: due new, written or due again, edited only as accepted, any other none", () => {
+        const rows = [...states, { name: 'Pell', eventCount: 20, state: ENTITY_STATE.written }, { name: 'Quill', eventCount: 20, state: ENTITY_STATE.deletedByUser }];
+        expect(entriesForName(rows, 'mira')).toEqual([states[1]]);
+        expect(entriesForName(rows, 'Pell')).toEqual([{ name: 'Pell', eventCount: 20, state: ENTITY_STATE.rewriteDue }]);
+        expect(entriesForName(rows, 'Bram')).toEqual([states[0]]);
+        expect(entriesForName(rows, 'Oswin')).toEqual([{ name: 'Oswin', eventCount: 90, state: ENTITY_STATE.rewriteDue, isEditAccepted: true }]);
+        for (const name of ['Wren', 'Quill', 'Nobody']) expect(entriesForName(rows, name)).toEqual([]);
+    });
+});
+
+describe('entityLoreBlocker', () => {
+    const running = { loreBaseReason: null, isLoreBaseSwitchedOn: true, isStoryArcActive: true, modelProblem: null };
+
+    it('names nothing while LoreBase acts, StoryArc mode is on and the model is set', () => {
+        expect(entityLoreBlocker(running)).toBeNull();
+    });
+
+    it('names LoreBase first, as its reason holds what StoryArc needs too, then StoryArc mode, then the model', () => {
+        const everythingOff = { loreBaseReason: 'Use LoreBase is off.', isLoreBaseSwitchedOn: false, isStoryArcActive: false, modelProblem: 'No model.' };
+        expect(entityLoreBlocker(everythingOff)).toEqual({
+            need: ENTITY_LORE_NEED.loreBase, reason: 'Use LoreBase is off.',
+            fix: "Turn on Use LoreBase on the Main tab first. Entity-Lore's entries go through LoreBase.", fixAt: ENTITY_LORE_FIX_AT.worldInfoMain,
+        });
+        expect(entityLoreBlocker({ ...running, loreBaseReason: 'LoreBase runs on the Qdrant backend only.' })).toEqual({
+            need: ENTITY_LORE_NEED.loreBase, reason: 'LoreBase runs on the Qdrant backend only.',
+            fix: "LoreBase runs on the Qdrant backend only. Entity-Lore's entries go through LoreBase.", fixAt: null,
+        });
+        expect(entityLoreBlocker({ ...running, isStoryArcActive: false, modelProblem: 'No model.' })).toEqual({
+            need: ENTITY_LORE_NEED.storyArc, reason: 'StoryArc mode is off.',
+            fix: 'Turn on StoryArc mode first. Entity-Lore counts characters in its events.', fixAt: ENTITY_LORE_FIX_AT.storyArcPage,
+        });
+        expect(entityLoreBlocker({ ...running, modelProblem: "Set LoreBase's model on the Main tab first." })).toEqual({
+            need: ENTITY_LORE_NEED.loreBaseModel, reason: "Set LoreBase's model on the Main tab first.",
+            fix: "Set LoreBase's model on the Main tab first.", fixAt: ENTITY_LORE_FIX_AT.worldInfoMain,
+        });
     });
 });
 

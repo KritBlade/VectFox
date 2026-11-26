@@ -4,10 +4,11 @@
  * ============================================================================
  * Which named characters get a lorebook entry, and when one is written again
  * (InternalProject/Vectfox/plans/entity-lore.md §4.2, §4.4, §4.5, §5, §6): the
- * switch and the two counts, read from settings and kept in their ranges; the
- * names a chat already has a place for; where each counted character stands,
- * which the Entity-Lore tab's rows and a run both read, so the two never
- * disagree; the entries a run writes; an entry's keys; the record kept in the
+ * switch and the two counts, read from settings and kept in their ranges; what
+ * else keeps it from running; the names a chat already has a place for; where
+ * each counted character stands, which the Entity-Lore tab's rows and a run
+ * both read, so the two never disagree; the entries a run writes, and the one a
+ * row's button writes; an entry's keys; the record kept in the
  * collection's metadata; the cut of a character's events into slices one
  * call can read; and what a run names: its book, the titles it wrote, the names
  * matched to an entry, Run now's question and the run's outcome.
@@ -62,7 +63,6 @@ export const ENTITY_STATE = Object.freeze({
     excluded: 'excluded',
 });
 
-/** A name in any case, and with spaces around it, is the same name, as a model writes a name in more than one case. */
 /** Whether two names are one, trimmed and in any case: how the record, the exclusions, the keys and the name check match names. */
 export const isSameName = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
 const isPlainObject = value => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -100,6 +100,43 @@ export function writeAtEventsOf(value) {
  */
 export function rewriteEveryEventsOf(value) {
     return wholeNumberIn(value, REWRITE_EVERY_EVENTS);
+}
+
+/** What Entity-Lore runs on (D8): LoreBase, StoryArc mode, and LoreBase's model. */
+export const ENTITY_LORE_NEED = Object.freeze({ loreBase: 'lorebase', storyArc: 'story_arc', loreBaseModel: 'lorebase_model' });
+/** Where the user fixes what Entity-Lore needs: the StoryArc page, or the WorldInfo page's Main tab. */
+export const ENTITY_LORE_FIX_AT = Object.freeze({ storyArcPage: 'story_arc_page', worldInfoMain: 'worldinfo_main' });
+const THROUGH_LOREBASE = "Entity-Lore's entries go through LoreBase.";
+
+/**
+ * What keeps Entity-Lore from running, its own switch aside (§3, D8), the first of: LoreBase not acting, StoryArc mode
+ * off, LoreBase's model not set; null when nothing does. LoreBase comes first, as its reason names what StoryArc needs
+ * too (VectFox on, the Qdrant backend). `reason` says what is off, `fix` what to do, and `fixAt` where, when one place
+ * of the panel does it.
+ *
+ * @param {object} standing
+ * @param {string|null} standing.loreBaseReason - From loreBaseInactiveReason
+ * @param {boolean} standing.isLoreBaseSwitchedOn - Use LoreBase
+ * @param {boolean} standing.isStoryArcActive
+ * @param {string|null} standing.modelProblem - Why LoreBase's model cannot be called, null when it can
+ * @returns {{need: string, reason: string, fix: string, fixAt: string|null}|null}
+ */
+export function entityLoreBlocker({ loreBaseReason, isLoreBaseSwitchedOn, isStoryArcActive, modelProblem }) {
+    if (loreBaseReason && !isLoreBaseSwitchedOn) {
+        return {
+            need: ENTITY_LORE_NEED.loreBase, reason: loreBaseReason, fix: `Turn on Use LoreBase on the Main tab first. ${THROUGH_LOREBASE}`,
+            fixAt: ENTITY_LORE_FIX_AT.worldInfoMain,
+        };
+    }
+    if (loreBaseReason) return { need: ENTITY_LORE_NEED.loreBase, reason: loreBaseReason, fix: `${loreBaseReason} ${THROUGH_LOREBASE}`, fixAt: null };
+    if (!isStoryArcActive) {
+        return {
+            need: ENTITY_LORE_NEED.storyArc, reason: 'StoryArc mode is off.', fix: 'Turn on StoryArc mode first. Entity-Lore counts characters in its events.',
+            fixAt: ENTITY_LORE_FIX_AT.storyArcPage,
+        };
+    }
+    if (modelProblem) return { need: ENTITY_LORE_NEED.loreBaseModel, reason: modelProblem, fix: modelProblem, fixAt: ENTITY_LORE_FIX_AT.worldInfoMain };
+    return null;
 }
 
 // ---------------------------------------------------------------------------- The record (§6)
@@ -301,6 +338,23 @@ export function entriesForRun(states, limit = Number.POSITIVE_INFINITY) {
     const byMostEvents = (a, b) => (b.eventCount - a.eventCount) || a.name.localeCompare(b.name);
     const inState = state => states.filter(each => each.state === state).sort(byMostEvents);
     return [...inState(ENTITY_STATE.due), ...inState(ENTITY_STATE.rewriteDue)].slice(0, limit);
+}
+
+/**
+ * The entry a row's button writes now (§3): a due character's, new; a written one's, again, due or not (Rewrite now);
+ * and one the user edited, again from the entry as they left it (Rewrite anyway, D4), marked `isEditAccepted`. None
+ * for a row in any other state, or a name no row has.
+ *
+ * @param {object[]} states - From entityLoreStates
+ * @param {string} name - The row's kept name, in any case
+ * @returns {object[]} no entry, or one, its state due or rewrite_due
+ */
+export function entriesForName(states, name) {
+    const row = states.find(each => isSameName(each.name, name));
+    if (row?.state === ENTITY_STATE.due) return [row];
+    if (row?.state === ENTITY_STATE.written || row?.state === ENTITY_STATE.rewriteDue) return [{ ...row, state: ENTITY_STATE.rewriteDue }];
+    if (row?.state === ENTITY_STATE.editedByUser) return [{ ...row, state: ENTITY_STATE.rewriteDue, isEditAccepted: true }];
+    return [];
 }
 
 /**

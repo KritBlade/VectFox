@@ -3,7 +3,8 @@
  *
  * The settings panel's WorldInfo page on GUI-DNA (src/features/settings-panel/worldinfo-page-markup.js): three tabs on
  * the Sub-tabs gene, opening on Main, which holds LoreBase's books and model cards, LoreBase's switch first, then
- * Entity-Lore, whose card says it is not built yet, and LoreBase tester; nothing of the old vector search; every
+ * Entity-Lore, whose card holds its switch, its two counts, Run now and the character list, and LoreBase tester; nothing
+ * of the old vector search; every
  * control keeps the id its wiring uses; the page is drawn from GUI-DNA alone with none of the old debug tools; the
  * LoreBase book list says what each book of the open chat has selected and where it is locked, then Add a lorebook
  * with the books it does not load; and the tester's report says what LoreBase did on a reply (§5.10).
@@ -13,13 +14,14 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 const {
-    WORLDINFO_TAB, WORLDINFO_TABS_ID, loreBaseBooksMarkup, loreBaseReportMarkup, loreBaseReportOptions, loreBaseSetupNoticeMarkup,
+    ENTITY_LORE_ELEMENT_ID, WORLDINFO_TAB, WORLDINFO_TABS_ID, loreBaseBooksMarkup, loreBaseReportMarkup, loreBaseReportOptions, loreBaseSetupNoticeMarkup,
     loreBaseVectorsLineText, worldInfoPageMarkup,
 } = await import('../src/features/settings-panel/worldinfo-page-markup.js');
 const { KEY_CALLS_AT_ONCE_MAX } = await import('../src/features/lorebase/lorebase-keys-core.js');
 const { FAST_AND_CHEAP, loreBaseAccuracyOf } = await import('../src/features/lorebase/lorebase-reply-core.js');
 const { LORE_BUDGET_MAX, LORE_BUDGET_MIN } = await import('../src/features/lorebase/lorebase-jev-core.js');
 const { PICK_LIMIT_MAX, PICK_LIMIT_MIN } = await import('../src/features/lorebase/lorebase-pick-core.js');
+const { REWRITE_EVERY_EVENTS, WRITE_AT_EVENTS } = await import('../src/features/entity-lore/entity-lore-core.js');
 
 // The ids settings-panel.js, lorebase-books-card.js and lorebase-tester-card.js wire on the WorldInfo page.
 const WIRED_IDS = [
@@ -175,10 +177,26 @@ describe('WorldInfo page tabs (§2.2 of entity-lore.md)', () => {
         expect(cardsOn(WORLDINFO_TAB.tester)).toEqual(['VectFox_lorebase_tester_card']);
     });
 
-    it("say on Entity-Lore's card what it will do, and that it is not built yet", () => {
-        const card = document.getElementById('VectFox_entity_lore_card');
+    it("hold on Entity-Lore's card its switch, Write at and Rewrite every in their ranges, Run now and the character list (§3)", () => {
+        const card = document.getElementById(ENTITY_LORE_ELEMENT_ID.card);
         expect(card.querySelector('.vfx-card-desc').textContent).toBe('Writes a lorebook entry for each named character StoryArc counts often.');
-        expect(card.querySelector('.vfx-empty').textContent).toBe('Not built yet. Its switch and settings come in a later version.');
+        for (const id of Object.values(ENTITY_LORE_ELEMENT_ID)) expect(document.getElementById(id), id).not.toBeNull();
+        const toggle = document.getElementById(ENTITY_LORE_ELEMENT_ID.enabled);
+        expect(toggle.closest('.vfx-switch-row').textContent).toBe('Use Entity-LoreOff by default. Needs StoryArc mode and Use LoreBase.');
+        const range = id => {
+            const box = document.getElementById(id);
+            return { min: Number(box.min), max: Number(box.max), slider: card.querySelector(`[data-vfx-slider-for="${id}"]`).title };
+        };
+        expect(range(ENTITY_LORE_ELEMENT_ID.writeAt)).toEqual({ min: WRITE_AT_EVENTS.min, max: WRITE_AT_EVENTS.max, slider: 'Events' });
+        expect(range(ENTITY_LORE_ELEMENT_ID.rewriteEvery)).toEqual({ min: REWRITE_EVERY_EVENTS.min, max: REWRITE_EVERY_EVENTS.max, slider: 'Events' });
+        expect([...card.querySelectorAll('.vfx-hint')].map(each => each.textContent).filter(Boolean)).toEqual([
+            'A named character gets an entry once this many events name them.',
+            'Their entry is written again from their whole story after this many more events.',
+            'Writes every entry due now. Asks first, naming how many.',
+        ]);
+        expect(document.getElementById(ENTITY_LORE_ELEMENT_ID.runNow).textContent).toBe('Run now');
+        expect(document.getElementById(ENTITY_LORE_ELEMENT_ID.book).hidden).toBe(true);
+        expect(document.getElementById(ENTITY_LORE_ELEMENT_ID.status).hidden).toBe(true);
     });
 });
 
