@@ -199,10 +199,10 @@ async function reviewPick(pick, { scene, books, ask }) {
  */
 
 /**
- * The lore for one reply on High Accuracy: the pick over the table of contents of the books taking part, then one
- * review per pick of more than one part, all sent at once, each at low reasoning effort, a one-part pick or one with
- * template code sent whole with no review. A failed pick leaves every selected entry out, and a failed review leaves
- * out only its own entry (D14).
+ * The lore for one reply on High Accuracy: the pick of at most `pickLimit` entries over the table of contents of the
+ * books taking part, then one review per pick of more than one part, all sent at once, each at low reasoning effort, a
+ * one-part pick or one with template code sent whole with no review. A failed pick leaves every selected entry out,
+ * and a failed review leaves out only its own entry (D14).
  * @param {object} turn
  * @param {string} turn.scene - From sceneText
  * @param {Array<{bookName: string, entries: object[], pinnedSections: string[], keysByUid?: Record<string, string[]>}>} turn.books -
@@ -210,9 +210,10 @@ async function reviewPick(pick, { scene, books, ask }) {
  * @param {(messages: Array<{role: string, content: string}>, request: {maxTokens: number, reasoningEffort: string,
  *   identKeys: string[]}) => Promise<unknown[]>} turn.ask - Sends one call and returns its answer's entries, as
  *   parseJsonArrayFromLlm reads them; throws when the call fails
+ * @param {number} turn.pickLimit - The most entries the pick names, from pickLimitOf
  * @returns {Promise<ReplyLore>}
  */
-export async function loreForReply({ scene, books, ask }) {
+export async function loreForReply({ scene, books, ask, pickLimit }) {
     const contents = tableOfContents(books);
     let picked;
     let pickTokens = null;
@@ -221,8 +222,8 @@ export async function loreForReply({ scene, books, ask }) {
     };
     const pickStartedAt = performance.now();
     try {
-        const items = await ask(pickMessages(scene, contents), { maxTokens: PICK_MAX_TOKENS, reasoningEffort: REASONING_EFFORT, identKeys: ['number'], onUsage });
-        picked = readPicks(items, contents);
+        const items = await ask(pickMessages(scene, contents, pickLimit), { maxTokens: PICK_MAX_TOKENS, reasoningEffort: REASONING_EFFORT, identKeys: ['number'], onUsage });
+        picked = readPicks(items, contents, pickLimit);
     } catch (error) {
         return {
             contentCount: contents.length, picks: [], unreadItemCount: 0, pickSeconds: secondsSince(pickStartedAt), pickTokens,

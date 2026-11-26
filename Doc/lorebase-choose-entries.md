@@ -302,12 +302,12 @@ On High Accuracy, the LoreBase model does 2 jobs. It picks the entries, and then
    ```
    12. Lighthouse of Vell (lighthouse, Vell, keeper)
    ```
-   Next to the scene, it picks the entries the next reply needs, most needed first, at most 6, or none. For each one it says why, and what in it the reply needs.
-2. **The cache.** The list sits at the very end of the pick's system prompt, and it's the exact same text every reply, until your selection, a title or the keys change. So after the first reply, a provider that caches reads it from its cache, which costs way less. The **LoreBase tester** shows how much, like `Pick read from the cache: 10,141 of the pick's 15,070 prompt tokens`.
+   Next to the scene, it picks the entries the next reply needs, most needed first, or none. It picks at most the **Pick limit** on the model card, which shows on High Accuracy only: 6 entries by default, and it takes 1 to 12. For each one it says why, and what in it the reply needs.
+2. **The cache.** The list sits at the very end of the pick's system prompt, and it's the exact same text every reply, until your selection, a title or the keys change. So after the first reply, a provider that caches reads it from its cache, which costs way less. The Pick limit isn't in that part, so changing it keeps the cache. The **LoreBase tester** shows how much it saves, like `Pick read from the cache: 10,141 of the pick's 15,070 prompt tokens`.
 3. **The reviews.** Then the LoreBase model reads each picked entry, 1 call per entry, all at the same time. It gets the entry cut into numbered parts: by the author's own headings first, and into pieces of about 300 tokens where a section is still too long. It says how much of the entry the reply will use, "most", "some" or "none", and which parts are of no use right now. An entry of only 1 part, or one with template code, skips its review and goes in whole.
 4. **What it sends.** Every part the review didn't leave out, in the entry's own order, plus every part of a pinned section. An entry the review says the reply uses none of sends nothing.
 
-So a reply on High Accuracy is 1 pick and up to 6 reviews, all at low reasoning effort.
+So a reply on High Accuracy is 1 pick and at most 1 review per pick, so up to 6 reviews at the default Pick limit, all at low reasoning effort. A higher limit can send more lore, but each extra pick of more than 1 part costs 1 more review call.
 
 High Accuracy never searches, so it never uses the vectors. Every entry still needs them, though, so you can switch between the 2 any time and no entry drops out.
 
@@ -319,7 +319,7 @@ When something fails, the reply goes on without that lore, and a toast tells you
 
 ### Which one to choose
 
-On my test book of 313 entries, Fast and Cheap cost about $0.0004 a reply, and the whole step took about 1.8 seconds. The search was 1.3 seconds of that. High Accuracy cost about $0.0018 a reply once the cache kicked in, and the reply waited about 7 seconds for its pick and reviews.
+On my test book of 313 entries, Fast and Cheap cost about $0.0004 a reply, and the whole step took about 1.8 seconds. The search was 1.3 seconds of that. High Accuracy, at its default Pick limit of 6, cost about $0.0018 a reply once the cache kicked in, and the reply waited about 7 seconds for its pick and reviews.
 
 But High Accuracy sends way less, since it cuts entries down to what the reply needs. On that book it sent about 1,400 lore tokens a reply, where Fast and Cheap sent about 3,000 lore tokens. Your chat model reads every one of those tokens. So with a chat model of $1 per million input tokens or more, High Accuracy came out the cheaper one in all.
 

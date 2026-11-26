@@ -116,14 +116,14 @@ describe("a reply's pick and reviews", () => {
             return [{ entry: 1, uses: 'some', leave_out: [3] }];
         });
         const books = [harborAtlas, wrenJournal];
-        const running = loreForReply({ scene, books, ask });
+        const running = loreForReply({ scene, books, ask, pickLimit: 6 });
         // Both reviews are asked before either answers.
         await vi.waitFor(() => expect(ask).toHaveBeenCalledTimes(3));
         releaseReviews();
         const lore = await running;
 
         const contents = tableOfContents(books);
-        expect(ask.mock.calls[0]).toEqual([pickMessages(scene, contents), { maxTokens: 9500, reasoningEffort: 'low', identKeys: ['number'], onUsage: expect.any(Function) }]);
+        expect(ask.mock.calls[0]).toEqual([pickMessages(scene, contents, 6), { maxTokens: 9500, reasoningEffort: 'low', identKeys: ['number'], onUsage: expect.any(Function) }]);
         const review = { maxTokens: 10000, reasoningEffort: 'low', identKeys: ['entry'] };
         expect(ask.mock.calls[1]).toEqual([reviewMessages(scene, { title: 'Fog Season', why: 'fog decides the crossing', needs: 'needs 3' }, entryPassages(fogSeason).passages), review]);
         expect(ask.mock.calls[2]).toEqual([reviewMessages(scene, { title: 'Lighthouse of Vell', why: 'the keeper is asked after', needs: 'needs 1' }, entryPassages(lighthouse).passages), review]);
@@ -145,7 +145,7 @@ describe("a reply's pick and reviews", () => {
             if (isPick(request)) return [pickItem(1), pickItem(2)];
             return messages[1].content.includes('Entry 1: Lighthouse of Vell') ? [{ entry: 1, uses: 'some', leave_out: [2, 3] }] : [{ entry: 1, uses: 'none', leave_out: [] }];
         });
-        const lore = await loreForReply({ scene, books: [pinned], ask });
+        const lore = await loreForReply({ scene, books: [pinned], ask, pickLimit: 6 });
         expect(lore.reviewedPicks.map(({ title, sentParts }) => ({ title, sentParts }))).toEqual([
             { title: 'Lighthouse of Vell', sentParts: [1, 3] },
             { title: 'Tidewardens', sentParts: [] },
@@ -158,7 +158,7 @@ describe("a reply's pick and reviews", () => {
         const tideTable = { uid: 6, comment: 'Tide Table', content: '[High]\n<% if (tide) { %>The tide is high.<% } %>\n[Low]\nThe flats show at low tide.' };
         const book = { bookName: 'Harbor Atlas', entries: [ferryTolls, tideTable, tidewardens], pinnedSections: [] };
         const ask = vi.fn(async (_messages, request) => (isPick(request) ? [pickItem(1), pickItem(2), pickItem(3)] : [{ entry: 1, uses: 'most', leave_out: [2] }]));
-        const lore = await loreForReply({ scene, books: [book], ask });
+        const lore = await loreForReply({ scene, books: [book], ask, pickLimit: 6 });
 
         expect(entryPassages(ferryTolls).passages).toHaveLength(1);
         expect(entryPassages(tideTable).passages.length).toBeGreaterThan(1);
@@ -175,13 +175,23 @@ describe("a reply's pick and reviews", () => {
     it("shows each entry's keys after its title in the pick's table, which ends its system prompt", async () => {
         const keyed = { ...harborAtlas, keysByUid: { 0: ['lighthouse', 'Keeper Orrin'], 1: ['tidewardens', 'harbor bells'] } };
         const ask = vi.fn(async () => []);
-        await loreForReply({ scene, books: [keyed], ask });
+        await loreForReply({ scene, books: [keyed], ask, pickLimit: 6 });
         expect(ask.mock.calls[0][0][0].content.endsWith('\n\n1. Lighthouse of Vell (lighthouse, Keeper Orrin)\n2. Tidewardens (tidewardens, harbor bells)')).toBe(true);
+    });
+
+    it('asks the pick for at most the Pick limit, and reviews only the picks within it', async () => {
+        const ask = vi.fn(async (_messages, request) => (isPick(request) ? [pickItem(2), pickItem(1), pickItem(3)] : [{ entry: 1, uses: 'most', leave_out: [] }]));
+        const lore = await loreForReply({ scene, books: [harborAtlas, wrenJournal], ask, pickLimit: 1 });
+        expect(ask.mock.calls[0][0]).toEqual(pickMessages(scene, tableOfContents([harborAtlas, wrenJournal]), 1));
+        expect(ask.mock.calls[0][0][1].content).toContain('most needed first, at most 1.');
+        expect(lore.picks.map(pick => pick.title)).toEqual(['Tidewardens']);
+        expect(ask).toHaveBeenCalledTimes(2);
+        expect(ask.mock.calls[1][0][1].content).toContain('Entry 1: Tidewardens');
     });
 
     it('asks no review when the pick names none', async () => {
         const ask = vi.fn(async () => []);
-        const lore = await loreForReply({ scene, books: [harborAtlas], ask });
+        const lore = await loreForReply({ scene, books: [harborAtlas], ask, pickLimit: 6 });
         expect(ask).toHaveBeenCalledTimes(1);
         expect(lore).toMatchObject({ picks: [], reviewedPicks: [], failures: [] });
     });
@@ -191,7 +201,7 @@ describe("a reply's pick and reviews", () => {
             await new Promise(resolve => { setTimeout(resolve, isPick(request) ? 40 : 10); });
             return isPick(request) ? [pickItem(1), pickItem(2)] : [{ entry: 1, uses: 'most', leave_out: [] }];
         });
-        const lore = await loreForReply({ scene, books: [harborAtlas], ask });
+        const lore = await loreForReply({ scene, books: [harborAtlas], ask, pickLimit: 6 });
         expect(lore.pickSeconds).toBeGreaterThanOrEqual(0.03);
         expect(lore.reviewedPicks.map(reviewed => reviewed.seconds)).toEqual([expect.any(Number), expect.any(Number)]);
         for (const reviewed of lore.reviewedPicks) expect(reviewed.seconds).toBeGreaterThanOrEqual(0.005);
@@ -200,7 +210,7 @@ describe("a reply's pick and reviews", () => {
     it('leaves every selected entry out when the pick fails, and asks no review', async () => {
         const error = timeout();
         const ask = vi.fn(async () => { throw error; });
-        const lore = await loreForReply({ scene, books: [harborAtlas], ask });
+        const lore = await loreForReply({ scene, books: [harborAtlas], ask, pickLimit: 6 });
         expect(ask).toHaveBeenCalledTimes(1);
         expect(lore).toEqual({
             contentCount: 2, picks: [], unreadItemCount: 0, pickSeconds: expect.any(Number), pickTokens: null, reviewedPicks: [],
@@ -214,7 +224,7 @@ describe("a reply's pick and reviews", () => {
                 request.onUsage?.(usage);
                 return items;
             });
-            return (await loreForReply({ scene, books: [harborAtlas], ask })).pickTokens;
+            return (await loreForReply({ scene, books: [harborAtlas], ask, pickLimit: 6 })).pickTokens;
         };
         expect(await reported({ prompt_tokens: 15070, cached_tokens: 10141 }, [])).toEqual({ prompt: 15070, cached: 10141 });
         expect(await reported({ prompt_tokens: 15070, cached_tokens: null }, [])).toEqual({ prompt: 15070, cached: null });
@@ -228,7 +238,7 @@ describe("a reply's pick and reviews", () => {
             if (messages[1].content.includes('Entry 1: Lighthouse of Vell')) throw error;
             return [{ entry: 1, uses: 'most', leave_out: [] }];
         });
-        const lore = await loreForReply({ scene, books: [harborAtlas], ask });
+        const lore = await loreForReply({ scene, books: [harborAtlas], ask, pickLimit: 6 });
         expect(lore.reviewedPicks.map(({ title, sentParts }) => ({ title, sentParts }))).toEqual([{ title: 'Tidewardens', sentParts: [1, 2] }]);
         expect(lore.failures).toEqual([{
             step: 'review', bookName: 'Harbor Atlas', uid: 0, title: 'Lighthouse of Vell', detail: 'LoreBase: OpenRouter HTTP 429: Too Many Requests', error,
@@ -239,11 +249,11 @@ describe("a reply's pick and reviews", () => {
     it('fails a call whose answer cannot be read: a pick with no entries in it, or a review with no amount for entry 1', async () => {
         const unreadable = Object.assign(new Error('Unable to find record array in LoreBase response.'), { kind: 'parse' });
         const pickAsk = vi.fn(async () => { throw unreadable; });
-        expect((await loreForReply({ scene, books: [harborAtlas], ask: pickAsk })).failures)
+        expect((await loreForReply({ scene, books: [harborAtlas], ask: pickAsk, pickLimit: 6 })).failures)
             .toEqual([{ step: 'pick', detail: 'its answer could not be read', error: unreadable }]);
 
         const reviewAsk = vi.fn(async (_messages, request) => (isPick(request) ? [pickItem(2)] : [{ entry: 2, uses: 'most', leave_out: [] }]));
-        const lore = await loreForReply({ scene, books: [harborAtlas], ask: reviewAsk });
+        const lore = await loreForReply({ scene, books: [harborAtlas], ask: reviewAsk, pickLimit: 6 });
         expect(lore.reviewedPicks).toEqual([]);
         expect(lore.failures).toEqual([{ step: 'review', bookName: 'Harbor Atlas', uid: 1, title: 'Tidewardens', detail: 'its answer could not be read', seconds: expect.any(Number) }]);
     });

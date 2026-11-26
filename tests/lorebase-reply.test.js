@@ -572,6 +572,17 @@ describe("the calls on LoreBase's connection", () => {
         expect(lore.reviewedPicks).toMatchObject([{ bookName: 'Harbor Atlas', uid: 1, uses: 'most', sentParts: [1, 2] }]);
     });
 
+    it("asks the pick for at most the saved Pick limit, the trials' 6 while none is saved, and keeps no more", async () => {
+        postChatCompletion.mockResolvedValueOnce(pickOf()).mockResolvedValueOnce(pickOf(2, 1)).mockResolvedValueOnce(reviewOf('most'));
+        await prepareLoreForReply('normal', settings);
+        expect(userContent(0)).toContain('most needed first, at most 6.');
+
+        const lore = await prepareLoreForReply('normal', { ...settings, lorebase_pick_limit: 1 });
+        expect(userContent(1)).toContain('most needed first, at most 1.');
+        expect(lore.picks.map(pick => pick.title)).toEqual(['Tidewardens']);
+        expect(postChatCompletion).toHaveBeenCalledTimes(3);
+    });
+
     it('runs High Accuracy on a value the dropdown no longer offers, and reports it so', async () => {
         postChatCompletion.mockResolvedValueOnce(pickOf(2)).mockResolvedValueOnce(reviewOf('most'));
         await prepareLoreForReply('normal', { ...settings, lorebase_accuracy: 'default' });

@@ -172,10 +172,10 @@ function refreshEmbedding(choice, settings, isManagerAvailable) {
 }
 
 /**
- * Show what LoreBase's Accuracy leaves each model to do: on High Accuracy its own model's Keys and picks; on Fast and
- * Cheap [Jev] (plan D16) its own model's Keys and Jev's group, offering Disabled, which clears Jev's profile, then the
- * OpenRouter and Custom profiles, with what keeps the chosen one from running. Jev's group shows on Fast and Cheap [Jev]
- * only.
+ * Show what LoreBase's Accuracy leaves each model to do: on High Accuracy its own model's Keys and picks, with the Pick
+ * limit; on Fast and Cheap [Jev] (plan D16) its own model's Keys and Jev's group, offering Disabled, which clears Jev's
+ * profile, then the OpenRouter and Custom profiles, with what keeps the chosen one from running. The Pick limit shows on
+ * High Accuracy only, Jev's group on Fast and Cheap [Jev] only.
  * @param {object} settings
  * @param {boolean} isManagerAvailable
  * @param {string} accuracy - The dropdown's choice: the saved one, or the one just picked, which another listener saves
@@ -185,6 +185,7 @@ function refreshAccuracyRows(settings, isManagerAvailable, accuracy) {
     const isFastAndCheap = loreBaseAccuracyOf(accuracy) === FAST_AND_CHEAP;
     setShown(byId('VectFox_lorebase_role_picks'), !isFastAndCheap);
     setShown(byId('VectFox_lorebase_role_keys'), isFastAndCheap);
+    setShown(byId('VectFox_lorebase_pick_limit_group'), !isFastAndCheap);
     setShown(byId(JEV_GROUP_ID), isFastAndCheap);
     setShown(byId(ids.rows), isFastAndCheap);
     if (!isFastAndCheap) return;

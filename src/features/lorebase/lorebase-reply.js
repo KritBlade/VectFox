@@ -25,6 +25,7 @@ import { chatBookNames, lockTarget, selectionInUseHere } from './lorebase-chat-b
 import { askOnLoreBase } from './lorebase-connection.js';
 import { askJev } from './lorebase-jev.js';
 import { loreBudgetOf, loreForReplyByJev } from './lorebase-jev-core.js';
+import { pickLimitOf } from './lorebase-pick-core.js';
 import { holdLoreForNextScan, initializeLoreBaseDelivery } from './lorebase-delivery.js';
 import { readBookKeys } from './lorebase-keys.js';
 import { isReplyGeneration, loreBaseAccuracyOf, loreForReply, leftOutLoreMessage, unreadyEntriesNotice } from './lorebase-reply-core.js';
@@ -158,7 +159,7 @@ function reportReplyLore(lore, seconds) {
 /**
  * A reply's lore on the dropdown's choice (loreBaseAccuracyOf): Jev's picks on Fast and Cheap [Jev] (D16), above 100
  * entries among the search's best, within the lore budget (§5 of lorebook-multi-vector.md), else High Accuracy, Luna's
- * pick and reviews. null, with the setup notice, when the choice's connection cannot run.
+ * pick of at most the Pick limit and its reviews. null, with the setup notice, when the choice's connection cannot run.
  * @param {object} settings - VectFox settings
  * @param {{books: object[], scene: string, messages: Array<{name: string, text: string}>}} turn - From openChatTurn
  * @returns {Promise<import('./lorebase-reply-core.js').ReplyLore|null>}
@@ -178,7 +179,7 @@ async function askForReplyLore(settings, { books, scene, messages }) {
             loreBudget: loreBudgetOf(settings.lorebase_lore_budget_tokens),
         });
     }
-    return loreForReply({ scene, books, ask: askOnLoreBase(model.connection) });
+    return loreForReply({ scene, books, ask: askOnLoreBase(model.connection), pickLimit: pickLimitOf(settings.lorebase_pick_limit) });
 }
 
 /**

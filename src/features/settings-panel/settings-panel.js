@@ -27,7 +27,7 @@ import {
     showNoCollectionInUse, showStoryArcPage, storyArcPageMarkup, storyLinkPill, storyLinkStatusMarkup, wireStoryArcPage,
 } from '../eventbase/index.js';
 import { getHealthPillHtml, refreshHealthPill } from '../diagnostics/index.js';
-import { keyCallsAtOnceOf, loreBaseAccuracyOf, loreBudgetOf } from '../lorebase/index.js';
+import { keyCallsAtOnceOf, loreBaseAccuracyOf, loreBudgetOf, pickLimitOf } from '../lorebase/index.js';
 import { PANEL_TABS, panelNavMarkup, panelPageMarkup, vectfoxOffNoticeMarkup } from './panel-shell-markup.js';
 import { wireSettingsPanel } from './panel-shell.js';
 import { drawerLauncherMarkup } from './drawer-launcher-markup.js';
@@ -1449,6 +1449,8 @@ function bindSettingsEvents(settings, callbacks) {
         });
     // Fast and Cheap [Jev]'s Lore budget: the most tokens Jev's picks send a reply, read by each reply as it starts.
     bindNumberSetting(settings, { id: 'VectFox_lorebase_lore_budget_tokens', key: 'lorebase_lore_budget_tokens', initial: loreBudgetOf(settings.lorebase_lore_budget_tokens), isInteger: true });
+    // High Accuracy's Pick limit: the most entries the pick names, read by each reply as it starts.
+    bindNumberSetting(settings, { id: 'VectFox_lorebase_pick_limit', key: 'lorebase_pick_limit', initial: pickLimitOf(settings.lorebase_pick_limit), isInteger: true });
     // The model card's setup notice and Vectors line, drawn again as its controls change and as the page opens.
     bindLoreBaseModelCard(settings);
 

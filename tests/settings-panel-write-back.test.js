@@ -99,6 +99,7 @@ vi.mock('../src/features/database-browser/index.js', () => ({
 vi.mock('../src/features/lorebase/index.js', () => ({
     KEY_CALLS_AT_ONCE_DEFAULT: 6,
     LORE_BUDGET_DEFAULT: 4000,
+    PICK_LIMIT_DEFAULT: 6,
     initializeLoreBase: vi.fn(),
     prepareLoreBesideRetrieval: vi.fn(async () => {}),
 }));

@@ -19,6 +19,7 @@ const {
 const { KEY_CALLS_AT_ONCE_MAX } = await import('../src/features/lorebase/lorebase-keys-core.js');
 const { FAST_AND_CHEAP, loreBaseAccuracyOf } = await import('../src/features/lorebase/lorebase-reply-core.js');
 const { LORE_BUDGET_MAX, LORE_BUDGET_MIN } = await import('../src/features/lorebase/lorebase-jev-core.js');
+const { PICK_LIMIT_MAX, PICK_LIMIT_MIN } = await import('../src/features/lorebase/lorebase-pick-core.js');
 
 // The ids settings-panel.js, lorebase-books-card.js and lorebase-tester-card.js wire on the WorldInfo page.
 const WIRED_IDS = [
@@ -28,7 +29,7 @@ const WIRED_IDS = [
     'VectFox_lorebase_model_card', 'VectFox_lorebase_model', 'VectFox_lorebase_accuracy',
     'VectFox_lorebase_jev_connection_profile_rows', 'VectFox_lorebase_jev_connection_profile', 'VectFox_lorebase_jev_connection_profile_readout',
     'VectFox_lorebase_jev_group', 'VectFox_lorebase_jev_test_connection', 'VectFox_lorebase_lore_budget_tokens', 'VectFox_lorebase_role_picks',
-    'VectFox_lorebase_role_keys', 'VectFox_lorebase_setup_notice', 'VectFox_lorebase_vectors_model', 'VectFox_lorebase_vectors_link',
+    'VectFox_lorebase_role_keys', 'VectFox_lorebase_pick_limit_group', 'VectFox_lorebase_pick_limit', 'VectFox_lorebase_setup_notice', 'VectFox_lorebase_vectors_model', 'VectFox_lorebase_vectors_link',
     'VectFox_lorebase_tester_card', 'VectFox_lorebase_try_pick', 'VectFox_lorebase_report_field', 'VectFox_lorebase_report', 'VectFox_lorebase_report_body',
 ];
 // The old vector search's controls, deleted with it.
@@ -121,6 +122,17 @@ describe('WorldInfo page markup', () => {
         const group = document.getElementById('VectFox_lorebase_jev_group');
         expect(group.contains(box)).toBe(true);
         expect(document.getElementById('VectFox_lorebase_jev_test_connection').compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it("offers High Accuracy's Pick limit after the own model's Test connection, outside Jev's group, from the least to the most the pick reads", () => {
+        const box = document.getElementById('VectFox_lorebase_pick_limit');
+        const slider = document.querySelector('.vfx-range[data-vfx-slider-for="VectFox_lorebase_pick_limit"]');
+        expect([box.type, box.min, box.max, box.step]).toEqual(['number', String(PICK_LIMIT_MIN), String(PICK_LIMIT_MAX), '1']);
+        expect([slider.min, slider.max, slider.title]).toEqual([String(PICK_LIMIT_MIN), String(PICK_LIMIT_MAX), 'Entries']);
+        expect(document.querySelector('label[for="VectFox_lorebase_pick_limit"]').textContent).toBe('Pick limit');
+        expect(document.getElementById('VectFox_lorebase_pick_limit_group').contains(box)).toBe(true);
+        expect(document.getElementById('VectFox_lorebase_jev_group').contains(box)).toBe(false);
+        expect(document.getElementById('VectFox_lorebase_test_connection').compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
     it('offers Generate keys, Generate vectors, Generate all and Delete all in that order', () => {

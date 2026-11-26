@@ -6,7 +6,9 @@
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { pickMessages, readPicks, tableOfContents } from '../src/features/lorebase/lorebase-pick-core.js';
+import {
+    PICK_LIMIT_DEFAULT, PICK_LIMIT_MAX, PICK_LIMIT_MIN, pickLimitOf, pickMessages, readPicks, tableOfContents,
+} from '../src/features/lorebase/lorebase-pick-core.js';
 import { partsToSend, readReview, reviewMessages } from '../src/features/lorebase/lorebase-review-core.js';
 import { sceneText } from '../src/features/lorebase/lorebase-scene-core.js';
 import { entryPassages } from '../src/features/lorebase/lorebase-splitter.js';
@@ -18,7 +20,7 @@ describe("the trials' prompts, word for word", () => {
     const contents = tableOfContents([{ bookName: fixture.bookName, entries: fixture.entries }]);
 
     it("asks the pick what T28's luna_keys_table_in_system asked: toc_focus with the table of contents at the end of the system prompt", () => {
-        expect(pickMessages(scene, contents)).toEqual([
+        expect(pickMessages(scene, contents, PICK_LIMIT_DEFAULT)).toEqual([
             { role: 'system', content: fixture.pick.system },
             { role: 'user', content: fixture.pick.prompt },
         ]);
@@ -27,7 +29,7 @@ describe("the trials' prompts, word for word", () => {
     it("asks the pick with each entry's keys after its title as T20's luna_keys arm asked (segment_trials.py)", () => {
         const keysByUid = fixture.madeUpKeys;
         const keyed = tableOfContents([{ bookName: fixture.bookName, entries: fixture.entries, keysByUid }]);
-        expect(pickMessages(scene, keyed)).toEqual([
+        expect(pickMessages(scene, keyed, PICK_LIMIT_DEFAULT)).toEqual([
             { role: 'system', content: fixture.keyedPick.system },
             { role: 'user', content: fixture.keyedPick.prompt },
         ]);
@@ -61,7 +63,7 @@ describe('reading the pick', () => {
 
     it('keeps the picks in their order with their reasons, each entry once, at most 6', () => {
         const items = [9, 3, 3, 1, 2, 4, 5, 6, 7].map(number => ({ number, basis: ' Named In The Chat ', why: ' The user asks. ', needs: ' who ', certain: number === 9 }));
-        const { picks, unreadItemCount } = readPicks(items, contents);
+        const { picks, unreadItemCount } = readPicks(items, contents, PICK_LIMIT_DEFAULT);
         expect(picks.map(pick => pick.number)).toEqual([9, 3, 1, 2, 4, 5]);
         expect(picks[0]).toEqual({
             number: 9, bookName: 'Harbor Lore', uid: 8, title: 'Entry 8', keys: [], basis: 'named in the chat', why: 'The user asks.', needs: 'who', certain: true,
@@ -71,13 +73,36 @@ describe('reading the pick', () => {
     });
 
     it('counts the items that name no entry of the table, which the trials skipped', () => {
-        const { picks, unreadItemCount } = readPicks([{ number: 0 }, { number: 10 }, { number: '2' }, { number: 2.5 }, { why: 'no number' }, null, { number: 2 }], contents);
+        const { picks, unreadItemCount } = readPicks([{ number: 0 }, { number: 10 }, { number: '2' }, { number: 2.5 }, { why: 'no number' }, null, { number: 2 }], contents, PICK_LIMIT_DEFAULT);
         expect(picks).toEqual([{ number: 2, bookName: 'Harbor Lore', uid: 1, title: 'Entry 1', keys: [], basis: '', why: '', needs: '', certain: null }]);
         expect(unreadItemCount).toBe(6);
     });
 
     it('reads an answer that picks nothing as no picks', () => {
-        expect(readPicks([], contents)).toEqual({ picks: [], unreadItemCount: 0 });
+        expect(readPicks([], contents, PICK_LIMIT_DEFAULT)).toEqual({ picks: [], unreadItemCount: 0 });
+    });
+});
+
+describe('the Pick limit', () => {
+    const contents = tableOfContents([{ bookName: 'Harbor Lore', entries: Array.from({ length: 12 }, (_, uid) => ({ uid, comment: `Entry ${uid}` })) }]);
+    const instructionsOf = pickLimit => pickMessages('Wren: Who keeps the lamp?', contents, pickLimit)[1].content;
+
+    it("is the trials' 6 by default, and a whole number from 1 to 12 from its saved value", () => {
+        expect([PICK_LIMIT_DEFAULT, PICK_LIMIT_MIN, PICK_LIMIT_MAX]).toEqual([6, 1, 12]);
+        expect([undefined, '', 'many', null].map(pickLimitOf)).toEqual([6, 6, 6, 6]);
+        expect([0, 1, '9', 9.7, 12, 40].map(pickLimitOf)).toEqual([1, 1, 9, 9, 12, 12]);
+    });
+
+    it("asks for at most the limit in the instructions, in place of the trials' 6, and leaves the system prompt, which the cache reads, as it was", () => {
+        expect(instructionsOf(10)).toBe(instructionsOf(PICK_LIMIT_DEFAULT).replace('most needed first, at most 6.', 'most needed first, at most 10.'));
+        expect(instructionsOf(10)).not.toBe(instructionsOf(PICK_LIMIT_DEFAULT));
+        expect(pickMessages('Wren: Who keeps the lamp?', contents, 10)[0]).toEqual(pickMessages('Wren: Who keeps the lamp?', contents, PICK_LIMIT_DEFAULT)[0]);
+    });
+
+    it('keeps at most the limit of the picks, the most needed first', () => {
+        const items = [12, 3, 5, 1, 2, 4, 6, 7, 8, 9, 10].map(number => ({ number }));
+        expect(readPicks(items, contents, 2).picks.map(pick => pick.number)).toEqual([12, 3]);
+        expect(readPicks(items, contents, 10).picks.map(pick => pick.number)).toEqual([12, 3, 5, 1, 2, 4, 6, 7, 8, 9]);
     });
 });
 

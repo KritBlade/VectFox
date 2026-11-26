@@ -64,10 +64,12 @@ function loreBaseBooksCard() {
 // LoreBase's model card (plan §5.6, and §2 and §7.2 of lorebook-multi-vector.md). The setup notice comes first, naming
 // the first thing LoreBase lacks, which lorebase-model-card.js fills and hides while nothing is missing. Accuracy comes
 // next, since it decides what each model does: LoreBase's own model writes each entry's keys on every choice (D17) and,
-// on High Accuracy, also picks and reviews (D6); on Fast and Cheap [Jev], the default, Jev picks, on a profile of its
-// own (D16), its picks sent within the Lore budget (§5 and Q4 of lorebook-multi-vector.md: 4,000 tokens by default,
-// 1,000 to 12,000, LORE_BUDGET_DEFAULT, LORE_BUDGET_MIN and LORE_BUDGET_MAX in lorebase-jev-core.js). connection-rows.js
-// shows the title of the own model's role and Jev's group, which shows on Fast and Cheap [Jev] only. Last, the Vectors
+// on High Accuracy, also picks and reviews (D6), at most the Pick limit's entries (6 by default, 1 to 12,
+// PICK_LIMIT_DEFAULT, PICK_LIMIT_MIN and PICK_LIMIT_MAX in lorebase-pick-core.js); on Fast and Cheap [Jev], the default,
+// Jev picks, on a profile of its own (D16), its picks sent within the Lore budget (§5 and Q4 of
+// lorebook-multi-vector.md: 4,000 tokens by default, 1,000 to 12,000, LORE_BUDGET_DEFAULT, LORE_BUDGET_MIN and
+// LORE_BUDGET_MAX in lorebase-jev-core.js). connection-rows.js shows the title of the own model's role, the Pick limit,
+// which shows on High Accuracy only, and Jev's group, which shows on Fast and Cheap [Jev] only. Last, the Vectors
 // line names VectFox's embedding model, which writes every selected entry's vectors on either choice, with the button
 // to the Core page that sets it; lorebase-model-card.js fills it. The option values are FAST_AND_CHEAP and High
 // Accuracy's in lorebase-reply-core.js.
@@ -87,7 +89,7 @@ function loreBaseModelCard() {
                 fieldLabel({ text: 'Accuracy', forId: 'VectFox_lorebase_accuracy' }),
                 accuracy,
                 hint({ text: 'Fast and Cheap [Jev] is quickest and cheapest. High Accuracy sends only the parts needed.' }),
-                detail({ text: 'Fast and Cheap [Jev] asks Jev, a decisions model: it answers in under a second for a fraction of the cost, and sends the entries it rates above 0.25 whole, best first, within the Lore budget. Above 100 selected entries, a search of their vectors first finds the 100 Jev is asked about. High Accuracy has LoreBase\'s own model pick the entries, then reviews each picked entry of more than one part at low reasoning effort and sends only the parts the reply needs. On both, LoreBase\'s own model writes each entry\'s keys when it is turned on, since the pick and Jev\'s questions read them.' }),
+                detail({ text: 'Fast and Cheap [Jev] asks Jev, a decisions model: it answers in under a second for a fraction of the cost, and sends the entries it rates above 0.25 whole, best first, within the Lore budget. Above 100 selected entries, a search of their vectors first finds the 100 Jev is asked about. High Accuracy has LoreBase\'s own model pick the entries, at most the Pick limit, then reviews each picked entry of more than one part at low reasoning effort and sends only the parts the reply needs. On both, LoreBase\'s own model writes each entry\'s keys when it is turned on, since the pick and Jev\'s questions read them.' }),
             ], { isSpan: true })}
             <div id="VectFox_lorebase_role_picks" class="vfx-span">${groupTitle({ icon: 'fa-key', text: 'Keys and picks' })}${hint({ text: 'Writes each entry\'s keys when you turn it on, and picks each reply\'s lore.' })}</div>
             <div id="VectFox_lorebase_role_keys" class="vfx-span" style="display:none;">${groupTitle({ icon: 'fa-key', text: 'Keys' })}${hint({ text: 'Writes each entry\'s keys once, when you turn it on. Replies use Jev.' })}</div>
@@ -99,6 +101,13 @@ function loreBaseModelCard() {
             ])}
             ${connectionProfileRows('VectFox_lorebase', { hintText: 'LoreBase was tested on GPT-6 Luna. The profile\'s model, URL and key are used.' })}
             ${testConnectionButton('VectFox_lorebase', { hintText: 'Sends one short fixed message, never your chat, and shows the reply.' })}
+            <div id="VectFox_lorebase_pick_limit_group" class="vfx-grid vfx-span">
+                ${field([
+                    fieldLabel({ text: 'Pick limit', forId: 'VectFox_lorebase_pick_limit' }),
+                    sliderNumber({ id: 'VectFox_lorebase_pick_limit', min: 1, max: 12, step: 1, title: 'Entries' }),
+                    hint({ text: 'The most entries the pick names for a reply. More keeps more lore and costs more.' }),
+                ])}
+            </div>
             <div id="VectFox_lorebase_jev_group" class="vfx-grid vfx-span" style="display:none;">
                 ${groupTitle({ icon: 'fa-bolt', text: 'Jev' })}
                 ${connectionProfileRows('VectFox_lorebase_jev', { hintText: 'An OpenRouter or Custom profile whose model is Jev. Its key stays in SillyTavern.' })}

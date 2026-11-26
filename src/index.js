@@ -52,7 +52,7 @@ import { runNetworkStartup } from './app/network-startup.js';
 // VectFox modules - UI
 import { mountSettingsPanel, mountWandMenu, refreshAutoSyncCheckbox, scheduleManualConnectionNotice } from './features/settings-panel/index.js';
 import { initializeDatabaseBrowser } from './features/database-browser/index.js';
-import { KEY_CALLS_AT_ONCE_DEFAULT, LORE_BUDGET_DEFAULT, initializeLoreBase, prepareLoreBesideRetrieval } from './features/lorebase/index.js';
+import { KEY_CALLS_AT_ONCE_DEFAULT, LORE_BUDGET_DEFAULT, PICK_LIMIT_DEFAULT, initializeLoreBase, prepareLoreBesideRetrieval } from './features/lorebase/index.js';
 import { initializeReplyLore } from './features/reply-lore/index.js';
 import {
     announceCollectionInUseChanged, announceEventBaseEventsRemoved, announceEventBaseRunEnded, announceLlmCallFinished,
@@ -231,6 +231,7 @@ const defaultSettings = {
     lorebase_accuracy: 'fast',              // 'fast', Fast and Cheap [Jev], asks Jev (plan D16); 'high', High Accuracy, is Luna's pick and reviews
     lorebase_jev_connection_profile_id: '', // Jev's SillyTavern profile, read only on 'fast'
     lorebase_lore_budget_tokens: LORE_BUDGET_DEFAULT, // Lore budget on the WorldInfo page: the most tokens Jev's picks send a reply, read only on 'fast'
+    lorebase_pick_limit: PICK_LIMIT_DEFAULT, // Pick limit on the WorldInfo page: the most entries the pick names a reply, 1 to 12, read only on 'high'
     lorebase_enabled: false,                // LoreBase's switch on the WorldInfo page: off until the user turns it on
     lorebase_key_calls_at_once: KEY_CALLS_AT_ONCE_DEFAULT, // Entries at once on the WorldInfo page: entries keyed at once, 1 to 8
 

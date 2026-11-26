@@ -45,6 +45,7 @@ export { JEV_PROFILE_SETTING, resolveJevConnection, testJevConnection } from './
 export { KEY_CALLS_AT_ONCE_DEFAULT, keyCallsAtOnceOf } from './lorebase-keys-core.js';
 export { deleteOldLorebookCollections } from './lorebase-old-collections.js';
 export { LORE_BUDGET_DEFAULT, loreBudgetOf } from './lorebase-jev-core.js';
+export { PICK_LIMIT_DEFAULT, pickLimitOf } from './lorebase-pick-core.js';
 export { initializeLoreBase, prepareLoreBesideRetrieval, tryLoreBasePick } from './lorebase-reply.js';
 export { FAST_AND_CHEAP, isReplyGeneration, loreBaseAccuracyOf } from './lorebase-reply-core.js';
 export { openLoreBaseSelection } from './lorebase-selection-screen.js';
