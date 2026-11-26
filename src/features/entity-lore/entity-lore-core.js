@@ -61,7 +61,8 @@ export const ENTITY_STATE = Object.freeze({
 });
 
 /** A name in any case, and with spaces around it, is the same name, as a model writes a name in more than one case. */
-const isSameName = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+/** Whether two names are one, trimmed and in any case: how the record, the exclusions, the keys and the name check match names. */
+export const isSameName = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
 const isPlainObject = value => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 function wholeNumberIn(value, { default: fallback, min, max }) {
