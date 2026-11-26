@@ -9,9 +9,10 @@
  *   - its answers are read by the candidate's own name in any case, each once, a same_as only when it names an entry's
  *     title or another candidate the same answer calls named, one naming a name the candidate is kept apart from as
  *     named, and a candidate with no answer read is left out,
- *   - the entry is asked for in five sections under their headings, from the events or the notes on them, in the
- *     story's language, and a rewrite also reads the entry as it stands and keeps what it holds,
- *   - a slice's notes are asked for with its place in the arc,
+ *   - the entry is asked for as a profile, not a summary, in five sections under their headings, its past as now known
+ *     and its key events one turning point a line, never merged, from the events or the notes on them, in the story's
+ *     language, and a rewrite also reads the entry as it stands, keeping its ties and picking its key events again,
+ *   - a slice's notes are asked for with its place in the arc, in two lists, each its share of the arc's lines,
  *   - an entry is read from its first heading, each heading alone on its line as the splitter reads it, and an answer
  *     with fewer than three headings or too short is not one; notes are read without their fences.
  *
@@ -139,7 +140,7 @@ describe('the name check (§4.3)', () => {
 
 describe('the entry (§4.4, §5.2)', () => {
     const events = ['Day 3 | Tamsin crosses the salt flats', 'Day 9 | Tamsin signs the guild ledger'].join('\n');
-    const headings = ['[Identity]', '[Personality]', '[History]', '[Key events]', '[Relationships]'];
+    const headings = ['[Identity]', '[Personality]', '[Background]', '[Key events]', '[Relationships]'];
 
     it('asks for a new entry from the events, in five sections under their headings, in the story\'s language, at most 600 words', () => {
         const messages = entryMessages({ name: 'Tamsin', otherNames: ['Tamsin Vale'], storyText: events, languageName: '繁體中文 (Traditional Chinese)' });
@@ -147,6 +148,10 @@ describe('the entry (§4.4, §5.2)', () => {
         const prompt = userText(messages);
         expect(prompt.startsWith(`The story's events naming Tamsin, oldest first, one per line:\n\n${events}\n\n`)).toBe(true);
         expect(prompt).toContain('Write one lorebook entry about Tamsin, a character in this story, also called Tamsin Vale.');
+        expect(prompt).toContain('so it must hold who Tamsin is, not a summary of the story: what stays true about them, and the turning points that made them who they are.');
+        expect(prompt).toContain("\n[Background]: their past and where they come from, as the story has revealed it so far, in a few sentences; not a retelling of the story.\n");
+        expect(prompt).toContain("- When something later in the story shows more of Tamsin's past, or shows an earlier account of it was wrong, write the past as it is known now, not the account it replaced.");
+        expect(prompt).toContain("- [Key events] holds the turning points that changed Tamsin or the story most, picked from the story's start to now: one event per line, never two in one line. Leave the smaller events out.");
         const at = headings.map(heading => prompt.indexOf(`\n${heading}: `));
         expect(at.every(index => index > 0)).toBe(true);
         expect([...at].sort((a, b) => a - b)).toEqual(at);
@@ -166,28 +171,35 @@ describe('the entry (§4.4, §5.2)', () => {
 
     it('writes the entry from the notes of a long arc', () => {
         const prompt = userText(entryMessages({ name: 'Tamsin', storyText: 'Tamsin leaves home.\nTamsin joins the guild.', isFromNotes: true }));
-        expect(prompt.startsWith("Notes on the story's events that matter to Tamsin, oldest first:\n\nTamsin leaves home.")).toBe(true);
+        expect(prompt.startsWith('Notes on Tamsin, part by part, oldest first: what each part of the story shows of who they are, then its biggest events:\n\nTamsin leaves home.')).toBe(true);
         expect(prompt).toContain('- Write only what the notes say or plainly show. Never invent.');
     });
 
-    it('writes an entry again from the events and the entry as it stands, keeping what it holds', () => {
+    it('writes an entry again from the events and the entry as it stands, keeping its ties and picking its key events again', () => {
         const standing = '[Identity]\nTamsin is a salt trader.\n[Key events]\nDay 3: she crossed the salt flats.';
         const prompt = userText(entryMessages({ name: 'Tamsin', storyText: events, standingEntry: standing }));
         expect(prompt).toContain(`${events}\n\nTamsin's entry as it stands:\n\n${standing}\n\nWrite one lorebook entry`);
         expect(prompt).toContain("Write Tamsin's entry again, whole, from the events and the entry as it stands:");
-        expect(prompt).toContain('- Keep every key event and relationship the entry holds, unless the events show it was wrong.');
-        expect(prompt).toContain('- When [Key events] would pass 15 lines, merge lines from one stretch of the story into one line that keeps their outcome. Never drop an event that changed Tamsin or the story.');
+        expect(prompt).toContain('- Keep every relationship the entry holds, unless the events show it was wrong.');
+        expect(prompt).toContain("- Pick [Key events] again from the whole story: keep the entry's key events and add the newer turning points. Once [Key events] is full, a newer event takes the place of a smaller one only when it is bigger.");
+        expect(prompt).not.toContain('merge');
         expect(prompt).toContain('say in a few words how it changed.');
     });
 });
 
 describe("a slice's notes (§5.2)", () => {
-    it('asks for every event of the slice that matters to the character, when it happened as its "when" gives it, with its place in the arc', () => {
+    it('asks for who the character is and the biggest events of the slice, each its share of the arc\'s lines, with its place in the arc', () => {
         const prompt = userText(notesMessages({ name: 'Tamsin', eventLines: ['Day 3 | a', 'Day 4 | b'], sliceNumber: 2, sliceCount: 3 }));
         expect(prompt.startsWith("Part 2 of 3 of the story's events naming Tamsin, oldest first, one per line:\n\nDay 3 | a\nDay 4 | b\n\n")).toBe(true);
-        expect(prompt).toContain('List, oldest first, every event above that matters to Tamsin: when it happened, what happened, their part, the outcome, and what it shows about them.');
+        expect(prompt).toContain("\nWho they are: at most 20 lines, one fact per line, on what this part shows of Tamsin's identity, personality, past and ties. When it shows more of their past, or shows an earlier account of it was wrong, say so.\n");
+        expect(prompt).toContain('\nEvents: at most 20 lines, the events of this part that changed Tamsin or the story most, oldest first, one event per line: when it happened, what happened, their part, the outcome.\n');
         expect(prompt).toContain('\nGive a time as an event\'s "when" gives it. Never write an event\'s # number, which only places it in the chat.\n');
         expect(prompt.endsWith('Write in the language the events are written in.')).toBe(true);
+    });
+
+    it('shares the lines out so the notes stop growing with the story, at least 3 a list on a slice', () => {
+        const linesOf = sliceCount => userText(notesMessages({ name: 'Tamsin', eventLines: ['Day 3 | a'], sliceNumber: 1, sliceCount })).match(/Events: at most (\d+) lines/u)[1];
+        expect([2, 6, 18, 30].map(linesOf)).toEqual(['30', '10', '4', '3']);
     });
 });
 
@@ -195,12 +207,12 @@ describe('reading the answers', () => {
     const body = {
         identity: 'Tamsin is a salt trader from the river towns.',
         personality: 'Stubborn and patient; she keeps her word.',
-        history: 'She grew up on the ferries and left after the drought.',
+        background: 'She grew up on the ferries and left after the drought.',
         keyEvents: 'Day 3: she crossed the salt flats and found the old road.',
         relationships: 'Captain Brannoc: her first employer, now a rival.',
     };
     const clean = [
-        '[Identity]', body.identity, '', '[Personality]', body.personality, '', '[History]', body.history, '',
+        '[Identity]', body.identity, '', '[Personality]', body.personality, '', '[Background]', body.background, '',
         '[Key events]', body.keyEvents, '', '[Relationships]', body.relationships,
     ].join('\n');
 
@@ -215,24 +227,24 @@ describe('reading the answers', () => {
 
     it('puts each heading alone on its line, as the prompt writes it, whatever its case, bold or Markdown mark', () => {
         const answer = [
-            `**[IDENTITY]**: ${body.identity}`, `## [personality] ${body.personality}`, '[History]：', body.history,
+            `**[IDENTITY]**: ${body.identity}`, `## [personality] ${body.personality}`, '[Background]：', body.background,
             '[key events]', body.keyEvents, '[Relationships]', body.relationships,
         ].join('\n');
         expect(readEntryAnswer(answer)).toEqual({
-            entry: ['[Identity]', body.identity, '[Personality]', body.personality, '[History]', body.history,
+            entry: ['[Identity]', body.identity, '[Personality]', body.personality, '[Background]', body.background,
                 '[Key events]', body.keyEvents, '[Relationships]', body.relationships].join('\n'),
         });
     });
 
     it('reads an answer of three sections, and keeps a section the prompt did not ask for', () => {
-        const answer = ['[Identity]', body.identity, '[Appearance]', 'Tall.', '[History]', body.history, '[Key events]', body.keyEvents].join('\n');
+        const answer = ['[Identity]', body.identity, '[Appearance]', 'Tall.', '[Background]', body.background, '[Key events]', body.keyEvents].join('\n');
         expect(readEntryAnswer(answer)).toEqual({ entry: answer });
     });
 
     it('refuses an answer with fewer than three of the headings, or shorter than 100 characters', () => {
-        expect(readEntryAnswer(`[Identity]\n${body.identity}\n[History]\n${body.history}`)).toEqual({ problem: "its answer holds 2 of the entry's 5 section headings" });
+        expect(readEntryAnswer(`[Identity]\n${body.identity}\n[Background]\n${body.background}`)).toEqual({ problem: "its answer holds 2 of the entry's 5 section headings" });
         expect(readEntryAnswer('Tamsin is a salt trader.')).toEqual({ problem: "its answer holds 0 of the entry's 5 section headings" });
-        expect(readEntryAnswer('[Identity]\nA trader.\n[History]\nThe ferries.\n[Key events]\nDay 3.')).toEqual({ problem: 'its answer holds only 63 characters' });
+        expect(readEntryAnswer('[Identity]\nA trader.\n[Background]\nThe ferries.\n[Key events]\nDay 3.')).toEqual({ problem: 'its answer holds only 66 characters' });
     });
 
     it('reads notes without their fences, and an empty answer as no notes', () => {

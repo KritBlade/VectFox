@@ -11,9 +11,11 @@
  *   never of one Allow again kept it apart from;
  * - the entry: one call per character, written new or again (a rewrite reads
  *   the entry as it stands), from the character's events or from the notes on
- *   them, in five sections under bracket headings, which LoreBase's splitter
- *   makes parts;
- * - the notes on one slice of an arc too long for one call.
+ *   them: a profile of who they are, not a summary of the story, in five
+ *   sections under bracket headings, which LoreBase's splitter makes parts;
+ * - the notes on one slice of an arc too long for one call: what it shows of who
+ *   the character is, and its biggest events, each list a share of the lines one
+ *   arc's notes hold, so the notes stop growing with the story.
  *
  * Every example in a prompt is generic; no prompt names a cast. Pure: no host
  * or feature imports.
@@ -29,13 +31,18 @@ export const NAME_CHECK_ANSWER = Object.freeze({ named: 'named', notNamed: RECOR
 const ENTRY_SECTIONS = Object.freeze([
     { name: 'Identity', holds: 'who they are: full name and other names, role, origin, what they are to the story' },
     { name: 'Personality', holds: 'how they think, act and speak, what they want and fear, as the events show it' },
-    { name: 'History', holds: 'their past before and during the story, in time order, in a few sentences' },
-    { name: 'Key events', holds: 'the events that changed them or the story, oldest first, one line each: when, what happened, their part, the outcome' },
+    { name: 'Background', holds: 'their past and where they come from, as the story has revealed it so far, in a few sentences; not a retelling of the story' },
+    { name: 'Key events', holds: 'the turning points of their story, oldest first, one event per line: when, what happened, their part, the outcome' },
     { name: 'Relationships', holds: 'each character they are tied to: the tie, how it came about, how it stands' },
 ]);
 // The entry's length (§4.4): its words, and the lines of its [Key events].
 const ENTRY_WORDS = 600;
 const KEY_EVENT_LINES = 15;
+// A long arc's notes (§5.2): each of their two lists holds this many lines across the arc's slices, shared out among
+// them, and at least the fewest on each, so the notes stop growing with the story.
+const NOTES_LINES_PER_ARC = 60;
+const FEWEST_NOTES_LINES = 3;
+const notesLinesPerSlice = sliceCount => Math.max(FEWEST_NOTES_LINES, Math.ceil(NOTES_LINES_PER_ARC / sliceCount));
 // An answer with fewer of the section headings, or shorter once read, is not an entry (§4.4).
 const FEWEST_ENTRY_HEADINGS = 3;
 const SHORTEST_ENTRY_CHARACTERS = 100;
@@ -158,14 +165,15 @@ export function readNameCheck(items, { candidates, entryTitles }) {
  */
 export function entryMessages({ name, otherNames = [], storyText, isFromNotes = false, standingEntry = null, languageName = null }) {
     const source = isFromNotes
-        ? `Notes on the story's events that matter to ${name}, oldest first:`
+        ? `Notes on ${name}, part by part, oldest first: what each part of the story shows of who they are, then its biggest events:`
         : `The story's events naming ${name}, oldest first, one per line:`;
     const parts = [source, '', String(storyText).trim(), ''];
     if (standingEntry) parts.push(`${name}'s entry as it stands:`, '', String(standingEntry).trim(), '');
     const alsoCalled = otherNames.length ? `, also called ${otherNames.join(', ')}` : '';
     parts.push(
         `Write one lorebook entry about ${name}, a character in this story${alsoCalled}. The model writing the story's next replies reads it `
-            + `whenever ${name} comes up, so it must hold what stays true about ${name} and the events that made them who they are.`,
+            + `whenever ${name} comes up, so it must hold who ${name} is, not a summary of the story: what stays true about them, and the `
+            + 'turning points that made them who they are.',
         '',
         'Write these five sections, each under its heading exactly as written, on a line of its own:',
         ...ENTRY_SECTIONS.map(section => `[${section.name}]: ${section.holds}.`),
@@ -173,6 +181,10 @@ export function entryMessages({ name, otherNames = [], storyText, isFromNotes = 
         'Rules:',
         `- Write only what the ${isFromNotes ? 'notes' : 'events'} say or plainly show. Never invent.`,
         `- Leave out what changes from scene to scene: where ${name} is now, what they wear, how they look, how they feel at the moment. Another tool tracks those.`,
+        `- When something later in the story shows more of ${name}'s past, or shows an earlier account of it was wrong, write the past as it is `
+            + 'known now, not the account it replaced.',
+        `- [Key events] holds the turning points that changed ${name} or the story most, picked from the story's start to now: one event per line, `
+            + 'never two in one line. Leave the smaller events out.',
         '- Use every name exactly as the events write it.',
         `- ${TIME_RULE}`,
         `- ${languageRule(languageName)} Keep the headings in English, as written.`,
@@ -182,9 +194,9 @@ export function entryMessages({ name, otherNames = [], storyText, isFromNotes = 
         parts.push(
             '',
             `Write ${name}'s entry again, whole, from the ${isFromNotes ? 'notes' : 'events'} and the entry as it stands:`,
-            '- Keep every key event and relationship the entry holds, unless the events show it was wrong. Add the ones the newer events bring.',
-            `- When [Key events] would pass ${KEY_EVENT_LINES} lines, merge lines from one stretch of the story into one line that keeps their outcome. `
-                + `Never drop an event that changed ${name} or the story.`,
+            '- Keep every relationship the entry holds, unless the events show it was wrong. Add the ones the newer events bring.',
+            "- Pick [Key events] again from the whole story: keep the entry's key events and add the newer turning points. Once [Key events] is "
+                + 'full, a newer event takes the place of a smaller one only when it is bigger.',
             '- When the newer events changed a trait or a tie, write it as it stands now and say in a few words how it changed.',
         );
     }
@@ -192,20 +204,25 @@ export function entryMessages({ name, otherNames = [], storyText, isFromNotes = 
 }
 
 /**
- * The notes on one slice of a character's events, for an arc too long for one entry call (§4.4, §5.2): every event of
- * the slice that matters to them, oldest first, with the detail an entry keeps.
+ * The notes on one slice of a character's events, for an arc too long for one entry call (§4.4, §5.2): what the slice
+ * shows of who they are, and its biggest events, oldest first, each list a share of the lines one arc's notes hold.
  *
  * @param {{name: string, eventLines: string[], sliceNumber: number, sliceCount: number, languageName?: string|null}} slice
  * @returns {Array<{role: string, content: string}>}
  */
 export function notesMessages({ name, eventLines, sliceNumber, sliceCount, languageName = null }) {
+    const linesEach = notesLinesPerSlice(sliceCount);
     const prompt = [
         `Part ${sliceNumber} of ${sliceCount} of the story's events naming ${name}, oldest first, one per line:`,
         '',
         eventLines.join('\n'),
         '',
-        `List, oldest first, every event above that matters to ${name}: when it happened, what happened, their part, the outcome, and what it shows `
-            + 'about them. One line per event. Keep names as written. Leave out where they were, what they wore and how they felt.',
+        `Take notes on this part for a lorebook entry about ${name}, in two lists:`,
+        `Who they are: at most ${linesEach} lines, one fact per line, on what this part shows of ${name}'s identity, personality, past and ties. `
+            + 'When it shows more of their past, or shows an earlier account of it was wrong, say so.',
+        `Events: at most ${linesEach} lines, the events of this part that changed ${name} or the story most, oldest first, one event per line: `
+            + 'when it happened, what happened, their part, the outcome.',
+        'Keep names as written. Leave out where they were, what they wore and how they felt.',
         TIME_RULE,
         languageRule(languageName),
     ].join('\n');

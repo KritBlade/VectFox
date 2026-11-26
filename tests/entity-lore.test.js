@@ -159,7 +159,7 @@ const eventsNaming = (name, count, text = `${name} works the harbor.`) => Array.
     timeline += 1;
     return { characters: [name], text, timeline_sort_key: timeline };
 });
-const entryAbout = name => `[Identity]\n${name} is a made-up harbor hand.\n[Personality]\nPatient.\n[History]\nGrew up by the docks.\n[Key events]\n- Day 1: arrived.\n[Relationships]\n- Wren: a friend.`;
+const entryAbout = name => `[Identity]\n${name} is a made-up harbor hand.\n[Personality]\nPatient.\n[Background]\nGrew up by the docks.\n[Key events]\n- Day 1: arrived.\n[Relationships]\n- Wren: a friend.`;
 const isCheck = messages => messages[0].content.includes('sort the names');
 const isNotes = messages => messages[0].content.includes('take notes');
 const entryNameOf = messages => /Write one lorebook entry about (.+?), a character/u.exec(messages[1].content)?.[1];
@@ -339,7 +339,7 @@ describe('a run (§4.2 to §4.6)', () => {
         expect(notesCalls.length).toBeGreaterThan(1);
         expect(notesCalls[0][0][1].content).toMatch(/^Part 1 of \d+ of the story's events naming Tamsin/u);
         const entryCall = host.ask.mock.calls.find(([messages]) => entryNameOf(messages) === 'Tamsin')[0][1].content;
-        expect(entryCall).toMatch(/^Notes on the story's events that matter to Tamsin, oldest first:/u);
+        expect(entryCall).toMatch(/^Notes on Tamsin, part by part, oldest first:/u);
         expect(createLorebookEntry).toHaveBeenCalledTimes(1);
     });
 
