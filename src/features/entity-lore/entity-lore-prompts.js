@@ -48,6 +48,8 @@ const NOTES_SYSTEM_PROMPT = 'You take notes on a roleplay story\'s stored events
 
 const oneLine = text => String(text ?? '').replace(/\s+/g, ' ').trim();
 const languageRule = languageName => `Write in the language the events are written in${languageName ? `: ${languageName}` : ''}.`;
+// An event's line opens with its # number, which only places it in the chat; its time is in its "when".
+const TIME_RULE = 'Give a time as an event\'s "when" gives it. Never write an event\'s # number, which only places it in the chat.';
 
 // ---------------------------------------------------------------------------- The name check (§4.3)
 
@@ -163,6 +165,7 @@ export function entryMessages({ name, otherNames = [], storyText, isFromNotes = 
         `- Write only what the ${isFromNotes ? 'notes' : 'events'} say or plainly show. Never invent.`,
         `- Leave out what changes from scene to scene: where ${name} is now, what they wear, how they look, how they feel at the moment. Another tool tracks those.`,
         '- Use every name exactly as the events write it.',
+        `- ${TIME_RULE}`,
         `- ${languageRule(languageName)} Keep the headings in English, as written.`,
         `- At most ${ENTRY_WORDS} words. [Key events] at most ${KEY_EVENT_LINES} lines.`,
     );
@@ -192,8 +195,9 @@ export function notesMessages({ name, eventLines, sliceNumber, sliceCount, langu
         '',
         eventLines.join('\n'),
         '',
-        `List, oldest first, every event above that matters to ${name}: what happened, their part, the outcome, and what it shows about them. `
-            + 'One line per event. Keep names as written. Leave out where they were, what they wore and how they felt.',
+        `List, oldest first, every event above that matters to ${name}: when it happened, what happened, their part, the outcome, and what it shows `
+            + 'about them. One line per event. Keep names as written. Leave out where they were, what they wore and how they felt.',
+        TIME_RULE,
         languageRule(languageName),
     ].join('\n');
     return [{ role: 'system', content: NOTES_SYSTEM_PROMPT }, { role: 'user', content: prompt }];

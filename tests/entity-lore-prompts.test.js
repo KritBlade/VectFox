@@ -123,6 +123,7 @@ describe('the entry (§4.4, §5.2)', () => {
         expect([...at].sort((a, b) => a - b)).toEqual(at);
         expect(prompt).toContain('- Write only what the events say or plainly show. Never invent.');
         expect(prompt).toContain('where Tamsin is now, what they wear, how they look, how they feel at the moment');
+        expect(prompt).toContain('- Give a time as an event\'s "when" gives it. Never write an event\'s # number, which only places it in the chat.');
         expect(prompt).toContain('- Write in the language the events are written in: 繁體中文 (Traditional Chinese). Keep the headings in English, as written.');
         expect(prompt).toContain('- At most 600 words. [Key events] at most 15 lines.');
         expect(prompt).not.toContain('as it stands');
@@ -152,10 +153,11 @@ describe('the entry (§4.4, §5.2)', () => {
 });
 
 describe("a slice's notes (§5.2)", () => {
-    it('asks for every event of the slice that matters to the character, with its place in the arc', () => {
+    it('asks for every event of the slice that matters to the character, when it happened as its "when" gives it, with its place in the arc', () => {
         const prompt = userText(notesMessages({ name: 'Tamsin', eventLines: ['Day 3 | a', 'Day 4 | b'], sliceNumber: 2, sliceCount: 3 }));
         expect(prompt.startsWith("Part 2 of 3 of the story's events naming Tamsin, oldest first, one per line:\n\nDay 3 | a\nDay 4 | b\n\n")).toBe(true);
-        expect(prompt).toContain('List, oldest first, every event above that matters to Tamsin: what happened, their part, the outcome, and what it shows about them.');
+        expect(prompt).toContain('List, oldest first, every event above that matters to Tamsin: when it happened, what happened, their part, the outcome, and what it shows about them.');
+        expect(prompt).toContain('\nGive a time as an event\'s "when" gives it. Never write an event\'s # number, which only places it in the chat.\n');
         expect(prompt.endsWith('Write in the language the events are written in.')).toBe(true);
     });
 });
