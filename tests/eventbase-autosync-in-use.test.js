@@ -38,7 +38,7 @@ vi.mock('../src/features/eventbase/eventbase-chat-collections.js', () => ({
 }));
 vi.mock('../src/features/eventbase/eventbase-store.js', () => ({ pauseCollectionAutoSync: mocks.pauseCollectionAutoSync }));
 vi.mock('../src/features/eventbase/eventbase-workflow.js', () => ({
-    runEventBaseIngestion: mocks.runEventBaseIngestion, countUnfinishedWindows: vi.fn(() => 0), getAutoSyncWindowSize: vi.fn(() => 2), notifyUnfinishedWindows: vi.fn(),
+    EVENT_WINDOWS_UNREAD: 'event_windows_unread', runEventBaseIngestion: mocks.runEventBaseIngestion, countUnfinishedWindows: vi.fn(() => 0), getAutoSyncWindowSize: vi.fn(() => 2), notifyUnfinishedWindows: vi.fn(),
 }));
 
 const { synchronizeChat } = await import('../src/features/eventbase/eventbase-chat-sync.js');

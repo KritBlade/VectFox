@@ -149,6 +149,35 @@ export async function fetchPortableChunks(collectionId, settings) {
     });
 }
 
+// How an export works out the windows read it writes for EventBase's pointer: index.js hands it EventBase's
+// windowsReadForExport at startup, so this feature does not import eventbase.
+let eventBaseWindowsForExport = null;
+
+/**
+ * Sets how an export works out the windows read it writes for EventBase's pointer.
+ * @param {(recordWindows: string[], chunks: object[]) => string[]} windowsRead
+ */
+export function setEventBaseWindowsForExport(windowsRead) {
+    eventBaseWindowsForExport = windowsRead;
+}
+
+/**
+ * EventBase's pointer as a file carries it: every window read, the record's and those the exported events show, so
+ * the file stands on its own on any backend, and no trim mark, as the imported record lists them all.
+ *
+ * @param {object} progress - The collection's eventbaseProgress
+ * @param {object[]} chunks - The exported points
+ * @returns {object}
+ */
+function exportedEventBaseProgress(progress, chunks) {
+    if (!eventBaseWindowsForExport) throw new Error('no windows-read function set: index.js calls setEventBaseWindowsForExport() at startup');
+    const parts = { ...progress };
+    delete parts.isTrimmed;
+    const extractedWindows = eventBaseWindowsForExport(parts.extractedWindows ?? [], chunks);
+    if (extractedWindows.length > 0) parts.extractedWindows = extractedWindows;
+    return parts;
+}
+
 /**
  * Exports a single collection to a portable JSON format (includes vectors)
  * @param {string} collectionId - The collection to export
@@ -225,7 +254,7 @@ export async function exportCollection(collectionId, settings, collectionInfo = 
                 storyEntityMerges: collectionMeta.storyEntityMerges || {},
                 storyEntityHiddenNames: collectionMeta.storyEntityHiddenNames || [],
                 // EventBase's pointer, how far it has read the chat into this collection, so its import carries on from there
-                ...(collectionMeta.eventbaseProgress ? { eventbaseProgress: collectionMeta.eventbaseProgress } : {}),
+                ...(collectionMeta.eventbaseProgress ? { eventbaseProgress: exportedEventBaseProgress(collectionMeta.eventbaseProgress, chunks) } : {}),
                 // Entity-Lore's record of the entries written from these events, and of the names it checked
                 ...(collectionMeta.entityLore ? { entityLore: collectionMeta.entityLore } : {}),
             },

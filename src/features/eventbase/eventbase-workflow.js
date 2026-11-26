@@ -25,7 +25,7 @@ import { readStoryLanguage } from './story-language.js';
 import { hashSourceMessage } from './eventbase-message-hash.js';
 import { chatWindowsOf, windowsInStretch } from './eventbase-window-grid-core.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
-import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, markWindowUnfinished, getUnfinishedWindowFingerprints, forgetUnfinishedWindowsNotInChat, windowFingerprint, clearExtractionCaches, isLastWindowExtracted, getVectorizationTip, setVectorizationTip, ensureVectorizationTip, shouldUseTipFallback, createWindowReplacement, readEventBaseProgress, getAutoSyncMarker, capAutoSyncMarker, autoSyncFirstWindowStart } from './eventbase-store.js';
+import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, markWindowUnfinished, getUnfinishedWindowFingerprints, forgetUnfinishedWindowsNotInChat, windowFingerprint, clearExtractionCaches, isLastWindowExtracted, getVectorizationTip, setVectorizationTip, ensureVectorizationTip, shouldUseTipFallback, createWindowReplacement, readEventBaseProgress, getAutoSyncMarker, capAutoSyncMarker, autoSyncFirstWindowStart, loadEventWindows, hasReadWindows } from './eventbase-store.js';
 import { retrieveEventsForTurn } from './agentic-retrieval.js';
 import { collectionInUse, noCollectionInUseText, resolveEventBaseRunTarget, sharedCollectionsLockedHere, useChatCollection } from './eventbase-chat-collections.js';
 import { formatEventsForInjectionDetailed, formatStoryArcForInjection } from './eventbase-injection.js';
@@ -158,6 +158,9 @@ export function notifyUnfinishedWindows(result, nextStep = 'Resume in Vectorize 
     }
 }
 
+/** The code of the error a run stops with when its record was trimmed and its collection's events cannot be read. */
+export const EVENT_WINDOWS_UNREAD = 'event_windows_unread';
+
 /**
  * Run EventBase over a chat: cut its messages into windows, send each window not extracted yet to
  * the LLM, and store the events it finds.
@@ -268,10 +271,18 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     const storyLanguage = readStoryLanguage(messages, settings);
     log.lifecycle(`[EventBase] Story language: ${storyLanguage.isCjkStory ? 'CJK' : 'not CJK'}; the "${storyLanguage.promptMode}" extraction prompt (CJK tokenizer mode "${settings.cjk_tokenizer_mode || 'intl'}")`);
 
-    // If the window record says windows were extracted but Qdrant has no data
+    // The windows the collection's events show, which count as read with the record's (§3.3 of
+    // InternalProject/Vectfox/plans/eventbase-window-record.md). A record trimmed to them cannot be read without them:
+    // the windows it left to the events would read as unread, and their events be stored twice. So the run stops.
+    const eventWindows = await loadEventWindows(registryKey, settings);
+    if (!eventWindows.isRead && readEventBaseProgress(registryKey).isTrimmed) {
+        throw Object.assign(new Error(`EventBase read nothing: it could not read the events of ${collectionId}, which say which windows it has read (${eventWindows.problem}). Try again once the database answers.`), { code: EVENT_WINDOWS_UNREAD });
+    }
+
+    // If the window record says windows were extracted, or left them to the events, but Qdrant has no data
     // (e.g. collection was deleted externally), reset the record so we start fresh.
-    const cacheEntries = readEventBaseProgress(registryKey).extractedWindows;
-    if (Array.isArray(cacheEntries) && cacheEntries.length > 0) {
+    const record = readEventBaseProgress(registryKey);
+    if ((record.extractedWindows?.length ?? 0) > 0 || record.isTrimmed) {
         try {
             const existingHashes = collectionId ? await getSavedHashes(collectionId, settings) : [];
             if (!existingHashes?.length) {
@@ -424,8 +435,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     const useTipFallback = shouldUseTipFallback({
         skipTipFallback: skipTipFallback || isReadingAgain,
         hasCollection: !!collectionId,
-        hasWindowRecord: (readEventBaseProgress(registryKey).extractedWindows?.length ?? 0) > 0
-            || getUnfinishedWindowFingerprints(registryKey, windowSize).size > 0,
+        hasWindowRecord: hasReadWindows(registryKey) || getUnfinishedWindowFingerprints(registryKey, windowSize).size > 0,
     });
     if (!useTipFallback && skipTipFallback) {
         log.lifecycle('[EventBase] shouldUseTipFallback=false — caller explicitly opted out (skipTipFallback=true)');
@@ -1461,6 +1471,8 @@ export async function getChatAutoSyncStatus(settings, { shouldProbeBackend = tru
     const commitBoundary = getCommitBoundary(messages, settings);
     const committedMessages = commitBoundary < messages.length ? messages.slice(0, commitBoundary) : messages;
     const autoSyncWindowSize = getAutoSyncWindowSize(settings);
+    // The windows the collection's events show count as read; unread, the status reads the record alone.
+    await loadEventWindows(match.registryKey, settings);
     const fullyVectorized = isChatFullyVectorized(committedMessages, settings, match.registryKey, autoSyncWindowSize, 0,
         autoSyncFirstWindowStart(match.registryKey, autoSyncWindowSize));
 

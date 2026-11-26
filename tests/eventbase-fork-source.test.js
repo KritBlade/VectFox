@@ -40,7 +40,8 @@ vi.mock('../src/features/eventbase/eventbase-store.js', () => ({
     setVectorizationTip: vi.fn(),
     getCollectionWindowSize: vi.fn(),
     setCollectionWindowSize: vi.fn(),
-    readEventBaseProgress: registryKey => ({ extractedWindows: host.windows[registryKey] ?? [] }),
+    loadEventWindows: vi.fn(async () => ({ isRead: true })),
+    windowsReadOf: registryKey => host.windows[registryKey] ?? [],
 }));
 // Other chats' collections locked to the branch, never its own (sharedCollectionsLockedHere).
 vi.mock('../src/features/eventbase/eventbase-chat-collections.js', () => ({

@@ -233,7 +233,7 @@ describe('a run on a chat shorter than its tip', () => {
         expect(windowsSent()).toEqual([0, 6, 8]);
     });
 
-    it('trusts no tip past the chat\'s end when the record was lost, reading every window', async () => {
+    it('trusts no tip past the chat\'s end when the record was lost, reading every window its events do not show', async () => {
         const chatUUID = newChatUUID();
         await vectorize(story(0, 9), chatUUID);
         // The record is lost, as an import without its pointer leaves it, and the tip stays at 10.
@@ -242,7 +242,8 @@ describe('a run on a chat shorter than its tip', () => {
 
         await vectorize([SUMMARY, ...story(5, 11)], chatUUID);
 
-        expect(windowsSent()).toEqual([0, 2, 4, 6]);
+        // The stored events show messages 6 to 9 read; the summary's window and the new messages 10 and 11 are read.
+        expect(windowsSent()).toEqual([0, 6]);
     });
 });
 

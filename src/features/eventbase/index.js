@@ -35,8 +35,12 @@ export {
     ensureEventBaseIndexes,
     eventPointHash,
     getVectorizationTip,
+    keepWindowsOfRemovedEvents,
+    loadEventWindows,
+    readEventBaseProgress,
     stampAutoSyncMarker,
 } from './eventbase-store.js';
+export { windowsReadForExport } from './eventbase-window-record-core.js';
 export {
     getAutoSyncWindowSize,
     getChatAutoSyncStatus,

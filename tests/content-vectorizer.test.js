@@ -80,7 +80,8 @@ vi.mock('../src/features/eventbase/eventbase-chat-sync.js', () => ({
 }));
 vi.mock('../src/features/eventbase/eventbase-store.js', () => ({
     getVectorizationTip: () => (host.priorWindows ? 120 : undefined),
-    readEventBaseProgress: () => ({}),
+    hasReadWindows: () => false,
+    loadEventWindows: vi.fn(async () => ({ isRead: true })),
     prepareForFreshExtraction: vi.fn(async () => ({ skipTipFallback: true })),
     getCollectionWindowSize: vi.fn(() => host.keptWindowSize),
     setCollectionWindowSize: vi.fn(),
@@ -106,6 +107,7 @@ vi.mock('../src/features/eventbase/eventbase-chat-collections.js', () => ({
 }));
 vi.mock('../src/features/vector-backend/index.js', () => ({ getSavedHashes: vi.fn(async () => host.savedHashes) }));
 vi.mock('../src/features/eventbase/eventbase-workflow.js', () => ({
+    EVENT_WINDOWS_UNREAD: 'event_windows_unread',
     runEventBaseIngestion: vi.fn(),
     countUnfinishedWindows: () => 0,
     notifyUnfinishedWindows: vi.fn(),

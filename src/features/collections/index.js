@@ -2,8 +2,8 @@
 // metadata (enabled state, chat and character locks, auto-sync), and JSON and PNG export and import.
 //
 // The widest surface of any feature: every feature that lists, locks, activates or exports a collection reads it
-// here. setDeletedOrImportedCollectionCleanup lets src/index.js hand EventBase's cache cleanup to collection
-// deletion and import without this feature importing eventbase.
+// here. setDeletedOrImportedCollectionCleanup and setEventBaseWindowsForExport let src/index.js hand EventBase's cache
+// cleanup to collection deletion and import, and its windows read to export, without this feature importing eventbase.
 //
 // Re-exports only. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
 export {
@@ -16,6 +16,7 @@ export {
     importCollection,
     insertChunksWithVectors,
     readImportFile,
+    setEventBaseWindowsForExport,
     validateImportData,
 } from './collection-export.js';
 export {

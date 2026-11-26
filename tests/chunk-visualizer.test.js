@@ -29,8 +29,10 @@ vi.mock('../src/features/vector-backend/index.js', async () => ({
     qdrantTarget: (await import('../src/features/vector-backend/qdrant-target.js')).qdrantTarget,
 }));
 const announceEventsRemoved = vi.hoisted(() => vi.fn());
+const keepWindowsOfRemovedEvents = vi.hoisted(() => vi.fn());
 vi.mock('../src/features/eventbase/index.js', () => ({
     announceEventsRemoved,
+    keepWindowsOfRemovedEvents,
     packTimelineSortKey: (message, order) => message * 1000 + order,
     eventPointHash: id => 7_000_000 + [...String(id)].reduce((hash, character) => (hash * 31 + character.charCodeAt(0)) % 1000003, 3),
 }));
@@ -101,6 +103,7 @@ beforeEach(() => {
     }
     confirmPopup.mockClear();
     announceEventsRemoved.mockClear();
+    keepWindowsOfRemovedEvents.mockClear();
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ items: host.items, total: 5 }) })));
 });
 
@@ -318,6 +321,9 @@ describe('the bulk bar', () => {
         expect(confirmPopup.mock.calls[0][1]).toMatchObject({ okButton: 'Delete', isDestructive: true });
         expect(backend.deleteVectorItems).toHaveBeenCalledTimes(1);
         expect(backend.deleteVectorItems.mock.calls[0][1]).toEqual([1001, 1002]);
+        // The windows of the events among them stay read, once they are gone.
+        expect(keepWindowsOfRemovedEvents).toHaveBeenCalledTimes(1);
+        expect(keepWindowsOfRemovedEvents.mock.calls[0][1]).toEqual([{ name: 'Tide' }, {}]);
         expect(document.querySelector('#vectfox_chunk_pane .vfx-empty')).not.toBeNull();
         expect(document.querySelector('[data-chunk-count]').textContent).toBe('1 of 3 chunks loaded');
     });

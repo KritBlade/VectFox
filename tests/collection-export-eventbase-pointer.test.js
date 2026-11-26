@@ -65,7 +65,8 @@ vi.mock('../src/features/vector-backend/index.js', async () => ({
 import { extension_settings } from '../../../../extensions.js';
 import { log } from '../src/sillytavern/log.js';
 import { getBackend, insertVectorItems, purgeVectorIndex } from '../src/features/vector-backend/index.js';
-import { exportCollection, importCollection } from '../src/features/collections/collection-export.js';
+import { exportCollection, importCollection, setEventBaseWindowsForExport } from '../src/features/collections/collection-export.js';
+import { windowsReadForExport } from '../src/features/eventbase/eventbase-window-record-core.js';
 import { getCollectionMeta } from '../src/features/collections/collection-metadata.js';
 import { buildRegistryKey } from '../src/shared/collection-ids.js';
 import { tenantPointId } from '../src/shared/point-ids.js';
@@ -81,6 +82,9 @@ import {
     markWindowExtracted,
     setVectorizationTip,
 } from '../src/features/eventbase/eventbase-store.js';
+
+// As index.js does at startup.
+setEventBaseWindowsForExport(windowsReadForExport);
 
 const SETTINGS = { vector_backend: 'qdrant', embedding_provider: 'openrouter' };
 const OLD_WINDOW = [11, 22];
@@ -195,6 +199,24 @@ describe('an export carries the pointer, and its import carries on from it', () 
 
     it("writes the collection's pointer into the export file", () => {
         expect(file.settings.eventbaseProgress).toEqual(POINTER);
+    });
+
+    it('writes every window read, the record\'s and those the exported events show, and no trim mark', async () => {
+        extension_settings.vectfox = {
+            collections: { [IMPORTED_KEY]: { eventbaseProgress: { ...structuredClone(POINTER), isTrimmed: true } } },
+            vectfox_collection_registry: [IMPORTED_KEY],
+        };
+        fetch.mockImplementation(async () => ({
+            ok: true,
+            json: async () => ({ success: true, items: [
+                { hash: 1, text: 'an event', vector: [0.1, 0.2], metadata: { eventbase: true, source_message_hashes: [66, 55], source_window_end: 39 } },
+                { hash: 2, text: 'another event of that window', vector: [0.1, 0.2], metadata: { eventbase: true, source_message_hashes: [55, 66], source_window_end: 39 } },
+            ] }),
+        }));
+
+        const trimmedFile = await exportCollection(IMPORTED_COLLECTION_ID, SETTINGS, { backend: 'qdrant', source: 'openrouter', model: '' });
+
+        expect(trimmedFile.settings.eventbaseProgress).toEqual({ ...POINTER, extractedWindows: [WINDOW_READ, '55,66'] });
     });
 
     it('imports it with the events, so the collection reads on from its tip, its windows and its failed windows', async () => {

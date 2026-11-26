@@ -42,6 +42,7 @@ vi.mock('../src/features/eventbase/eventbase-store.js', () => ({
     readEventBaseProgress: vi.fn(() => ({})), getAutoSyncMarker: vi.fn(), autoSyncFirstWindowStart: vi.fn(() => 0),
     getVectorizationTip: mocks.getVectorizationTip, setVectorizationTip: vi.fn(),
     ensureVectorizationTip: mocks.ensureVectorizationTip, shouldUseTipFallback: vi.fn(),
+    loadEventWindows: vi.fn(async () => ({ isRead: true })), hasReadWindows: vi.fn(() => false),
 }));
 // The one route: the chat's collection in use, or why there is none; the run target is the one in use.
 vi.mock('../src/features/eventbase/eventbase-chat-collections.js', () => ({

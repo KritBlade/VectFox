@@ -50,10 +50,12 @@ import {
     NEW_COLLECTION, askWhichChatCollection, collectionInUse, resolveEventBaseRunTarget, startNewChatCollection,
 } from './eventbase-chat-collections.js';
 import {
-    emptyEventBaseCollection, getCollectionWindowSize, getVectorizationTip, prepareForFreshExtraction, readEventBaseProgress,
-    setCollectionWindowSize,
+    emptyEventBaseCollection, getCollectionWindowSize, getVectorizationTip, hasReadWindows, loadEventWindows,
+    prepareForFreshExtraction, setCollectionWindowSize,
 } from './eventbase-store.js';
-import { countUnfinishedWindows, getChatAutoSyncStatus, notifyUnfinishedWindows, runEventBaseIngestion } from './eventbase-workflow.js';
+import {
+    EVENT_WINDOWS_UNREAD, countUnfinishedWindows, getChatAutoSyncStatus, notifyUnfinishedWindows, runEventBaseIngestion,
+} from './eventbase-workflow.js';
 
 /** How many windows EventBase reads at once when the dialog does not say. */
 const DEFAULT_PARALLEL_WINDOWS = 3;
@@ -445,7 +447,7 @@ function readFirstCollection(run, { resetCaches }) {
  */
 async function vectorizeChatFile(run) {
     const registryKey = registryKeyOfRun(run.source, extension_settings.vectfox || {});
-    if (hasPriorExtractionState(registryKey)) {
+    if (await hasPriorExtractionState(registryKey)) {
         const isConfirmed = await confirmPopup([
             { text: 'Read this chat again from the start?' },
             { text: 'From message:', name: String(run.startFromMessage) },
@@ -557,17 +559,16 @@ function registryKeyOfRun(source, settings) {
 }
 
 /**
- * Whether EventBase has read a chat file into its archive collection before: windows it remembers, or a vectorization
- * tip. A collection with neither has nothing to reset, so the file's Vectorize does not ask.
+ * Whether EventBase has read a chat file into its archive collection before: windows it remembers or its events show,
+ * or a vectorization tip. A collection with none has nothing to reset, so the file's Vectorize does not ask.
  *
  * @param {string|null} registryKey - The collection's registry key ("backend:id")
- * @returns {boolean}
+ * @returns {Promise<boolean>}
  */
-function hasPriorExtractionState(registryKey) {
+async function hasPriorExtractionState(registryKey) {
     if (!registryKey) return false;
-    const windows = readEventBaseProgress(registryKey).extractedWindows;
-    if (Array.isArray(windows) && windows.length > 0) return true;
-    return typeof getVectorizationTip(registryKey) === 'number';
+    await loadEventWindows(registryKey, extension_settings.vectfox || {});
+    return hasReadWindows(registryKey) || typeof getVectorizationTip(registryKey) === 'number';
 }
 
 /**
@@ -650,6 +651,13 @@ async function runEventBaseBackfill({ source, startFromMessage, endAtMessage = n
                 { text: 'VectFox tried 3 times. Nothing was half written, and the next run starts where this one stopped.' },
                 { text: 'The database said:', name: error.message },
             ], { isWide: true });
+            return null;
+        }
+        // A record left to its collection's events, which could not be read: nothing was read, and the user tries again.
+        if (error?.code === EVENT_WINDOWS_UNREAD) {
+            log.warn('[EventBase] Run stopped before reading:', error);
+            progressTracker.complete(false, error.message);
+            toastr.warning(error.message, 'VectFox', { timeOut: 10000 });
             return null;
         }
         if (error?.code === 'insert_verification_failed') {

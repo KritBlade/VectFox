@@ -151,6 +151,12 @@ export function runNetworkStartup(startupSettings) {
                 }).catch(() => {});
             }
 
+            // Phase 1.6: trim once each EventBase window record of the windows its collection's events show, on the
+            // backend in use (eventbase-window-record-cleanup.js). It needs the registry discovery just filled.
+            import('./eventbase-window-record-cleanup.js').then(({ trimEventBaseWindowRecords }) => trimEventBaseWindowRecords(startupSettings)).catch(error => {
+                log.warn('[VectFox] EventBase window record cleanup failed:', error);
+            });
+
             checkSimilharityVersion();
         } finally {
             networkStartupInFlight = null;

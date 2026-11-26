@@ -20,10 +20,11 @@ import {
     migrateOldEnabledKeys,
     registerCollection,
     setDeletedOrImportedCollectionCleanup,
+    setEventBaseWindowsForExport,
 } from './features/collections/index.js';
 import {
     clearCachesForDeletedOrImportedCollection, followCollectionInUse, refreshWorldInfoEntryDepthCache, runEventBaseReplyStep,
-    setEventBaseListeners, synchronizeChat,
+    setEventBaseListeners, synchronizeChat, windowsReadForExport,
 } from './features/eventbase/index.js';
 import { setLlmCallFinishedListener, setOwnRequestMarker } from './features/llm-provider/index.js';
 import { setInsertedCollectionRegistrar, setPurgedCollectionListener } from './features/vector-backend/index.js';
@@ -65,6 +66,7 @@ import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, e
 
 // Calls a lower layer makes into a higher one, wired here before anything can delete or insert.
 setDeletedOrImportedCollectionCleanup(clearCachesForDeletedOrImportedCollection);
+setEventBaseWindowsForExport(windowsReadForExport);
 setInsertedCollectionRegistrar(registerCollection);
 // What EventBase, the vector backend and the LLM calls tell the public API, which sends it on as vectfox_* events, the
 // public API's mark on the signal of each LLM call's request, written while the PublicAPI page's switch is on, and the

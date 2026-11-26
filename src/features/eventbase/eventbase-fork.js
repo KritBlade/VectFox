@@ -29,7 +29,7 @@ import {
 import { purgeVectorIndex } from '../vector-backend/index.js';
 import { getModelFromSettings } from '../embedding/index.js';
 import { sharedCollectionsLockedHere, useChatCollection } from './eventbase-chat-collections.js';
-import { markWindowExtracted, readEventBaseProgress, setVectorizationTip, getCollectionWindowSize, setCollectionWindowSize } from './eventbase-store.js';
+import { loadEventWindows, markWindowExtracted, setVectorizationTip, getCollectionWindowSize, setCollectionWindowSize, windowsReadOf } from './eventbase-store.js';
 import { hashSourceMessage } from './eventbase-message-hash.js';
 import {
     measureSharedPrefix,
@@ -91,9 +91,14 @@ export async function findEventBaseForkSource(settings) {
         .map(entry => ({
             registryKey: entry.registryKey,
             collectionId: entry.collectionId,
-            windowFingerprints: readEventBaseProgress(entry.registryKey).extractedWindows ?? [],
             isLockedToParentChat: isCollectionActiveForContextAnyKey([entry.registryKey, entry.collectionId], { chatId: parentChatId }),
         }));
+    // Each candidate's windows read: its record's and those its events show, which one it cannot read lacks.
+    for (const candidate of candidates) {
+        const eventWindows = await loadEventWindows(candidate.registryKey, settings);
+        if (!eventWindows.isRead) log.warn(`[EventBase][fork] ${candidate.collectionId}: its events could not be read (${eventWindows.problem}), so only its record's windows rank it`);
+        candidate.windowFingerprints = windowsReadOf(candidate.registryKey);
+    }
     const [best] = rankForkSourcesFromWindowRecords(candidates.filter(candidate => candidate.isLockedToParentChat), branchHashes);
     if (best) {
         log.lifecycle(`[EventBase][fork] source from window record: ${best.collectionId}, shares ${best.sharedPrefixLength}/${messages.length} messages (${best.coveredWindowCount} windows)`);

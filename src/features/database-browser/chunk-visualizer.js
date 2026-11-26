@@ -18,7 +18,7 @@
  */
 
 import { deleteVectorItems, describeEmbeddingFailure, insertVectorItems, qdrantTarget, textWithoutKeywordSuffix, updateChunkMetadata } from '../vector-backend/index.js';
-import { announceEventsRemoved, eventPointHash, packTimelineSortKey } from '../eventbase/index.js';
+import { announceEventsRemoved, eventPointHash, keepWindowsOfRemovedEvents, packTimelineSortKey } from '../eventbase/index.js';
 import { languageModeLabel } from '../keyword-search/index.js';
 import { getStringHash } from '../../sillytavern/identifiers.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
@@ -501,9 +501,13 @@ async function saveOpenChunk(root, session) {
 
 // ── Deleting and bulk actions ─────────────────────────────────────────────────────────────────────────
 
-/** Delete chunks' vectors. The IDs of the EventBase events among them go to EventBase's listener. */
+/**
+ * Delete chunks' vectors. The windows of the EventBase events among them stay read, on the collection's record, and
+ * their IDs go to EventBase's listener.
+ */
 async function deleteChunks(session, chunks) {
     await deleteVectorItems(session.collection.id, chunks.map(chunk => chunk.hash), session.settings);
+    keepWindowsOfRemovedEvents(session.collection.id, chunks.map(chunk => chunk.metadata ?? {}), session.settings);
     const eventIds = chunks.map(chunk => chunk.metadata?.event_id).filter(eventId => typeof eventId === 'string' && eventId !== '');
     announceEventsRemoved(session.collection.id, eventIds);
     const deletedKeys = new Set(chunks.map(chunk => chunk.key));

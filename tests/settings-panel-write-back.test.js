@@ -48,6 +48,7 @@ vi.mock('../src/features/collections/index.js', () => ({
     cleanupCorruptedCollections: vi.fn(),
     registerCollection: vi.fn(),
     setDeletedOrImportedCollectionCleanup: vi.fn(),
+    setEventBaseWindowsForExport: vi.fn(),
 }));
 vi.mock('../src/features/eventbase/index.js', () => ({
     clearCachesForDeletedOrImportedCollection: vi.fn(),
@@ -57,6 +58,7 @@ vi.mock('../src/features/eventbase/index.js', () => ({
     setEventBaseListeners: vi.fn(),
     synchronizeChat: vi.fn(),
     showNoCollectionInUse: vi.fn(),
+    windowsReadForExport: vi.fn(),
 }));
 vi.mock('../src/features/vector-backend/index.js', () => ({
     setInsertedCollectionRegistrar: vi.fn(),

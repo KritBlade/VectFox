@@ -13,7 +13,9 @@ import { progressTracker } from '../../shared/progress-tracker.js';
 import { isBackendAvailable } from '../vector-backend/index.js';
 import { collectionInUse, showNoCollectionInUse } from './eventbase-chat-collections.js';
 import { pauseCollectionAutoSync } from './eventbase-store.js';
-import { countUnfinishedWindows, getAutoSyncWindowSize, notifyUnfinishedWindows, runEventBaseIngestion } from './eventbase-workflow.js';
+import {
+    EVENT_WINDOWS_UNREAD, countUnfinishedWindows, getAutoSyncWindowSize, notifyUnfinishedWindows, runEventBaseIngestion,
+} from './eventbase-workflow.js';
 
 /** Chats already told that auto-sync left windows undone, so a failing provider does not toast on every turn. */
 const chatsWarnedOfUnfinishedWindows = new Set();
@@ -87,6 +89,11 @@ export async function synchronizeChat(settings, triggerEvent = null) {
             windowOverlapOverride: 0,
         });
     } catch (error) {
+        // The collection's events, which its record left windows to, could not be read: the next turn tries again.
+        if (error?.code === EVENT_WINDOWS_UNREAD) {
+            log.warn(`[AutoSync] ${error.message}`);
+            return;
+        }
         // SillyTavern's module worker would swallow the error and fail again on every message.
         if (isInvalidModelConfigError(error)) {
             notifyInvalidModel(error.message);

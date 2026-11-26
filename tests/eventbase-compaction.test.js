@@ -18,6 +18,8 @@ vi.mock('../src/features/eventbase/agentic-retrieval.js', () => ({ callLlmForJso
 vi.mock('../src/features/llm-provider/index.js', () => ({ readOpenRouterModelPrice: vi.fn() }));
 vi.mock('../src/features/eventbase/eventbase-chat-collections.js', () => ({ collectionInUse: vi.fn(), noCollectionInUseText: vi.fn() }));
 const listStoryEventsMock = vi.hoisted(() => vi.fn());
+const keepWindowsOfRemovedEvents = vi.hoisted(() => vi.fn());
+vi.mock('../src/features/eventbase/eventbase-store.js', () => ({ keepWindowsOfRemovedEvents }));
 vi.mock('../src/features/eventbase/story-arc-retrieval.js', () => ({ listStoryEvents: listStoryEventsMock }));
 vi.mock('../src/features/eventbase/generation-rate-limiter.js', () => ({ generationRateLimiter: { execute: (run) => run() }, generationRateLimitSettings: () => ({}) }));
 vi.mock('../src/shared/model-config-notifier.js', () => ({ isInvalidModelConfigError: () => false, notifyInvalidModel: vi.fn() }));
@@ -83,7 +85,9 @@ describe('Compact collection', () => {
         expect(backend.updateChunkMetadata).toHaveBeenCalledWith(COLLECTION, 13, { story_links: [{ event_id: 'event-12', type: 'continues', thread: '' }] }, settings);
         expect(backend.deleteVectorItems).toHaveBeenCalledWith(COLLECTION, [11], settings);
         expect(backend.updateChunkMetadata.mock.invocationCallOrder[0]).toBeLessThan(backend.deleteVectorItems.mock.invocationCallOrder[0]);
-        // EventBase's listener hears the removed events' IDs once they are gone.
+        // The repeat's window stays read, and EventBase's listener hears the removed events' IDs once they are gone.
+        expect(keepWindowsOfRemovedEvents).toHaveBeenCalledWith(COLLECTION, [expect.objectContaining({ _hash: 11, source_message_hashes: [0, 1] })], settings);
+        expect(backend.deleteVectorItems.mock.invocationCallOrder[0]).toBeLessThan(keepWindowsOfRemovedEvents.mock.invocationCallOrder[0]);
         expect(removals).toHaveBeenCalledWith(COLLECTION, ['event-11']);
         expect(backend.deleteVectorItems.mock.invocationCallOrder[0]).toBeLessThan(removals.mock.invocationCallOrder[0]);
     });

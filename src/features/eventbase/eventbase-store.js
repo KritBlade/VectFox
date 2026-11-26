@@ -12,7 +12,7 @@ import { insertVectorItems, deleteVectorItems, getSavedHashes, updateChunkMetada
 import { saveSettingsDebounced, extension_settings } from '../../sillytavern/settings.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { storyMessages } from '../../shared/chat-messages.js';
-import { getRegistryBackend, COLLECTION_PREFIXES, parseCollectionId, parseRegistryKey } from '../../shared/collection-ids.js';
+import { buildRegistryKey, getRegistryBackend, COLLECTION_PREFIXES, parseCollectionId, parseRegistryKey } from '../../shared/collection-ids.js';
 import {
     registerCollection,
     getCollectionRegistry,
@@ -22,6 +22,7 @@ import {
 } from '../collections/index.js';
 import { buildEmbedText } from './eventbase-schema.js';
 import { findReplacedEvents, linksMovedToReplacements, mayHoldEarlierEvents, replacementIdsOf, windowSpanOf } from './eventbase-window-replacement-core.js';
+import { eventWindowsOf, everyWindowRead, isListingWithPayload, windowFingerprint, windowsOnlyOnTheRecord } from './eventbase-window-record-core.js';
 import { log } from '../../sillytavern/log.js';
 import { readErrorBody } from '../../shared/server-error-text.js';
 import { announceEventsRemoved } from './eventbase-announcements.js';
@@ -33,13 +34,18 @@ import { announceEventsRemoved } from './eventbase-announcements.js';
 // (extension_settings.vectfox.collections[<registry key>].eventbaseProgress), so
 // two collections of one chat never share one:
 //   vectorizationTip     — one past the last message any extracted window covers
-//   extractedWindows     — the fingerprints of the windows read, so no message is read twice
+//   extractedWindows     — the fingerprints of the windows read that the collection's events do not show: a window
+//                          is read when this holds it or an event read back from the collection carries its
+//                          message hashes (the event windows, loadEventWindows), so no message is read twice
+//   isTrimmed            — set once a trim left windows to the events: the record cannot be read without them
 //   unfinishedWindows    — the fingerprints of the windows that failed, sent again
 //   autoSyncStartMarker  — the first message auto-sync reads; its windows start there
 //   windowSize           — the window size Vectorize read it with, which Catch up reads with too: set at
 //                          the chat's first read, by New collection and by Start over
 // Every function below that takes a registryKey reads or writes that collection's
-// pointer, and only through readEventBaseProgress and writeEventBaseProgress.
+// pointer, and only through readEventBaseProgress and writeEventBaseProgress. The record keeps only what the
+// collection cannot show (InternalProject/Vectfox/plans/eventbase-window-record.md): every window a run reads goes
+// on it, and each load of the event windows trims from it those the events show.
 // Deleting the collection deletes its record, the pointer with it.
 
 // Each extractedWindows array's fingerprints as a Set, and the hashes of the messages they
@@ -58,12 +64,23 @@ const _vectorizationTipByRegistryKey = new Map(); // registry key → number (ti
 // Collections whose far-behind tip was read against the backend on this page load.
 const _tipsCheckedThisPageLoad = new Set();
 
+// The windows each collection's events show, loaded once a page load (loadEventWindows): registry key →
+// {fingerprints, messageHashes}. A window is read when the record or these hold it.
+const _eventWindowsByRegistryKey = new Map();
+// The loads under way, which calls during one share.
+const _eventWindowLoads = new Map();
+// How many times each collection's windows were forgotten: a load that began before stores nothing.
+const _eventWindowGenerations = new Map();
+
+// A record that lists no window.
+const NO_WINDOWS = Object.freeze([]);
+
 /**
  * A collection's pointer, from its record: an object holding the parts it has, empty when it has none. Read only:
  * change it through writeEventBaseProgress.
  *
  * @param {string} registryKey - The collection's registry key ("backend:id")
- * @returns {{vectorizationTip?: number, extractedWindows?: string[], unfinishedWindows?: string[], autoSyncStartMarker?: number, windowSize?: number}}
+ * @returns {{vectorizationTip?: number, extractedWindows?: string[], isTrimmed?: boolean, unfinishedWindows?: string[], autoSyncStartMarker?: number, windowSize?: number}}
  */
 export function readEventBaseProgress(registryKey) {
     if (!registryKey) return {};
@@ -115,8 +132,21 @@ function readMessageHashSetOf(windows) {
     return hashes;
 }
 
-/** Whether every message of a window, by its fingerprint, is in a window read already. */
-const isFingerprintRead = (fingerprint, readHashes) => fingerprint.split(',').every(hash => readHashes.has(hash));
+/** Whether every message of a window, by its fingerprint, is in a window read already, by isMessageRead. */
+const isFingerprintRead = (fingerprint, isMessageRead) => fingerprint.split(',').every(isMessageRead);
+
+/**
+ * Whether a message, by its hash as a string, is in a window a collection has read: on its record, or shown by its
+ * events once loaded.
+ *
+ * @param {string} registryKey - The collection's registry key ("backend:id")
+ * @param {Set<string>} [recordHashes] - The record's message hashes, when the caller has them
+ * @returns {(hash: string) => boolean}
+ */
+function messageReadCheckOf(registryKey, recordHashes = readMessageHashSetOf(readEventBaseProgress(registryKey).extractedWindows ?? NO_WINDOWS)) {
+    const eventHashes = _eventWindowsByRegistryKey.get(registryKey)?.messageHashes;
+    return hash => recordHashes.has(hash) || Boolean(eventHashes?.has(hash));
+}
 
 /**
  * Whole Auto-sync windows behind the sync boundary at which a chat counts as far behind: the
@@ -183,8 +213,32 @@ export function clearVectorizationTip(registryKey) {
     writeEventBaseProgress(registryKey, { vectorizationTip: undefined });
 }
 
-/** Reads a whole collection: a limit below its size would return an arbitrary part of it. */
-const WHOLE_COLLECTION_LIMIT = 50000;
+/** How many points one page of a whole collection's listing holds. */
+const WHOLE_COLLECTION_PAGE_SIZE = 50000;
+
+/**
+ * Every point a collection holds, as listChunks lists them, a page at a time until the listing says none is left.
+ *
+ * @param {string} collectionId - Bare or registry-key form; passed straight to listChunks.
+ * @param {object} settings
+ * @returns {Promise<object[]>}
+ * @throws when the backend cannot list the collection, or the listing stops short of the total it gives
+ */
+async function listWholeCollection(collectionId, settings) {
+    const { getBackend } = await import('../vector-backend/index.js');
+    const backendInstance = await getBackend(settings);
+    const items = [];
+    for (;;) {
+        const page = await backendInstance.listChunks(collectionId, settings, { offset: items.length, limit: WHOLE_COLLECTION_PAGE_SIZE });
+        const pageItems = Array.isArray(page?.items) ? page.items : [];
+        items.push(...pageItems);
+        if (page?.hasMore === true && pageItems.length > 0) continue;
+        if (Number.isSafeInteger(page?.total) && items.length < page.total) {
+            throw new Error(`the listing of ${collectionId} stopped at ${items.length} of its ${page.total} points`);
+        }
+        return items;
+    }
+}
 
 /**
  * Every event a collection holds, as its stored metadata, with the point hash it is stored under
@@ -194,13 +248,10 @@ const WHOLE_COLLECTION_LIMIT = 50000;
  * @param {string} collectionId - Bare or registry-key form; passed straight to listChunks.
  * @param {object} settings
  * @returns {Promise<object[]>}
- * @throws when the backend cannot list the collection
+ * @throws when the backend cannot list the collection, or the listing stops short
  */
 export async function readStoredEvents(collectionId, settings) {
-    const { getBackend } = await import('../vector-backend/index.js');
-    const backendInstance = await getBackend(settings);
-    const result = await backendInstance.listChunks(collectionId, settings, { limit: WHOLE_COLLECTION_LIMIT });
-    const items = Array.isArray(result?.items) ? result.items : [];
+    const items = await listWholeCollection(collectionId, settings);
     return items.map(item => ({ ...item?.metadata, _hash: Number(item?.hash) }));
 }
 
@@ -581,10 +632,10 @@ export function capAutoSyncMarker(registryKey, messages, { windowSize, step, has
     const marker = getAutoSyncMarker(registryKey);
     const messageCount = messages.length;
     if (typeof marker !== 'number' || marker <= messageCount) return marker;
-    const readHashes = readMessageHashSetOf(readEventBaseProgress(registryKey).extractedWindows ?? []);
+    const isMessageRead = messageReadCheckOf(registryKey);
     const earliestUnreadEnd = Math.max(0, messageCount - (windowSize + step - 1));
     let movedMarker = messageCount;
-    while (movedMarker > earliestUnreadEnd && !readHashes.has(String(hashFn(messages[movedMarker - 1])))) movedMarker--;
+    while (movedMarker > earliestUnreadEnd && !isMessageRead(String(hashFn(messages[movedMarker - 1])))) movedMarker--;
     writeEventBaseProgress(registryKey, { autoSyncStartMarker: movedMarker });
     log.lifecycle(`[EventBase] AutoSyncMarker ${marker} is past the chat's ${messageCount} messages: moved to ${movedMarker}`);
     return movedMarker;
@@ -757,14 +808,7 @@ export async function prepareForFreshExtraction(registryKey) {
 // Window records (which windows a collection has read, and which failed)
 // ---------------------------------------------------------------------------
 
-/**
- * Returns a stable string fingerprint for a window from its source hashes.
- * @param {number[]} sourceHashes
- * @returns {string}
- */
-export function windowFingerprint(sourceHashes) {
-    return [...sourceHashes].map(String).sort().join(',');
-}
+export { windowFingerprint };
 
 /**
  * Marks a window as extracted in a collection's pointer, and takes off its unfinished record that window and every
@@ -788,7 +832,8 @@ export function markWindowExtracted(sourceHashes, registryKey) {
         _readMessageHashSets.set(nextWindows, readHashes);
         writeEventBaseProgress(registryKey, { extractedWindows: nextWindows });
     }
-    _keepUnfinishedWindows(registryKey, recorded => recorded !== fingerprint && !isFingerprintRead(recorded, readHashes));
+    const isMessageRead = messageReadCheckOf(registryKey, readHashes);
+    _keepUnfinishedWindows(registryKey, recorded => recorded !== fingerprint && !isFingerprintRead(recorded, isMessageRead));
 }
 
 /**
@@ -849,12 +894,13 @@ function _keepUnfinishedWindows(registryKey, shouldKeep) {
 }
 
 /**
- * Clears a collection's window record and its unfinished record, so its next run reads
- * every window again.
+ * Clears a collection's window record and its unfinished record, and forgets the windows its events showed, so its
+ * next run reads every window again.
  * @param {string} registryKey - The collection's registry key ("backend:id")
  */
 export function clearWindowCache(registryKey) {
-    writeEventBaseProgress(registryKey, { extractedWindows: undefined, unfinishedWindows: undefined });
+    forgetEventWindows(registryKey);
+    writeEventBaseProgress(registryKey, { extractedWindows: undefined, isTrimmed: undefined, unfinishedWindows: undefined });
 }
 
 /**
@@ -931,6 +977,10 @@ export function clearCachesForDeletedOrImportedCollection(collectionId) {
     for (const registryKey of [..._tipsCheckedThisPageLoad]) {
         if (isThatCollection(registryKey)) _tipsCheckedThisPageLoad.delete(registryKey);
     }
+    // Its event windows: an import's events, or none, show other windows now.
+    for (const registryKey of new Set([..._eventWindowsByRegistryKey.keys(), ..._eventWindowLoads.keys()])) {
+        if (isThatCollection(registryKey)) forgetEventWindows(registryKey);
+    }
 }
 
 /**
@@ -963,8 +1013,9 @@ export function isLastWindowExtracted(messages, windowSize, step, registryKey, h
 }
 
 /**
- * Whether a collection has read a window (no DB query), from its window record: the window's fingerprint is on it, or
- * every message in the window is in a window read already, of any size (§2.7 of
+ * Whether a collection has read a window (no DB query), from its window record and the windows its events show, once
+ * loaded (loadEventWindows): the window's fingerprint is on either, or every message in the window is in a window
+ * read already, of any size (§2.7 of
  * InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md). So a Catch up after auto-sync read at another
  * size reads only the unread messages, and a deleted message or a changed overlap, which move every later window,
  * read nothing again.
@@ -975,11 +1026,121 @@ export function isLastWindowExtracted(messages, windowSize, step, registryKey, h
  */
 export function isWindowAlreadyExtracted(sourceHashes, registryKey) {
     if (!sourceHashes?.length || !registryKey) return false;
+    const windows = readEventBaseProgress(registryKey).extractedWindows ?? NO_WINDOWS;
+    const fingerprint = windowFingerprint(sourceHashes);
+    if (extractedWindowSetOf(windows).has(fingerprint)) return true;
+    if (_eventWindowsByRegistryKey.get(registryKey)?.fingerprints.has(fingerprint)) return true;
+    const isMessageRead = messageReadCheckOf(registryKey, readMessageHashSetOf(windows));
+    return sourceHashes.every(hash => isMessageRead(String(hash)));
+}
+
+/**
+ * Whether a collection has read any window: one on its record, or one its events show once loaded.
+ *
+ * @param {string} registryKey - The collection's registry key ("backend:id")
+ * @returns {boolean}
+ */
+export function hasReadWindows(registryKey) {
+    return (readEventBaseProgress(registryKey).extractedWindows?.length ?? 0) > 0
+        || (_eventWindowsByRegistryKey.get(registryKey)?.fingerprints.size ?? 0) > 0;
+}
+
+/**
+ * Every window a collection has read, once each, by fingerprint: its record's, and those its events show once loaded.
+ *
+ * @param {string} registryKey - The collection's registry key ("backend:id")
+ * @returns {string[]}
+ */
+export function windowsReadOf(registryKey) {
+    return everyWindowRead(readEventBaseProgress(registryKey).extractedWindows ?? NO_WINDOWS,
+        _eventWindowsByRegistryKey.get(registryKey)?.fingerprints ?? NO_WINDOWS);
+}
+
+/**
+ * Load the windows a collection's events show (§3.1 of InternalProject/Vectfox/plans/eventbase-window-record.md), once
+ * a page load: every event listed, page by page, its window kept in memory, and the record trimmed of the windows the
+ * events show (§3.4). Calls during a load share it. A load that cannot read keeps nothing, so the next call reads
+ * again; one that began before the collection's windows were forgotten (clearWindowCache, a delete or an import)
+ * keeps nothing either.
+ *
+ * @param {string} registryKey - The collection's registry key ("backend:id")
+ * @param {object} settings - VectFox settings
+ * @returns {Promise<{isRead: boolean, problem?: string, isWithoutPayload?: boolean}>} isRead false when the listing
+ *   failed or stopped short, or, with isWithoutPayload, gave the events' hashes only, which show no window
+ */
+export async function loadEventWindows(registryKey, settings) {
+    if (!registryKey) return { isRead: false, problem: 'no collection is given' };
+    if (_eventWindowsByRegistryKey.has(registryKey)) return { isRead: true };
+    let load = _eventWindowLoads.get(registryKey);
+    if (!load) {
+        load = _readEventWindows(registryKey, settings).finally(() => {
+            if (_eventWindowLoads.get(registryKey) === load) _eventWindowLoads.delete(registryKey);
+        });
+        _eventWindowLoads.set(registryKey, load);
+    }
+    return load;
+}
+
+/** loadEventWindows' read: the listing, the windows its events show, and the trim. */
+async function _readEventWindows(registryKey, settings) {
+    const generation = _eventWindowGenerations.get(registryKey) ?? 0;
+    const { collectionId } = parseRegistryKey(registryKey);
+    let items;
+    try {
+        items = await listWholeCollection(collectionId, settings);
+    } catch (error) {
+        log.warn(`[EventBase] Could not read the events of ${registryKey}, which show the windows it read:`, error);
+        return { isRead: false, problem: String(error?.message ?? error) };
+    }
+    if (!isListingWithPayload(items)) {
+        log.lifecycle(`[EventBase] The events of ${registryKey} came back without their payload, so they show no window`);
+        return { isRead: false, problem: 'its events came back without their payload', isWithoutPayload: true };
+    }
+    if ((_eventWindowGenerations.get(registryKey) ?? 0) !== generation) {
+        return { isRead: false, problem: 'its windows were forgotten while its events were read' };
+    }
+    const eventWindows = eventWindowsOf(items.map(item => item?.metadata ?? {}));
+    _eventWindowsByRegistryKey.set(registryKey, eventWindows);
+    _trimWindowRecord(registryKey, eventWindows.fingerprints);
+    return { isRead: true };
+}
+
+/**
+ * The trim (§3.4): the record drops each window its events show by fingerprint, worked out against the record as it
+ * is now, so a window added while the listing ran stays; once it dropped one, the record is marked trimmed.
+ */
+function _trimWindowRecord(registryKey, eventFingerprints) {
     const windows = readEventBaseProgress(registryKey).extractedWindows;
-    if (!Array.isArray(windows)) return false;
-    if (extractedWindowSetOf(windows).has(windowFingerprint(sourceHashes))) return true;
-    const readHashes = readMessageHashSetOf(windows);
-    return sourceHashes.every(hash => readHashes.has(String(hash)));
+    if (!Array.isArray(windows) || windows.length === 0) return;
+    const kept = windowsOnlyOnTheRecord(windows, eventFingerprints);
+    if (kept.length === windows.length) return;
+    writeEventBaseProgress(registryKey, { extractedWindows: kept.length > 0 ? kept : undefined, isTrimmed: true });
+    log.lifecycle(`[EventBase] The record of ${registryKey} keeps ${kept.length} of its ${windows.length} windows: its events show the rest`);
+}
+
+/** Forget the windows a collection's events showed, and any load of them under way. */
+function forgetEventWindows(registryKey) {
+    _eventWindowsByRegistryKey.delete(registryKey);
+    _eventWindowLoads.delete(registryKey);
+    _eventWindowGenerations.set(registryKey, (_eventWindowGenerations.get(registryKey) ?? 0) + 1);
+}
+
+/**
+ * Keep read the windows of events removed while their windows stay read (§3.5): the Database Browser's delete and
+ * compaction's repeats. Each removed event's window goes on its collection's record, so the next Catch up does not
+ * write its events again; a later trim drops any window another event still shows. A point that is no EventBase event
+ * carries no window and adds none.
+ *
+ * @param {string} collectionId - The collection's bare ID
+ * @param {object[]} events - The removed points' payloads
+ * @param {object} settings - VectFox settings
+ */
+export function keepWindowsOfRemovedEvents(collectionId, events, settings) {
+    const { fingerprints } = eventWindowsOf(events);
+    if (fingerprints.size === 0) return;
+    const registryKey = buildRegistryKey(collectionId, settings);
+    for (const fingerprint of fingerprints) markWindowExtracted(fingerprint.split(','), registryKey);
+    log.lifecycle(`[EventBase] ${fingerprints.size} window(s) of the events removed from ${registryKey} stay read, on its record`);
 }
 
 /**
