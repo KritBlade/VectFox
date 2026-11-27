@@ -91,7 +91,7 @@ export async function synchronizeChat(settings, triggerEvent = null) {
     } catch (error) {
         // The collection's events, which its record left windows to, could not be read: the next turn tries again.
         if (error?.code === EVENT_WINDOWS_UNREAD) {
-            log.warn(`[AutoSync] ${error.message}`);
+            log.warn(`[AutoSync] ${error.message} The listing met: ${error.problem}`);
             return;
         }
         // SillyTavern's module worker would swallow the error and fail again on every message.

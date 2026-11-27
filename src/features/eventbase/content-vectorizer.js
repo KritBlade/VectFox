@@ -655,7 +655,7 @@ async function runEventBaseBackfill({ source, startFromMessage, endAtMessage = n
         }
         // A record left to its collection's events, which could not be read: nothing was read, and the user tries again.
         if (error?.code === EVENT_WINDOWS_UNREAD) {
-            log.warn('[EventBase] Run stopped before reading:', error);
+            log.warn(`[EventBase] Run stopped before reading, the listing having met: ${error.problem}`, error);
             progressTracker.complete(false, error.message);
             toastr.warning(error.message, 'VectFox', { timeOut: 10000 });
             return null;

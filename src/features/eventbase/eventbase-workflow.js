@@ -15,7 +15,7 @@ import { setExtensionPrompt, extension_prompts } from '../../sillytavern/prompt-
 import { getCurrentChatId, substituteParams } from '../../sillytavern/chat.js';
 import { storyMessages } from '../../shared/chat-messages.js';
 import { getChatUUID, COLLECTION_PREFIXES, buildRegistryKey } from '../../shared/collection-ids.js';
-import { isCollectionEnabled } from '../collections/index.js';
+import { collectionNameOf, isCollectionEnabled } from '../collections/index.js';
 import { getSavedHashes, UNBOUNDED_RUN } from '../vector-backend/index.js';
 import { searchArchiveEvents } from './eventbase-retrieval.js';
 import { EVENTBASE_PROMPT_TAG } from '../../shared/constants.js';
@@ -158,7 +158,10 @@ export function notifyUnfinishedWindows(result, nextStep = 'Resume in Vectorize 
     }
 }
 
-/** The code of the error a run stops with when its record was trimmed and its collection's events cannot be read. */
+/**
+ * The code of the error a run stops with when its record was trimmed and its collection's events cannot be read. Its
+ * message names the collection for the user; its `problem` says what the listing met, for the console.
+ */
 export const EVENT_WINDOWS_UNREAD = 'event_windows_unread';
 
 /**
@@ -276,7 +279,8 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     // the windows it left to the events would read as unread, and their events be stored twice. So the run stops.
     const eventWindows = await loadEventWindows(registryKey, settings);
     if (!eventWindows.isRead && readEventBaseProgress(registryKey).isTrimmed) {
-        throw Object.assign(new Error(`EventBase read nothing: it could not read the events of ${collectionId}, which say which windows it has read (${eventWindows.problem}). Try again once the database answers.`), { code: EVENT_WINDOWS_UNREAD });
+        // The user reads the collection by its name; the database's own words go to the console (`problem`).
+        throw Object.assign(new Error(`EventBase read nothing: it could not read the events of "${collectionNameOf(registryKey)}", which say which windows it has read. Try again once the database answers.`), { code: EVENT_WINDOWS_UNREAD, problem: eventWindows.problem });
     }
 
     // If the window record says windows were extracted, or left them to the events, but Qdrant has no data

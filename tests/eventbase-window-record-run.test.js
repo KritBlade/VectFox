@@ -31,7 +31,10 @@ vi.mock('../src/shared/collection-ids.js', () => ({
     buildRegistryKey: (id) => `qdrant:${id}`, buildEventBaseCollectionId: () => 'vf_eventbase_record_chat', getRegistryBackend: () => 'qdrant',
     parseCollectionId: () => ({ scope: 'chat' }),
 }));
-vi.mock('../src/features/collections/collection-loader.js', () => ({ getCollectionRegistry: () => [], registerCollection: vi.fn(), getCollectionListing: vi.fn() }));
+vi.mock('../src/features/collections/collection-loader.js', () => ({
+    getCollectionRegistry: () => [], registerCollection: vi.fn(), getCollectionListing: vi.fn(),
+    collectionNameOf: registryKey => `💬 Chat: ${registryKey.split('_').pop()}`,
+}));
 vi.mock('../src/features/vector-backend/vector-api.js', () => ({
     queryCollection: vi.fn(), insertVectorItems: vi.fn(), updateChunkMetadata: vi.fn(),
     deleteVectorItems: vi.fn(async (collectionId, hashes) => {
@@ -169,8 +172,14 @@ describe('a run on a record trimmed to what its events cannot show', () => {
 
         reload(chatUUID);
         state.isListingRefused = true;
-        await expect(vectorize(story(0, 7), chatUUID)).rejects.toMatchObject({ code: EVENT_WINDOWS_UNREAD });
+        const stop = await vectorize(story(0, 7), chatUUID).catch(error => error);
+        expect(stop).toMatchObject({ code: EVENT_WINDOWS_UNREAD });
         expect(extractEvents).not.toHaveBeenCalled();
+        // The user reads the collection by its name; the database's own words are kept for the console.
+        expect(stop.message).toContain(`"💬 Chat: ${chatUUID.split('_').pop()}"`);
+        expect(stop.message).not.toContain(collectionIdOf(chatUUID));
+        expect(stop.message).not.toContain('Qdrant is not answering');
+        expect(stop.problem).toContain('Qdrant is not answering');
     });
 
     it('goes on with the record alone when it was never trimmed, as the record holds every window read', async () => {
