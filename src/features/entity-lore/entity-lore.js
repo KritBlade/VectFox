@@ -6,14 +6,16 @@
  * (InternalProject/Vectfox/plans/entity-lore.md §3, §4, §5, §7): after an
  * EventBase run that added events to the open chat's collection in use, at most
  * 5 entries; on Run now, every entry due, once the user says yes; from a row of
- * the Entity-Lore card, one character's entry, new or again. One run at a
- * time: an EventBase run that ends during one runs one more after it. The card
+ * the Entity-Lore card, one character's entry, new, caught up or rewritten.
+ * One run at a time: an EventBase run that ends during one runs one more after
+ * it. The card
  * reads each character's state as a run reads it, the last run's outcome, and
  * what keeps Entity-Lore from running; its Allow again clears a name's record,
  * keeping a name cleared off an entry apart from that entry's character for
  * good (D18), and its Lock keeps a character from every run (T3).
  * Names merged on StoryArc's Entity tab make an entry written under any of them
- * the kept name's at once (D14), keyed by every name and due again (D17); a
+ * the kept name's at once (D14), keyed by every name and due to be rewritten
+ * (D17), as a name the name check matches to an entry makes it (D23); a
  * name split off one comes off its keys at once, and the split asks whether its
  * entry is written afresh at the next run, from the events of the names it has
  * then, or kept as it is (D17, D21); the entry a name was matched to is written
@@ -25,9 +27,11 @@
  * metadata, starts the record over when its book is gone (D13) and marks
  * deleted each entry the user deleted, then asks the name check about every
  * name due, shown the titles of its own entries and of every other book the
- * chat loads, and writes the entries due, new before rewrites, most events
- * first, 3 at a time, on the progress panel, each from every event naming the
- * character, with one time each. A name the check links to an entry of
+ * chat loads, and writes the entries due, new, then rewrites, then catch-ups,
+ * most events first, 3 at a time, on the progress panel, with one time to each
+ * event: a new entry or a rewrite from every event naming the character, a
+ * catch-up from the entry as it stands and the events after the newest one its
+ * last write read (D23); one with none waits. A name the check links to an entry of
  * another book gets no entry: the record keeps the link, and the name joins
  * that entry's LoreBase keys at the run's end, again at every run while the
  * link holds, as a Regenerate keys rewrites them; Allow again takes it off
@@ -36,8 +40,8 @@
  * chat's book and adds it to the chat (D1, D11), only while that chat is open;
  * each new entry joins the selection in use there, and LoreBase writes the
  * book's keys and vectors after the run, on its own panel, or at the next run
- * while it writes others. A rewrite saves through LoreBase's entry save, which
- * writes its vectors, then has its keys written again. The book's saves go one
+ * while it writes others. A catch-up or a rewrite saves through LoreBase's entry
+ * save, which writes its vectors, then has its keys written again. The book's saves go one
  * at a time, as each saves a loaded copy of the whole book. Switching chats or
  * Stop ends a run once the entries under way are written.
  * ============================================================================
@@ -56,7 +60,7 @@ import { progressTracker } from '../../shared/progress-tracker.js';
 import { getCollectionMeta, setCollectionMeta } from '../collections/index.js';
 import {
     buildEntityNameWriter, chineseScriptNameOf, collectionInUse, eventsNamingEntity, formatStoryLine, holdsName, inTimelineOrder,
-    isStoryArcActive, listEntities, readChatStoryEvents, readEntityMerges, readStoryLanguage, withKeptEntityNames,
+    isStoryArcActive, listEntities, readChatStoryEvents, readEntityMerges, readStoryLanguage, timelineValueOf, withKeptEntityNames,
 } from '../eventbase/index.js';
 import { parseJsonArrayFromLlm } from '../llm-provider/index.js';
 import {
@@ -66,11 +70,12 @@ import {
     setNamesInLoreBaseKeys, writeMissing,
 } from '../lorebase/index.js';
 import {
-    ENTITY_LORE_SETTING, ENTITY_STATE, ENTRIES_PER_AUTOMATIC_RUN, RECORD_STATE, dueCounts, entityLoreBlocker as blockerOf, entityLoreStates,
-    entriesForName, entriesForRun, entryContentHash, entryKeysOf, heldLinks, isEntityLoreOn, isSameName, isWrittenAfreshAfter, nameCheckTitles,
-    namesMatchedTo, npcBookName, readEntityLoreRecord, recordOfName, rewriteEveryEventsOf, runNowQuestion, runOutcomeText, sliceEventLines,
+    ENTITY_LORE_SETTING, ENTITY_STATE, ENTRIES_PER_AUTOMATIC_RUN, ENTRY_UPDATE, RECORD_STATE, catchUpEveryEventsOf, dueCounts,
+    entityLoreBlocker as blockerOf, entityLoreStates, entriesForName, entriesForRun, entryContentHash, entryKeysOf, eventsAfterLastRead,
+    heldLinks, isEntityLoreOn, isSameName, isWrittenAfreshAfter, nameCheckTitles,
+    namesMatchedTo, npcBookName, readEntityLoreRecord, recordOfName, runNowQuestion, runOutcomeText, sliceEventLines,
     splitQuestion, withBookName, withBookStartedOver, withCharacterLocked, withMergedEntry, withMissingEntriesDeleted, withNameAllowedAgain,
-    withNameCheckAnswer, withNameInLorebook, withOneEventTime, withSplitName, withWrittenEntry, writeAtEventsOf,
+    withNameCheckAnswer, withNameInLorebook, withNameMatchedToEntry, withOneEventTime, withSplitName, withWrittenEntry, writeAtEventsOf,
 } from './entity-lore-core.js';
 import {
     NAME_CHECK_ANSWER, entryMessages, nameCheckMessages, notesMessages, readEntryAnswer, readNameCheck, readNotesAnswer,
@@ -89,6 +94,8 @@ const ENTRY_REQUEST = { maxTokens: 6000 + THINKING_TOKEN_ALLOWANCE, reasoningEff
 
 const WRITING_ALREADY = 'Entity-Lore is writing already; the progress panel shows it.';
 const TOAST_TITLE = 'VectFox Entity-Lore';
+// What the progress panel says a run does to each entry it picks.
+const PICK_DOING = Object.freeze({ [ENTITY_STATE.due]: 'Writing', [ENTITY_STATE.catchUpDue]: 'Catching up', [ENTITY_STATE.rewriteDue]: 'Rewriting' });
 
 /** @type {{isStopped: boolean, chatId: string}|null} */
 let activeRun = null;
@@ -106,12 +113,16 @@ const storedRecordOf = collectionKey => readEntityLoreRecord(getCollectionMeta(c
 
 /**
  * What a run writes: the entries it picks from the states, and the due names its name check asks about. A run after an
- * EventBase run and Run now ask about every name due, so the record fills up (§4.3); a row's button about its own.
+ * EventBase run and Run now ask about every name due, so the record fills up (§4.3); a row's button about its own,
+ * caught up or rewritten as the button says (ENTRY_UPDATE).
  * @typedef {{pickFrom: (states: object[]) => object[], dueToCheck: (states: object[]) => object[]}} RunScope
  */
 const isDue = each => each.state === ENTITY_STATE.due;
 const wholeRun = limit => ({ pickFrom: states => entriesForRun(states, limit), dueToCheck: states => states.filter(isDue) });
-const oneNameRun = name => ({ pickFrom: states => entriesForName(states, name), dueToCheck: states => entriesForName(states, name).filter(isDue) });
+const oneNameRun = (name, update) => ({
+    pickFrom: states => entriesForName(states, name, update),
+    dueToCheck: states => entriesForName(states, name, update).filter(isDue),
+});
 
 /**
  * What keeps Entity-Lore from running now, its own switch aside (§3, D8), or null when nothing does: LoreBase not
@@ -164,39 +175,79 @@ export function onEventBaseRunEnded({ collectionId, eventsAdded }) {
  *   user said no; isNothingDue when no entry was due, which turning the switch on says nothing of
  */
 export async function runEntityLoreNow() {
-    const settings = extension_settings.vectfox;
-    if (activeRun) {
-        progressTracker.reopen();
-        return { problem: WRITING_ALREADY };
-    }
-    const problem = entityLoreProblem(settings);
+    const { problem, settings, chat } = await chatToRunNow();
     if (problem) return { problem };
-    const chat = await readChatEntities(settings);
-    if (chat.problem) return { problem: chat.problem };
     const counts = dueCounts(chat.states);
-    if (!counts.newCount && !counts.rewriteCount) return { problem: 'No entry is due now.', isNothingDue: true };
+    if (!counts.newCount && !counts.catchUpCount && !counts.rewriteCount) return { problem: 'No entry is due now.', isNothingDue: true };
     const question = runNowQuestion({ ...counts, bookName: chat.record.bookName || npcBookName(getCurrentChatId()), isBookMade: Boolean(chat.record.bookName) });
-    if (!await confirmPopup(question, { okButton: counts.newCount ? 'Write' : 'Rewrite', isCostly: true })) return { problem: null };
+    if (!await confirmPopup(question, { okButton: runNowButtonOf(counts), isCostly: true })) return { problem: null };
     await runEntityLore(settings, wholeRun(Number.POSITIVE_INFINITY));
     return { problem: null };
 }
 
+/** Run now's yes: Catch up or Rewrite when that is all it does, else Write. */
+function runNowButtonOf({ newCount, catchUpCount, rewriteCount }) {
+    if (!newCount && !rewriteCount) return 'Catch up';
+    if (!newCount && !catchUpCount) return 'Rewrite';
+    return 'Write';
+}
+
+/**
+ * Why Run now or a row's button starts no run: one is under way, whose progress panel comes to the front, or what keeps
+ * Entity-Lore from running (entityLoreProblem); null when one can start.
+ * @param {object} settings - VectFox settings
+ * @returns {string|null}
+ */
+function whyNoRunNow(settings) {
+    if (activeRun) {
+        progressTracker.reopen();
+        return WRITING_ALREADY;
+    }
+    return entityLoreProblem(settings);
+}
+
+/**
+ * The live settings and the open chat's characters (readChatEntities) for Run now or a row's Catch up, or why no run
+ * starts (whyNoRunNow) or the chat cannot be read.
+ * @returns {Promise<{problem: string}|{problem: null, settings: object, chat: object}>}
+ */
+async function chatToRunNow() {
+    const settings = extension_settings.vectfox;
+    const problem = whyNoRunNow(settings);
+    if (problem) return { problem };
+    const chat = await readChatEntities(settings);
+    return chat.problem ? { problem: chat.problem } : { problem: null, settings, chat };
+}
+
 /**
  * A row's Write now, Rewrite now or Rewrite anyway (§3): one character's entry, new after the name check on that name,
- * or again, due or not, from the entry as it stands, as the user left it for one they edited (D4). Nothing for a row in
- * another state. During a run, its progress panel comes to the front instead.
+ * or rewritten, due or not, from the entry as it stands and every event naming the character, as the user left it for
+ * one they edited (D4). Nothing for a row in another state. During a run, its progress panel comes to the front instead.
  * @param {string} name - The row's kept name
  * @returns {Promise<{problem: string|null}>} Why nothing ran, or null once the run ended
  */
 export async function writeEntityLoreEntryNow(name) {
     const settings = extension_settings.vectfox;
-    if (activeRun) {
-        progressTracker.reopen();
-        return { problem: WRITING_ALREADY };
-    }
-    const problem = entityLoreProblem(settings);
+    const problem = whyNoRunNow(settings);
     if (problem) return { problem };
-    await runEntityLore(settings, oneNameRun(name));
+    await runEntityLore(settings, oneNameRun(name, ENTRY_UPDATE.rewrite));
+    return { problem: null };
+}
+
+/**
+ * A row's Catch up now or Catch up anyway (§3, D23): one character's entry caught up, due or not, from the entry as it
+ * stands, as the user left it for one they edited (D4), and the events after the newest one its last write read. With
+ * none, nothing is asked of the model, and the user is told why. Nothing for a row in another state. During a run, its
+ * progress panel comes to the front instead.
+ * @param {string} name - The row's kept name
+ * @returns {Promise<{problem: string|null}>} Why nothing ran, or null once the run ended
+ */
+export async function catchUpEntityLoreEntryNow(name) {
+    const { problem, settings, chat } = await chatToRunNow();
+    if (problem) return { problem };
+    const [pick] = entriesForName(chat.states, name, ENTRY_UPDATE.catchUp);
+    if (pick && !eventsToRead(chat, chat.record, pick).length) return { problem: `No event names ${pick.name} since their entry was last written.` };
+    await runEntityLore(settings, oneNameRun(name, ENTRY_UPDATE.catchUp));
     return { problem: null };
 }
 
@@ -479,18 +530,25 @@ async function readChatEntities(settings) {
         record = withMissingEntriesDeleted(record, bookEntries.map(entry => entry.uid));
     }
     const exclusions = await chatExclusions(record.bookName);
-    const states = statesOf(settings, { rows, record, exclusions, bookEntries });
+    const states = statesOf(settings, { events, merges, rows, record, exclusions, bookEntries });
     return { registryKey, events, merges, rows, record, bookEntries, exclusions, states };
 }
 
-function statesOf(settings, { rows, record, exclusions, bookEntries }) {
-    return entityLoreStates(rows, {
+/**
+ * Each person's state (entityLoreStates), as the card and a run read it. An entry due to catch up whose character no
+ * event names since its last write reads as written: the count it is due at can rise with events read again in the
+ * past, and a catch-up then has nothing to read.
+ */
+function statesOf(settings, { events, merges, rows, record, exclusions, bookEntries }) {
+    const states = entityLoreStates(rows, {
         record,
         writeAt: writeAtEventsOf(settings[ENTITY_LORE_SETTING.writeAtEvents]),
-        rewriteEvery: rewriteEveryEventsOf(settings[ENTITY_LORE_SETTING.rewriteEveryEvents]),
+        catchUpEvery: catchUpEveryEventsOf(settings[ENTITY_LORE_SETTING.catchUpEveryEvents]),
         chat: exclusions,
         bookEntries,
     });
+    const hasNothingToRead = state => state.state === ENTITY_STATE.catchUpDue && !eventsToRead({ events, merges }, record, state).length;
+    return states.map(state => (hasNothingToRead(state) ? { ...state, state: ENTITY_STATE.written } : state));
 }
 
 /**
@@ -557,8 +615,8 @@ async function writeDueEntries(settings, run, scope) {
         return null;
     }
     const job = {
-        settings, run, chat, record: chat.record, rewrittenUids: [],
-        outcome: { written: 0, rewritten: 0, failed: 0, bookProblem: null },
+        settings, run, chat, record: chat.record, updatedUids: [],
+        outcome: { written: 0, caughtUp: 0, rewritten: 0, failed: 0, bookProblem: null },
         ask: askTextOnLoreBase(resolveLoreBaseLlmConfig(settings), { timeoutMs: CALL_TIMEOUT_MS, contextLabel: CONTEXT_LABEL }),
         writeName: buildEntityNameWriter(chat.merges, chat.events),
         languageName: chineseScriptNameOf(readStoryLanguage(chatMessages(), settings)),
@@ -592,7 +650,7 @@ async function writeOnPanel(job, { planned, due, scope }) {
         if (await checkNames(job, due)) {
             picks = scope.pickFrom(statesOf(job.settings, { ...job.chat, record: job.record }));
         } else {
-            picks = planned.filter(each => each.state === ENTITY_STATE.rewriteDue);
+            picks = planned.filter(each => each.state !== ENTITY_STATE.due);
         }
         advance();
         for (let skipped = planned.length - picks.length; skipped > 0; skipped -= 1) advance();
@@ -603,7 +661,7 @@ async function writeOnPanel(job, { planned, due, scope }) {
         while (queue.length && !run.isStopped) {
             const pick = queue.shift();
             position += 1;
-            progressTracker.updateCurrentItem(`Writing ${pick.name}, ${position} of ${picks.length}`);
+            progressTracker.updateCurrentItem(`${PICK_DOING[pick.state]} ${pick.name}, ${position} of ${picks.length}`);
             await writeOneEntry(job, pick);
             advance();
         }
@@ -621,8 +679,9 @@ async function writeOnPanel(job, { planned, due, scope }) {
  * of Entity-Lore's entries and of every other book the chat loads (E1). When it answers names named and another book's
  * entries have author keys, a second ask about those names alone is shown the keys under the titles (E5 of
  * entity-lore-names-across-languages.md), unless Stop was pressed meanwhile, and each name it reads takes its answer. Then each answer read goes in the
- * record: a same_as naming an entry already written adds the name to that entry's keys, one naming an entry of another
- * book links the name to it (E2), and a name with no answer read stays due. False when either ask failed, the record as
+ * record: a same_as naming an entry already written adds the name to that entry's keys and has it rewritten with that
+ * name's events too (D23), one naming an entry of another book links the name to it (E2), and a name with no answer
+ * read stays due. False when either ask failed, the record as
  * it was, so no new entry is written this run and every name is asked about again at the next.
  * @returns {Promise<boolean>}
  */
@@ -653,7 +712,9 @@ async function checkNames(job, due) {
                 continue;
             }
             job.record = withNameCheckAnswer(job.record, answer.name, { state: answer.answer, sameAs: answer.sameAs });
-            if (answer.answer === NAME_CHECK_ANSWER.sameAs) await keyWrittenEntry(job, answer.sameAs, answer.name);
+            if (answer.answer !== NAME_CHECK_ANSWER.sameAs) continue;
+            job.record = withNameMatchedToEntry(job.record, answer.sameAs, job.chat.bookEntries.map(entry => entry.uid));
+            await keyWrittenEntry(job, answer.sameAs, answer.name);
         }
         saveRecord(job);
         const answerText = each => `${each.name} ${each.answer}${each.sameAs ? ` ${each.sameAs}` : ''}`
@@ -730,22 +791,31 @@ async function keyWrittenEntry(job, title, name) {
     }).catch(error => log.warn(`${LOG} ${title}: "${name}" could not be added to its keys:`, error));
 }
 
-/** Write one entry, new or again: its text from LoreBase's model, then its save. What fails is logged and counted. */
+/**
+ * Write one entry, new, caught up or rewritten: its text from LoreBase's model, then its save. A catch-up with no event
+ * since the entry's last write asks nothing and waits. What fails is logged and counted.
+ */
 async function writeOneEntry(job, pick) {
     const otherNames = [...pick.otherNames, ...namesMatchedTo(job.record, pick.name)];
-    const isRewrite = pick.state === ENTITY_STATE.rewriteDue;
-    let content;
+    const isUpdate = pick.state === ENTITY_STATE.catchUpDue || pick.state === ENTITY_STATE.rewriteDue;
+    const events = eventsToRead(job.chat, job.record, pick);
+    if (!events.length) {
+        log.lifecycle(`${LOG} ${pick.name}: no event names them since their entry was last written, so its catch-up waits`);
+        return;
+    }
+    let written;
     try {
-        const standingEntry = isRewrite ? (await bookEntryOf(job, pick.uid))?.content ?? null : null;
-        if (isRewrite && standingEntry === null) return;
-        // A rewrite keeps what the entry holds (§5.2), which after a split, or Allow again on a name matched to it, holds
-        // that name's events (D17).
-        content = await entryText(job, pick, otherNames, isWrittenAfreshAfter(pick.namesChangedBy) ? null : standingEntry);
+        const standingEntry = isUpdate ? (await bookEntryOf(job, pick.uid))?.content ?? null : null;
+        if (isUpdate && standingEntry === null) return;
+        // A catch-up and a rewrite keep what the entry holds (§5.2), which after a split, or Allow again on a name
+        // matched to it, holds that name's events (D17).
+        const content = await entryText(job, pick, { otherNames, events, standingEntry: isWrittenAfreshAfter(pick.namesChangedBy) ? null : standingEntry });
+        written = { content, lastReadEventSortKey: timelineValueOf(events.at(-1)) };
     } catch (error) {
         failCall(job, pick.name, error);
         return;
     }
-    await inTurn(job.bookTurn, () => (isRewrite ? saveRewrite(job, pick, otherNames, content) : saveNewEntry(job, pick, otherNames, content)))
+    await inTurn(job.bookTurn, () => (isUpdate ? saveUpdatedEntry(job, pick, otherNames, written) : saveNewEntry(job, pick, otherNames, written)))
         .catch((error) => {
             job.outcome.bookProblem = `The lorebook could not be saved: ${String(error?.message ?? error).slice(0, 200)}`;
             log.error(`${LOG} ${pick.name}: the lorebook could not be saved, so the run stops:`, error);
@@ -780,23 +850,45 @@ function inTurn(turn, step) {
     return done;
 }
 
-/** The lines of every event naming any of `names`, each once, oldest first, as StoryArc reads them, with one time each (§4.4). */
-function eventLinesOf(job, names) {
-    const found = new Set(names.flatMap(name => eventsNamingEntity(job.chat.events, job.chat.merges, name)));
-    return withKeptEntityNames(inTimelineOrder([...found]), job.writeName).map(event => formatStoryLine(withOneEventTime(event)));
+/** Every event naming any of `names`, each once, oldest first (§4.4). */
+function eventsNaming(chat, names) {
+    return inTimelineOrder([...new Set(names.flatMap(name => eventsNamingEntity(chat.events, chat.merges, name)))]);
 }
 
 /**
- * An entry's text from LoreBase's model (§4.4, §5.2): from the events of the character and the names matched to it, or,
- * above one slice, from the notes a call writes on each slice; a rewrite reads the entry as it stands too, unless it is
- * written afresh after a split or Allow again (D17).
+ * The events an entry is written from (§4.4, §5.2): every one naming its character or a name matched to it, for a new
+ * entry and a rewrite; for a catch-up, those after the newest one its last write read (eventsAfterLastRead).
+ */
+function eventsToRead(chat, record, pick) {
+    const events = eventsNaming(chat, [pick.name, ...namesMatchedTo(record, pick.name)]);
+    return pick.state === ENTITY_STATE.catchUpDue ? eventsAfterLastRead(events, pick.lastReadEventSortKey, timelineValueOf) : events;
+}
+
+/** Events as an entry's call reads them, one line each, as StoryArc reads them, with one time each (§4.4). */
+function linesOf(job, events) {
+    return withKeptEntityNames(events, job.writeName).map(event => formatStoryLine(withOneEventTime(event)));
+}
+
+/** The lines of every event naming any of `names`, oldest first (§4.4). */
+function eventLinesOf(job, names) {
+    return linesOf(job, eventsNaming(job.chat, names));
+}
+
+/**
+ * An entry's text from LoreBase's model (§4.4, §5.2): from the events given, or, above one slice, from the notes a call
+ * writes on each slice; a catch-up and a rewrite read the entry as it stands too, unless it is written afresh after a
+ * split or Allow again (D17), a catch-up's events being those since its last write.
+ * @param {object} job
+ * @param {object} pick
+ * @param {{otherNames: string[], events: object[], standingEntry: string|null}} read - From eventsToRead, oldest first
  * @returns {Promise<string>}
  * @throws {Error} When a call fails or its answer is no entry or no notes
  */
-async function entryText(job, pick, otherNames, standingEntry) {
-    const lines = eventLinesOf(job, [pick.name, ...namesMatchedTo(job.record, pick.name)]);
+async function entryText(job, pick, { otherNames, events, standingEntry }) {
+    const lines = linesOf(job, events);
     const slices = sliceEventLines(lines, estimatedTokens);
-    const entry = { name: pick.name, otherNames, standingEntry, languageName: job.languageName };
+    const isCatchUp = pick.state === ENTITY_STATE.catchUpDue && Boolean(standingEntry);
+    const entry = { name: pick.name, otherNames, standingEntry, isCatchUp, languageName: job.languageName };
     let messages = entryMessages({ ...entry, storyText: lines.join('\n') });
     if (slices.length > 1) {
         const notes = [];
@@ -822,13 +914,13 @@ async function bookEntryOf(job, uid) {
  * unlinked it, which only the run's own chat may be; the entry; it joins the selection in use there; the record.
  * While another chat is open a book that must be made or added waits, and the entry stays due.
  */
-async function saveNewEntry(job, pick, otherNames, content) {
+async function saveNewEntry(job, pick, otherNames, { content, lastReadEventSortKey }) {
     const bookName = await chatBook(job);
     if (!bookName) return;
     const uid = await createLorebookEntry(bookName, { comment: pick.name, keys: entryKeysOf({ name: pick.name, otherNames }), content });
     const selection = selectionInUse(bookName, { chatId: job.run.chatId }) ?? lockedToChat(bookName, job.run.chatId);
     setLoreBookSelection(bookName, selection.id, [...selectedUidsOf(selection), uid]);
-    job.record = withWrittenEntry(job.record, pick.name, { uid, writtenAtEvents: pick.eventCount, content });
+    job.record = withWrittenEntry(job.record, pick.name, { uid, writtenAtEvents: pick.eventCount, lastReadEventSortKey, content });
     saveRecord(job);
     job.outcome.written += 1;
 }
@@ -856,25 +948,28 @@ async function chatBook(job) {
 }
 
 /**
- * Save an entry written again (§5.3) through LoreBase's entry save, which writes its vectors, its keys its names and
- * those it had. An entry the user deleted meanwhile is left gone, and one they edited is left as it is, unless they
- * asked to rewrite it anyway (`isEditAccepted`); one LoreBase cannot save while it writes stays due.
+ * Save an entry caught up or rewritten (§5.3) through LoreBase's entry save, which writes its vectors, its keys its
+ * names and those it had. An entry the user deleted meanwhile is left gone, and one they edited is left as it is,
+ * unless they asked to catch it up or rewrite it anyway (`isEditAccepted`); one LoreBase cannot save while it writes
+ * stays due.
  */
-async function saveRewrite(job, pick, otherNames, content) {
+async function saveUpdatedEntry(job, pick, otherNames, { content, lastReadEventSortKey }) {
     const entry = await bookEntryOf(job, pick.uid);
     const written = recordOfName(job.record, pick.name);
     if (!entry || (!pick.isEditAccepted && entryContentHash(entry.content) !== written?.contentHash)) return;
+    const isCatchUp = pick.state === ENTITY_STATE.catchUpDue;
     if (isLoreBaseWriting()) {
-        log.lifecycle(`${LOG} ${pick.name}: LoreBase is writing, so its rewrite waits for the next run`);
+        log.lifecycle(`${LOG} ${pick.name}: LoreBase is writing, so its ${isCatchUp ? 'catch-up' : 'rewrite'} waits for the next run`);
         return;
     }
     const keys = entryKeysOf({ name: pick.name, otherNames }, entry.key ?? []);
     const { failure } = await saveEntryWithVectors(job.record.bookName, pick.uid, { comment: entry.comment, content, keys }, job.settings);
     if (failure) log.warn(`${LOG} ${pick.name}: its vectors could not be written; LoreBase writes them with the book's next keys and vectors:`, failure.detail);
-    job.record = withWrittenEntry(job.record, pick.name, { uid: pick.uid, writtenAtEvents: pick.eventCount, content });
+    job.record = withWrittenEntry(job.record, pick.name, { uid: pick.uid, writtenAtEvents: pick.eventCount, lastReadEventSortKey, content });
     saveRecord(job);
-    job.rewrittenUids.push(String(pick.uid));
-    job.outcome.rewritten += 1;
+    job.updatedUids.push(String(pick.uid));
+    if (isCatchUp) job.outcome.caughtUp += 1;
+    else job.outcome.rewritten += 1;
 }
 
 function saveRecord(job) {
@@ -883,8 +978,8 @@ function saveRecord(job) {
 
 /**
  * LoreBase's keys and vectors for the book's entries that lack them, on LoreBase's own panel, then its keys again for
- * each entry rewritten (§4.6, §5.3). While LoreBase writes others, they wait for the next run, as they do once another
- * chat is open: a key run locks the books it keys to the chat open then.
+ * each entry caught up or rewritten (§4.6, §5.3). While LoreBase writes others, they wait for the next run, as they do
+ * once another chat is open: a key run locks the books it keys to the chat open then.
  */
 async function writeLoreBaseKeysAndVectors(job) {
     const { bookName } = job.record;
@@ -896,8 +991,8 @@ async function writeLoreBaseKeysAndVectors(job) {
     }
     try {
         await writeMissing(job.settings, BOTH_KINDS, { bookNames: [bookName] });
-        if (!job.rewrittenUids.length) return;
-        const entries = Object.values((await loadWorldInfo(bookName))?.entries ?? {}).filter(entry => job.rewrittenUids.includes(String(entry.uid)));
+        if (!job.updatedUids.length) return;
+        const entries = Object.values((await loadWorldInfo(bookName))?.entries ?? {}).filter(entry => job.updatedUids.includes(String(entry.uid)));
         if (entries.length) await regenerateKeysOfEntries(bookName, entries, job.settings);
     } catch (error) {
         log.warn(`${LOG} LoreBase could not write the keys and vectors of "${bookName}"; the next run tries again:`, error);

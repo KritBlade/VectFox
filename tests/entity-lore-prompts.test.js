@@ -13,7 +13,8 @@
  *     apart from as named, and a candidate with no answer read is left out,
  *   - the entry is asked for as a profile, not a summary, in five sections under their headings, its past as now known
  *     and its key events one turning point a line, never merged, from the events or the notes on them, in the story's
- *     language, and a rewrite also reads the entry as it stands, keeping its ties and picking its key events again,
+ *     language, and a rewrite also reads the entry as it stands, keeping its ties and picking its key events again; a
+ *     catch-up reads the entry as it stands and only the events since it was last written, which it says,
  *   - a slice's notes are asked for with its place in the arc, in two lists, each its share of the arc's lines,
  *   - an entry is read from its first heading, each heading alone on its line as the splitter reads it, and an answer
  *     with fewer than three headings or too short is not one; notes are read without their fences.
@@ -265,6 +266,22 @@ describe('the entry (§4.4, §5.2)', () => {
         expect(prompt).toContain("- Pick [Key events] again from the whole story: keep the entry's key events and add the newer turning points. Once [Key events] is full, a newer event takes the place of a smaller one only when it is bigger.");
         expect(prompt).not.toContain('merge');
         expect(prompt).toContain('say in a few words how it changed.');
+        expect(prompt).not.toContain('since their entry was last written');
+        expect(prompt).not.toContain('The entry holds the story before these events.');
+    });
+
+    it('catches an entry up from the entry as it stands and the events since it was last written, which hold the story before them (D23)', () => {
+        const standing = '[Identity]\nTamsin is a salt trader.\n[Key events]\nDay 3: she crossed the salt flats.';
+        const prompt = userText(entryMessages({ name: 'Tamsin', storyText: events, standingEntry: standing, isCatchUp: true }));
+        expect(prompt.startsWith(`The story's events naming Tamsin since their entry was last written, oldest first, one per line:\n\n${events}\n\nTamsin's entry as it stands:\n\n${standing}\n\nWrite one lorebook entry`)).toBe(true);
+        expect(prompt).toContain("Write Tamsin's entry again, whole, from the entry as it stands and the events since it was written:\n"
+            + '- The entry holds the story before these events. Keep what it says, unless the events show it was wrong.\n'
+            + '- Keep every relationship the entry holds, unless the events show it was wrong.');
+        expect(prompt).toContain("- Pick [Key events] again from the whole story: keep the entry's key events and add the newer turning points.");
+        expect(prompt).not.toContain('from the events and the entry as it stands:');
+        const fromNotes = userText(entryMessages({ name: 'Tamsin', storyText: 'notes', standingEntry: standing, isCatchUp: true, isFromNotes: true }));
+        expect(fromNotes.startsWith('Notes on Tamsin since their entry was last written, part by part, oldest first:')).toBe(true);
+        expect(fromNotes).toContain("Write Tamsin's entry again, whole, from the entry as it stands and the notes since it was written:");
     });
 });
 

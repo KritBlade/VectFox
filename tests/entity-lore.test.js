@@ -9,19 +9,25 @@
  *   - the name check is asked about every name due and nothing excluded, and its answers go in the record: a name
  *     that is another candidate's keys that candidate's entry and adds its events to it,
  *   - the first entry makes the chat's book and adds it to the chat, the entry joins the selection in use there, the
- *     record keeps its uid, count and hash, and LoreBase then writes that book's keys and vectors alone,
- *   - after an EventBase run at most 5 entries are written, most events first; Run now writes every one once the user
- *     says yes to how many,
- *   - an entry due again is written from the entry as it stands, keeping its keys, and its LoreBase keys written anew;
- *     one the user edited or deleted is left alone; a book gone starts the record over,
+ *     record keeps its uid, count, the newest event it read and its hash, and LoreBase then writes that book's keys and
+ *     vectors alone,
+ *   - after an EventBase run at most 5 entries are written, most events first; Run now writes, catches up and rewrites
+ *     every one once the user says yes to how many, its yes saying which,
+ *   - an entry due to catch up is written from the entry as it stands and the events after the newest one it read,
+ *     every event for one that records none, keeping its keys, and its LoreBase keys written anew; one no event names
+ *     since reads as written and asks nothing; a locked one asks nothing; an entry the name check matches another name
+ *     to is rewritten with every name's events; one the user edited or deleted is left alone; a book gone starts the
+ *     record over,
  *   - a failed call leaves its character due and is counted; a model the provider refuses raises the sticky popup and
  *     stops the run; a chat opened during the run gets no book,
  *   - a long arc is written from the notes on each slice, each event with one time, and the book is saved one entry at
  *     a time,
  *   - the card reads each character's state as a run does, saving nothing; a row's button writes one due character's
- *     entry after the name check on that name, or a written one again, an edited one from the entry as the user left
- *     it; Allow again forgets a name, and Lock keeps a character from every run, each refused during a run; each run's
- *     end is told, and the last outcome kept,
+ *     entry after the name check on that name, or rewrites a written one from every event, or catches it up from the
+ *     events since its last write, an edited one from the entry as the user left it; Catch up says why when no event
+ *     names the character since, and catches up none due to be rewritten for its names; Allow again forgets a name,
+ *     and Lock keeps a character from every run, each refused during a run; each run's end is told, and the last
+ *     outcome kept,
  *   - names merged on StoryArc's Entity tab make an entry written under any of them the kept name's at once, keyed by
  *     every name and due again, rewritten from the entry as it stands; a name split off one comes off its keys at once,
  *     and its entry is written afresh from the events of the names it keeps, as is the entry a name the name check
@@ -107,6 +113,7 @@ vi.mock('../src/features/eventbase/index.js', async () => {
         readChatStoryEvents: vi.fn(async () => ({ collectionId: 'harbor-collection', registryKey: 'qdrant:harbor-collection', name: 'Harbor', events: host.events })),
         readEntityMerges: () => host.merges,
         inTimelineOrder: events => [...events].sort((a, b) => a.timeline_sort_key - b.timeline_sort_key),
+        timelineValueOf: event => event.timeline_sort_key,
         formatStoryLine: event => `- #${event.timeline_sort_key}: ${event.text} (when: ${[event.DateTime, event.scene_time].filter(Boolean).join(', ') || `Day ${event.timeline_sort_key}`})`,
     };
 });
@@ -169,8 +176,8 @@ const { readChatStoryEvents } = await import('../src/features/eventbase/index.js
 const { selectedUidsOf } = await import('../src/features/lorebase/lorebase-selections-core.js');
 const { addLoreBookToChat, regenerateKeysOfEntries, saveEntryWithVectors, setNamesInLoreBaseKeys, writeMissing } = await import('../src/features/lorebase/index.js');
 const {
-    allowEntityLoreAgain, lastEntityLoreRun, lockEntityLoreCharacter, onEntityLoreRunEnded, onEntityNameSplit, onEntityNamesMerged, onEventBaseRunEnded,
-    readEntityLoreCharacters, runEntityLoreNow, writeEntityLoreEntryNow,
+    allowEntityLoreAgain, catchUpEntityLoreEntryNow, lastEntityLoreRun, lockEntityLoreCharacter, onEntityLoreRunEnded, onEntityNameSplit, onEntityNamesMerged,
+    onEventBaseRunEnded, readEntityLoreCharacters, runEntityLoreNow, writeEntityLoreEntryNow,
 } = await import('../src/features/entity-lore/index.js');
 const { entryContentHash } = await import('../src/features/entity-lore/entity-lore-core.js');
 
@@ -274,7 +281,8 @@ describe('a run (§4.2 to §4.6)', () => {
             entries: {
                 'Tamsin Vale': { state: 'same_as', sameAs: 'Tamsin' },
                 'the ferryman': { state: 'not_named' },
-                Tamsin: { state: 'written', uid: '0', writtenAtEvents: 12, contentHash: entryContentHash(entryAbout('Tamsin')) },
+                // The newest event it was written from: Tamsin Vale's last, as the name check matched that name to it.
+                Tamsin: { state: 'written', uid: '0', writtenAtEvents: 12, lastReadEventSortKey: host.events[21].timeline_sort_key, contentHash: entryContentHash(entryAbout('Tamsin')) },
             },
             lockedNames: [],
             keptApart: [],
@@ -300,21 +308,98 @@ describe('a run (§4.2 to §4.6)', () => {
         expect(createLorebookEntry.mock.calls.map(([, fields]) => fields.comment).sort()).toEqual(['Cole', 'Dara', 'Esme', 'Finn', 'Gale']);
     });
 
-    it('writes an entry again at Rewrite every from the entry as it stands, its keys kept, then writes its LoreBase keys anew', async () => {
-        host.events = eventsNaming('Tamsin', 40);
+    // Tamsin's entry, written at 10 events: its record, the newest event it read given, and its book.
+    const writtenTamsin = (lastReadEventSortKey) => {
         host.worldNames.push(BOOK);
         host.chatBooks.push(BOOK);
         host.books[BOOK] = { entries: { 3: { uid: 3, comment: 'Tamsin', key: ['Tamsin', 'the salt trader'], content: 'Tamsin trades salt.' } } };
-        host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: BOOK, entries: { Tamsin: { state: 'written', uid: '3', writtenAtEvents: 10, contentHash: entryContentHash('Tamsin trades salt.') } } } };
+        host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: BOOK, entries: {
+            Tamsin: { state: 'written', uid: '3', writtenAtEvents: 10, lastReadEventSortKey, contentHash: entryContentHash('Tamsin trades salt.') },
+        } } };
+    };
+    const eventPlacesIn = prompt => prompt.match(/^- #\d+: /gmu).map(line => Number(line.slice(3, -2)));
+
+    it('catches an entry up at Catch up every from the entry as it stands and the events since its last write alone, its keys kept, then writes its LoreBase keys anew (D23)', async () => {
+        host.events = eventsNaming('Tamsin', 40);
+        writtenTamsin(host.events[9].timeline_sort_key);
         await runAfterEventBase();
 
         expect(checkedNames()).toBeNull();
+        expect(host.ask).toHaveBeenCalledTimes(1);
         const prompt = host.ask.mock.calls[0][0][1].content;
+        expect(prompt.startsWith("The story's events naming Tamsin since their entry was last written, oldest first, one per line:\n\n")).toBe(true);
+        expect(eventPlacesIn(prompt)).toEqual(host.events.slice(10).map(event => event.timeline_sort_key));
         expect(prompt).toContain("Tamsin's entry as it stands:\n\nTamsin trades salt.");
+        expect(prompt).toContain('- The entry holds the story before these events.');
         expect(saveEntryWithVectors).toHaveBeenCalledWith(BOOK, '3', { comment: 'Tamsin', content: entryAbout('Tamsin'), keys: ['Tamsin', 'the salt trader'] }, host.settings);
-        expect(record().entries.Tamsin).toMatchObject({ state: 'written', uid: '3', writtenAtEvents: 40, contentHash: entryContentHash(entryAbout('Tamsin')) });
+        expect(record().entries.Tamsin).toEqual({
+            state: 'written', uid: '3', writtenAtEvents: 40, lastReadEventSortKey: host.events[39].timeline_sort_key, contentHash: entryContentHash(entryAbout('Tamsin')),
+        });
         expect(regenerateKeysOfEntries).toHaveBeenCalledWith(BOOK, [expect.objectContaining({ uid: 3 })], host.settings);
+        expect(progressTracker.updateCurrentItem).toHaveBeenCalledWith('Catching up Tamsin, 1 of 1');
+        expect(progressTracker.complete).toHaveBeenCalledWith(true, '0 entries written, 1 caught up');
+    });
+
+    it('catches up an entry whose record holds no newest event from every event naming the character, once, then from its newest one on', async () => {
+        host.events = eventsNaming('Tamsin', 40);
+        writtenTamsin(undefined);
+        await runAfterEventBase();
+        const prompt = host.ask.mock.calls[0][0][1].content;
+        expect(prompt.startsWith("The story's events naming Tamsin since their entry was last written")).toBe(true);
+        expect(eventPlacesIn(prompt)).toEqual(host.events.map(event => event.timeline_sort_key));
+        expect(record().entries.Tamsin).toMatchObject({ writtenAtEvents: 40, lastReadEventSortKey: host.events[39].timeline_sort_key });
+    });
+
+    it('reads as written, and asks nothing for, an entry due to catch up whose character no event names since its last write', async () => {
+        host.events = eventsNaming('Tamsin', 40);
+        writtenTamsin(host.events[39].timeline_sort_key);
+        expect((await readEntityLoreCharacters()).states[0]).toMatchObject({ name: 'Tamsin', state: 'written', writtenAtEvents: 10 });
+        await runAfterEventBase();
+        expect(host.ask).not.toHaveBeenCalled();
+        expect(progressTracker.show).not.toHaveBeenCalled();
+        expect(record().entries.Tamsin.writtenAtEvents).toBe(10);
+    });
+
+    it("rewrites an entry the name check matches another name to, in the same run, with every name's events, as a catch-up reads none of that name's (D23)", async () => {
+        host.events = [...eventsNaming('Tamsin', 20), ...eventsNaming('Tamsin Vale', 10, 'Tamsin Vale signs the ledger.')];
+        writtenTamsin(host.events[19].timeline_sort_key);
+        host.ask = answering({ 'Tamsin Vale': { answer: 'same_as', same_as: 'Tamsin' } });
+        await runAfterEventBase();
+        expect(checkedNames()).toEqual(['Tamsin Vale']);
+        const entryCall = host.ask.mock.calls.find(([messages]) => entryNameOf(messages) === 'Tamsin')[0][1].content;
+        expect(entryCall.match(/^- #\d+: /gmu)).toHaveLength(30);
+        expect(entryCall).toContain('Tamsin Vale signs the ledger.');
+        expect(entryCall).not.toContain('since their entry was last written');
+        expect(record().entries.Tamsin).toEqual({
+            state: 'written', uid: '3', writtenAtEvents: 20, lastReadEventSortKey: host.events[29].timeline_sort_key, contentHash: entryContentHash(entryAbout('Tamsin')),
+        });
+        expect(record().entries['Tamsin Vale']).toEqual({ state: 'same_as', sameAs: 'Tamsin' });
         expect(progressTracker.complete).toHaveBeenCalledWith(true, '0 entries written, 1 rewritten');
+    });
+
+    it('goes on with the catch-ups when the name check fails, writing no new entry that run (D5)', async () => {
+        host.events = [...eventsNaming('Tamsin', 40), ...eventsNaming('Hollis', 12)];
+        writtenTamsin(host.events[9].timeline_sort_key);
+        const model = answering();
+        host.ask = vi.fn(async (messages) => {
+            if (isCheck(messages)) throw new Error('The check timed out.');
+            return model(messages);
+        });
+        await runAfterEventBase();
+        expect(createLorebookEntry).not.toHaveBeenCalled();
+        expect(record().entries.Hollis).toBeUndefined();
+        expect(record().entries.Tamsin).toMatchObject({ writtenAtEvents: 40, lastReadEventSortKey: host.events[39].timeline_sort_key });
+        expect(progressTracker.complete).toHaveBeenCalledWith(false, '0 entries written, 1 caught up, 1 failed (see the console)');
+    });
+
+    it("leaves a locked character's entry as it is: no catch-up, no call (T3)", async () => {
+        host.events = eventsNaming('Tamsin', 40);
+        writtenTamsin(host.events[9].timeline_sort_key);
+        host.collectionMeta[REGISTRY_KEY].entityLore.lockedNames = ['Tamsin'];
+        expect((await readEntityLoreCharacters()).states[0]).toMatchObject({ name: 'Tamsin', state: 'locked' });
+        await runAfterEventBase();
+        expect(host.ask).not.toHaveBeenCalled();
+        expect(saveEntryWithVectors).not.toHaveBeenCalled();
     });
 
     it('leaves an entry the user edited, and one they deleted, as they are', async () => {
@@ -423,17 +508,24 @@ describe('Run now (§4.1)', () => {
         expect(createLorebookEntry).toHaveBeenCalledTimes(7);
     });
 
-    it('asks about the rewrites alone, with Rewrite, when no new entry is due', async () => {
+    it('asks about the catch-ups alone, with Catch up, and the rewrites alone, with Rewrite, when no new entry is due', async () => {
         host.events = eventsNaming('Tamsin', 45);
         host.worldNames.push(BOOK);
         host.chatBooks.push(BOOK);
         host.books[BOOK] = { entries: { 0: { uid: 0, comment: 'Tamsin', key: ['Tamsin'], content: 'Tamsin trades salt.' } } };
-        host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: BOOK, entries: { Tamsin: { state: 'written', uid: '0', writtenAtEvents: 12, contentHash: entryContentHash('Tamsin trades salt.') } } } };
+        const tamsin = { state: 'written', uid: '0', writtenAtEvents: 12, lastReadEventSortKey: host.events[11].timeline_sort_key, contentHash: entryContentHash('Tamsin trades salt.') };
+        host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: BOOK, entries: { Tamsin: tamsin } } };
         host.isYes = false;
         await runEntityLoreNow();
-        const [question, buttons] = confirmPopup.mock.calls[0];
+        let [question, buttons] = confirmPopup.mock.calls[0];
+        expect(question[0].parts).toEqual([{ text: 'Catch up ' }, { name: '1' }, { text: ' lorebook entry' }, { text: '?' }]);
+        expect(question.at(-1).parts).toEqual([{ text: "They are in this chat's lorebook " }, { name: BOOK }, { text: ', and LoreBase writes their keys and vectors again.' }]);
+        expect(buttons).toEqual({ okButton: 'Catch up', isCostly: true });
+
+        host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: BOOK, entries: { Tamsin: { ...tamsin, namesChangedBy: 'merge' } } } };
+        await runEntityLoreNow();
+        [question, buttons] = confirmPopup.mock.calls[1];
         expect(question[0].parts).toEqual([{ text: 'Rewrite ' }, { name: '1' }, { text: ' lorebook entry?' }]);
-        expect(question[1].parts).toEqual([{ text: "Each is written again from the character's whole story so far, in this chat's lorebook " }, { name: BOOK }, { text: '.' }]);
         expect(buttons).toEqual({ okButton: 'Rewrite', isCostly: true });
         expect(host.ask).not.toHaveBeenCalled();
     });
@@ -486,19 +578,22 @@ describe("the card's rows (§3)", () => {
         expect(lastEntityLoreRun()).toEqual({ chatId: CHAT_ID, text: '1 entry written', isClean: true });
     });
 
-    it('writes a written entry again now, before Rewrite every, and one the user edited from the entry as they left it', async () => {
+    it('rewrites a written entry now, before Catch up every, from every event naming the character, and one the user edited from the entry as they left it', async () => {
         host.events = [...eventsNaming('Tamsin', 14), ...eventsNaming('Hollis', 12)];
         writtenBook({
             0: { uid: 0, comment: 'Tamsin', key: ['Tamsin'], content: 'Tamsin trades salt.' },
             1: { uid: 1, comment: 'Hollis', key: ['Hollis'], content: 'Hollis sells maps, as the user wrote.' },
         });
         host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: BOOK, entries: {
-            Tamsin: { state: 'written', uid: '0', writtenAtEvents: 12, contentHash: entryContentHash('Tamsin trades salt.') },
+            Tamsin: { state: 'written', uid: '0', writtenAtEvents: 12, lastReadEventSortKey: host.events[11].timeline_sort_key, contentHash: entryContentHash('Tamsin trades salt.') },
             Hollis: { state: 'written', uid: '1', writtenAtEvents: 12, contentHash: entryContentHash('Hollis sells maps.') },
         } } };
         await writeEntityLoreEntryNow('Tamsin');
+        const rewrite = host.ask.mock.calls.at(-1)[0][1].content;
+        expect(rewrite.match(/^- #\d+: /gmu)).toHaveLength(14);
+        expect(rewrite).not.toContain('since their entry was last written');
         expect(saveEntryWithVectors).toHaveBeenCalledWith(BOOK, '0', { comment: 'Tamsin', content: entryAbout('Tamsin'), keys: ['Tamsin'] }, host.settings);
-        expect(record().entries.Tamsin.writtenAtEvents).toBe(14);
+        expect(record().entries.Tamsin).toMatchObject({ writtenAtEvents: 14, lastReadEventSortKey: host.events[13].timeline_sort_key });
 
         saveEntryWithVectors.mockClear();
         await writeEntityLoreEntryNow('Hollis');
@@ -506,6 +601,42 @@ describe("the card's rows (§3)", () => {
         expect(saveEntryWithVectors).toHaveBeenCalledWith(BOOK, '1', { comment: 'Hollis', content: entryAbout('Hollis'), keys: ['Hollis'] }, host.settings);
         expect(record().entries.Hollis).toMatchObject({ state: 'written', writtenAtEvents: 12, contentHash: entryContentHash(entryAbout('Hollis')) });
         expect(lastEntityLoreRun()).toEqual({ chatId: CHAT_ID, text: '0 entries written, 1 rewritten', isClean: true });
+    });
+
+    it('catches a written entry up now, before Catch up every, from the events since its last write, and one the user edited from the entry as they left it (D23)', async () => {
+        host.events = [...eventsNaming('Tamsin', 14), ...eventsNaming('Hollis', 12)];
+        writtenBook({
+            0: { uid: 0, comment: 'Tamsin', key: ['Tamsin'], content: 'Tamsin trades salt.' },
+            1: { uid: 1, comment: 'Hollis', key: ['Hollis'], content: 'Hollis sells maps, as the user wrote.' },
+        });
+        host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: BOOK, entries: {
+            Tamsin: { state: 'written', uid: '0', writtenAtEvents: 12, lastReadEventSortKey: host.events[11].timeline_sort_key, contentHash: entryContentHash('Tamsin trades salt.') },
+            Hollis: { state: 'written', uid: '1', writtenAtEvents: 10, lastReadEventSortKey: host.events[23].timeline_sort_key, contentHash: entryContentHash('Hollis sells maps.') },
+        } } };
+        expect(await catchUpEntityLoreEntryNow('Tamsin')).toEqual({ problem: null });
+        const catchUp = host.ask.mock.calls.at(-1)[0][1].content;
+        expect(catchUp.match(/^- #(\d+): /gmu).map(line => Number(line.slice(3, -2)))).toEqual([host.events[12].timeline_sort_key, host.events[13].timeline_sort_key]);
+        expect(catchUp).toContain("Tamsin's entry as it stands:\n\nTamsin trades salt.");
+        expect(record().entries.Tamsin).toMatchObject({ writtenAtEvents: 14, lastReadEventSortKey: host.events[13].timeline_sort_key });
+        expect(lastEntityLoreRun()).toEqual({ chatId: CHAT_ID, text: '0 entries written, 1 caught up', isClean: true });
+
+        expect(await catchUpEntityLoreEntryNow('Hollis')).toEqual({ problem: null });
+        const edited = host.ask.mock.calls.at(-1)[0][1].content;
+        expect(edited).toContain("Hollis's entry as it stands:\n\nHollis sells maps, as the user wrote.");
+        expect(edited.match(/^- #\d+: /gmu)).toHaveLength(2);
+        expect(saveEntryWithVectors).toHaveBeenLastCalledWith(BOOK, '1', { comment: 'Hollis', content: entryAbout('Hollis'), keys: ['Hollis'] }, host.settings);
+    });
+
+    it('catches up nothing, asking nothing, for an entry no event names since its last write, saying so; nor an entry due to be rewritten for its names', async () => {
+        host.events = eventsNaming('Tamsin', 14);
+        writtenBook({ 0: { uid: 0, comment: 'Tamsin', key: ['Tamsin'], content: 'Tamsin trades salt.' } });
+        const tamsin = { state: 'written', uid: '0', writtenAtEvents: 14, lastReadEventSortKey: host.events[13].timeline_sort_key, contentHash: entryContentHash('Tamsin trades salt.') };
+        host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: BOOK, entries: { Tamsin: tamsin } } };
+        expect(await catchUpEntityLoreEntryNow('Tamsin')).toEqual({ problem: 'No event names Tamsin since their entry was last written.' });
+        host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: BOOK, entries: { Tamsin: { ...tamsin, lastReadEventSortKey: host.events[9].timeline_sort_key, namesChangedBy: 'merge' } } } };
+        expect(await catchUpEntityLoreEntryNow('Tamsin')).toEqual({ problem: null });
+        expect(host.ask).not.toHaveBeenCalled();
+        expect(progressTracker.show).not.toHaveBeenCalled();
     });
 
     it('writes nothing for a name in no state a button writes, and says why while Entity-Lore cannot run', async () => {
@@ -616,7 +747,10 @@ describe("names merged or split on StoryArc's Entity tab, and a matched name all
         const prompt = host.ask.mock.calls[0][0][1].content;
         expect(prompt).toContain(`Tamsin's entry as it stands:\n\n${entryAbout('Tamsin')}`);
         expect(prompt.match(/^- #/gmu)).toHaveLength(15);
-        expect(record().entries.Tamsin).toEqual({ state: 'written', uid: '0', writtenAtEvents: 15, contentHash: entryContentHash(entryAbout('Tamsin')) });
+        expect(prompt).not.toContain('since their entry was last written');
+        expect(record().entries.Tamsin).toEqual({
+            state: 'written', uid: '0', writtenAtEvents: 15, lastReadEventSortKey: host.events[14].timeline_sort_key, contentHash: entryContentHash(entryAbout('Tamsin')),
+        });
     });
 
     it("key the kept name's own entry by the merged names, its title as it was, and say when another name has an entry too", async () => {
@@ -688,7 +822,9 @@ describe("names merged or split on StoryArc's Entity tab, and a matched name all
         expect(prompt.match(/^- #/gmu)).toHaveLength(14);
         expect(saveEntryWithVectors).toHaveBeenCalledWith(BOOK, '0', { comment: 'Tamsin', content: entryAbout('Tamsin'), keys: ['Tamsin', 'the ferry witch'] }, host.settings);
         expect(regenerateKeysOfEntries).toHaveBeenCalledWith(BOOK, [expect.objectContaining({ uid: 0 })], host.settings);
-        expect(record().entries.Tamsin).toEqual({ state: 'written', uid: '0', writtenAtEvents: 14, contentHash: entryContentHash(entryAbout('Tamsin')) });
+        expect(record().entries.Tamsin).toEqual({
+            state: 'written', uid: '0', writtenAtEvents: 14, lastReadEventSortKey: host.events[13].timeline_sort_key, contentHash: entryContentHash(entryAbout('Tamsin')),
+        });
     });
 
     it('leave the entry as it is on a split of a name the name check matched to it, as it reads that name\'s events still, and ask nothing', async () => {

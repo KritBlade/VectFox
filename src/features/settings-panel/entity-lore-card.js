@@ -2,7 +2,7 @@
  * The WorldInfo page's Entity-Lore card (InternalProject/Vectfox/plans/entity-lore.md §3), on the page's Entity-Lore
  * tab: Use Entity-Lore, which StoryArc mode and LoreBase not acting disable while it is off, and which asks Run now's
  * question as it is turned on; the notice naming what keeps Entity-Lore from running, with the button to where it is
- * fixed; Write at and Rewrite every; the line naming the chat's book; Run now; the status line, the last run's outcome
+ * fixed; Write at and Catch up every; the line naming the chat's book; Run now; the status line, the last run's outcome
  * in this chat or why a button did nothing, which a row's button says in a toast as well, as the rows sit below the
  * status line, often out of view; and the open chat's characters, each with its state and the buttons that state
  * offers, Lock among them, a toggle that locks and unlocks its character, searched by name and paged. The switch and the
@@ -15,10 +15,10 @@ import { confirmPopup } from '../../sillytavern/popup.js';
 import { extension_settings, saveSettingsDebounced } from '../../sillytavern/settings.js';
 import { showSubTab } from '../../shared/gui-dna/gene-behaviours.js';
 import {
-    ENTITY_LORE_ACTION, ENTITY_LORE_FIX_AT, ENTITY_LORE_SETTING, allowEntityLoreAgain, entityLoreBlocker, entityLoreBookLine, entityLoreLastRunText,
-    entityLoreListMarkup, entityLoreNoticeMarkup, entityLoreProblemMarkup, isEntityLoreOn, isSwitchGatedBy, lastEntityLoreRun,
-    lockEntityLoreCharacter, onEntityLoreRunEnded, readEntityLoreCharacters, rewriteEveryEventsOf, runEntityLoreNow, writeAtEventsOf,
-    writeEntityLoreEntryNow,
+    ENTITY_LORE_ACTION, ENTITY_LORE_FIX_AT, ENTITY_LORE_SETTING, allowEntityLoreAgain, catchUpEntityLoreEntryNow, catchUpEveryEventsOf,
+    entityLoreBlocker, entityLoreBookLine, entityLoreLastRunText, entityLoreListMarkup, entityLoreNoticeMarkup, entityLoreProblemMarkup,
+    isEntityLoreOn, isSwitchGatedBy, lastEntityLoreRun, lockEntityLoreCharacter, onEntityLoreRunEnded, readEntityLoreCharacters,
+    runEntityLoreNow, writeAtEventsOf, writeEntityLoreEntryNow,
 } from '../entity-lore/index.js';
 import { filterEntities } from '../eventbase/index.js';
 import { editLoreBookEntry, onLoreBaseSwitchChange } from '../lorebase/index.js';
@@ -155,6 +155,14 @@ const REWRITE_ANYWAY_LINES = name => [
     { name },
     { text: 'You edited it. It is written again from the entry as you left it and from their events, in new words.' },
 ];
+const CATCH_UP_ANYWAY_LINES = name => [
+    { icon: 'fa-user-pen', text: 'Catch up this entry anyway?' },
+    { name },
+    { text: 'You edited it. It is written again from the entry as you left it and the events since it was last written, in new words.' },
+];
+// The actions that write or rewrite a row's entry, and those that catch it up.
+const WRITE_ACTIONS = new Set([ENTITY_LORE_ACTION.write, ENTITY_LORE_ACTION.rewrite, ENTITY_LORE_ACTION.rewriteAnyway]);
+const CATCH_UP_ACTIONS = new Set([ENTITY_LORE_ACTION.catchUp, ENTITY_LORE_ACTION.catchUpAnyway]);
 
 /** What one of the card's buttons does, from its data attributes. */
 async function runAction({ entityLoreAction: action, name, uid, fixAt }) {
@@ -184,10 +192,12 @@ async function runAction({ entityLoreAction: action, name, uid, fixAt }) {
         return;
     }
     if (action === ENTITY_LORE_ACTION.rewriteAnyway && !await confirmPopup(REWRITE_ANYWAY_LINES(name), { okButton: 'Rewrite' })) return;
-    if (action === ENTITY_LORE_ACTION.write || action === ENTITY_LORE_ACTION.rewriteAnyway) showRowMessage((await writeEntityLoreEntryNow(name)).problem);
+    if (action === ENTITY_LORE_ACTION.catchUpAnyway && !await confirmPopup(CATCH_UP_ANYWAY_LINES(name), { okButton: 'Catch up' })) return;
+    if (WRITE_ACTIONS.has(action)) showRowMessage((await writeEntityLoreEntryNow(name)).problem);
+    if (CATCH_UP_ACTIONS.has(action)) showRowMessage((await catchUpEntityLoreEntryNow(name)).problem);
 }
 
-/** Read the characters again once a count stops changing, as each state's Write at and Rewrite every come from them. */
+/** Read the characters again once a count stops changing, as each state's Write at and Catch up every come from them. */
 function readAfterCountChange() {
     clearTimeout(card.countTimer);
     card.countTimer = setTimeout(() => {
@@ -209,9 +219,9 @@ export function bindEntityLoreCard(settings) {
     });
     bindNumberSetting(settings, { id: id.writeAt, key: ENTITY_LORE_SETTING.writeAtEvents, initial: writeAtEventsOf(settings[ENTITY_LORE_SETTING.writeAtEvents]), isInteger: true });
     bindNumberSetting(settings, {
-        id: id.rewriteEvery, key: ENTITY_LORE_SETTING.rewriteEveryEvents, initial: rewriteEveryEventsOf(settings[ENTITY_LORE_SETTING.rewriteEveryEvents]), isInteger: true,
+        id: id.catchUpEvery, key: ENTITY_LORE_SETTING.catchUpEveryEvents, initial: catchUpEveryEventsOf(settings[ENTITY_LORE_SETTING.catchUpEveryEvents]), isInteger: true,
     });
-    for (const countId of [id.writeAt, id.rewriteEvery]) elementOf(countId)?.addEventListener('input', readAfterCountChange);
+    for (const countId of [id.writeAt, id.catchUpEvery]) elementOf(countId)?.addEventListener('input', readAfterCountChange);
     elementOf(id.runNow)?.addEventListener('click', () => {
         runNow().catch(error => log.error(`${LOG} Run now failed:`, error));
     });

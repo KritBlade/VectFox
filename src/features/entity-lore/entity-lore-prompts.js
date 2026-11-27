@@ -178,23 +178,27 @@ export function readNameCheck(items, { candidates, entryTitles, sharedTitles = [
 // ---------------------------------------------------------------------------- The entry (§4.4, §5.2)
 
 /**
- * The entry's messages, new or written again: what it is read from (the character's events, one per line, or the
- * notes on them), the entry as it stands for a rewrite, then what to write, the five sections and the rules, and for
- * a rewrite how to keep what the entry holds.
+ * The entry's messages, new, caught up or written again (§4.4, §5.2): what it is read from (the character's events,
+ * one per line, or the notes on them; for a catch-up only those since the entry was last written), the entry as it
+ * stands for a catch-up or a rewrite, then what to write, the five sections and the rules, and for either how to keep
+ * what the entry holds, a catch-up's entry holding the story before its events.
  *
  * @param {object} entry
  * @param {string} entry.name - The character's kept name, the entry's title
  * @param {string[]} [entry.otherNames] - The character's other names: the merges' and those the name check matched to it
  * @param {string} entry.storyText - The events, one line each and oldest first, or the notes on them
  * @param {boolean} [entry.isFromNotes] - Whether storyText is the notes on the events (notesMessages)
- * @param {string|null} [entry.standingEntry] - The entry as it stands, on a rewrite
+ * @param {string|null} [entry.standingEntry] - The entry as it stands, on a catch-up or a rewrite
+ * @param {boolean} [entry.isCatchUp] - Whether storyText holds only the events since the standing entry was written; a
+ *   catch-up always has its standing entry
  * @param {string|null} [entry.languageName] - The story's language, where its events leave it in doubt
  * @returns {Array<{role: string, content: string}>}
  */
-export function entryMessages({ name, otherNames = [], storyText, isFromNotes = false, standingEntry = null, languageName = null }) {
+export function entryMessages({ name, otherNames = [], storyText, isFromNotes = false, standingEntry = null, isCatchUp = false, languageName = null }) {
+    const since = isCatchUp ? ' since their entry was last written' : '';
     const source = isFromNotes
-        ? `Notes on ${name}, part by part, oldest first: what each part of the story shows of who they are, then its biggest events:`
-        : `The story's events naming ${name}, oldest first, one per line:`;
+        ? `Notes on ${name}${since}, part by part, oldest first: what each part of the story shows of who they are, then its biggest events:`
+        : `The story's events naming ${name}${since}, oldest first, one per line:`;
     const parts = [source, '', String(storyText).trim(), ''];
     if (standingEntry) parts.push(`${name}'s entry as it stands:`, '', String(standingEntry).trim(), '');
     const alsoCalled = otherNames.length ? `, also called ${otherNames.join(', ')}` : '';
@@ -221,7 +225,10 @@ export function entryMessages({ name, otherNames = [], storyText, isFromNotes = 
     if (standingEntry) {
         parts.push(
             '',
-            `Write ${name}'s entry again, whole, from the ${isFromNotes ? 'notes' : 'events'} and the entry as it stands:`,
+            isCatchUp
+                ? `Write ${name}'s entry again, whole, from the entry as it stands and the ${isFromNotes ? 'notes' : 'events'} since it was written:`
+                : `Write ${name}'s entry again, whole, from the ${isFromNotes ? 'notes' : 'events'} and the entry as it stands:`,
+            ...(isCatchUp ? ['- The entry holds the story before these events. Keep what it says, unless the events show it was wrong.'] : []),
             '- Keep every relationship the entry holds, unless the events show it was wrong. Add the ones the newer events bring.',
             "- Pick [Key events] again from the whole story: keep the entry's key events and add the newer turning points. Once [Key events] is "
                 + 'full, a newer event takes the place of a smaller one only when it is bigger.',

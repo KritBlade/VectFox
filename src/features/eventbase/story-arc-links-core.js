@@ -102,17 +102,27 @@ export function estimateStoryLinkPass(eventCount, pricePerToken, parallelCalls) 
 }
 
 /**
- * Events in true chat order. Older events without a `timeline_sort_key` use their
- * window start on the same scale, so a mixed set still sorts as one sequence.
+ * An event's place in true chat order: its `timeline_sort_key`, or for an older event
+ * without one its window start and order on the same scale, so a mixed set compares
+ * as one sequence.
+ *
+ * @param {object} event
+ * @returns {number}
+ */
+export function timelineValueOf(event) {
+    return typeof event.timeline_sort_key === 'number'
+        ? event.timeline_sort_key
+        : packTimelineSortKey(event.source_window_start ?? event.source_window_end, event.window_event_order);
+}
+
+/**
+ * Events in true chat order (timelineValueOf).
  *
  * @param {object[]} events
  * @returns {object[]} a new array
  */
 export function inTimelineOrder(events) {
-    const timelineValue = (event) => (typeof event.timeline_sort_key === 'number'
-        ? event.timeline_sort_key
-        : packTimelineSortKey(event.source_window_start ?? event.source_window_end, event.window_event_order));
-    return [...events].sort((a, b) => timelineValue(a) - timelineValue(b));
+    return [...events].sort((a, b) => timelineValueOf(a) - timelineValueOf(b));
 }
 
 /** @param {object} event @returns {boolean} whether a link pass has decided this event */

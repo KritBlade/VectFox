@@ -25,6 +25,9 @@ export const ENTITY_LORE_ROWS_PER_PAGE = 20;
 /** What a button of the card does, as its data-entity-lore-action says. */
 export const ENTITY_LORE_ACTION = Object.freeze({
     write: 'write',
+    catchUp: 'catch-up',
+    rewrite: 'rewrite',
+    catchUpAnyway: 'catch-up-anyway',
     rewriteAnyway: 'rewrite-anyway',
     openEntry: 'open-entry',
     allowAgain: 'allow-again',
@@ -96,10 +99,11 @@ const EXCLUSION_TEXTS = {
     [EXCLUSION.cardDescription]: 'In the character card',
 };
 
-// Why an entry is due again before Rewrite every: its character's names changed, on StoryArc's Entity tab or by Allow
-// again on a name the name check matched to it (D17).
+// Why an entry is due to be rewritten before Catch up every: its character's names changed, on StoryArc's Entity tab, by
+// the name check matching another name to it (D23), or by Allow again on a name the name check matched to it (D17).
 const NAMES_CHANGED_HINTS = {
     [NAMES_CHANGED_BY.merge]: "Names were merged on StoryArc's Entity tab, so the next run rewrites it with every name's events.",
+    [NAMES_CHANGED_BY.match]: "The name check found another name of this character, so the next run rewrites it with every name's events.",
     [NAMES_CHANGED_BY.split]: "A name was split off on StoryArc's Entity tab, so the next run writes it again from scratch, from the events of the names shown on this row.",
     [NAMES_CHANGED_BY.allowAgain]: "A name marked Same as this one was allowed again, so the next run writes it again from scratch, from the events of the names shown on this row.",
 };
@@ -109,6 +113,7 @@ const STATE_PILLS = {
     [ENTITY_STATE.waiting]: row => ({ name: `Waiting, ${row.eventCount} of ${eventsText(row.writeAt)}`, icon: 'fa-hourglass-half' }),
     [ENTITY_STATE.due]: () => ({ text: 'Due', icon: 'fa-pen-nib', status: 'accent' }),
     [ENTITY_STATE.written]: row => ({ name: `Written at ${eventsText(row.writtenAtEvents)}`, icon: 'fa-check', status: 'success' }),
+    [ENTITY_STATE.catchUpDue]: () => ({ text: 'Catch-up due', icon: 'fa-forward', status: 'accent' }),
     [ENTITY_STATE.rewriteDue]: () => ({ text: 'Rewrite due', icon: 'fa-rotate', status: 'accent' }),
     [ENTITY_STATE.editedByUser]: () => ({ text: 'Edited by you', icon: 'fa-user-pen', status: 'warning' }),
     [ENTITY_STATE.deletedByUser]: () => ({ text: 'Deleted by you', icon: 'fa-trash-can' }),
@@ -121,10 +126,13 @@ const STATE_PILLS = {
 
 const actionData = (row, action) => ({ 'entity-lore-action': action, name: row.name, uid: row.uid });
 const openEntryButton = row => iconButton({ icon: 'fa-pen-to-square', title: 'Open entry', data: actionData(row, ENTITY_LORE_ACTION.openEntry) });
-const rewriteNowButtons = row => [
-    openEntryButton(row),
-    button({ text: 'Rewrite now', icon: 'fa-rotate', data: actionData(row, ENTITY_LORE_ACTION.write) }),
-];
+// Catch up and Rewrite, now or, for an entry the user edited, anyway (D23, D4).
+const catchUpButton = (row, action = ENTITY_LORE_ACTION.catchUp) => button({
+    text: action === ENTITY_LORE_ACTION.catchUpAnyway ? 'Catch up anyway' : 'Catch up now', icon: 'fa-forward', data: actionData(row, action),
+});
+const rewriteButton = (row, action = ENTITY_LORE_ACTION.rewrite) => button({
+    text: action === ENTITY_LORE_ACTION.rewriteAnyway ? 'Rewrite anyway' : 'Rewrite now', icon: 'fa-rotate', data: actionData(row, action),
+});
 const allowAgainButton = row => [button({ text: 'Allow again', icon: 'fa-rotate-left', data: actionData(row, ENTITY_LORE_ACTION.allowAgain) })];
 // Lock, a toggle whose padlock shows the character's state (D16): open, in the success ink, while Entity-Lore writes its
 // entry; closed and pressed once it is locked, when pressing it unlocks. Its title, the toggle's name, stays the same, as
@@ -140,15 +148,18 @@ const lockToggle = row => {
     });
 };
 
-// Each state's buttons (§3's table); a state with none is left out.
+// Each state's buttons (§3's table); a state with none is left out. An entry due to be rewritten for a change of its
+// names offers no catch-up, which would read none of the events that change brings (D17).
 const STATE_ACTIONS = {
     [ENTITY_STATE.waiting]: row => [lockToggle(row)],
     [ENTITY_STATE.due]: row => [button({ text: 'Write now', icon: 'fa-pen-nib', data: actionData(row, ENTITY_LORE_ACTION.write) }), lockToggle(row)],
-    [ENTITY_STATE.written]: row => [...rewriteNowButtons(row), lockToggle(row)],
-    [ENTITY_STATE.rewriteDue]: row => [...rewriteNowButtons(row), lockToggle(row)],
+    [ENTITY_STATE.written]: row => [openEntryButton(row), catchUpButton(row), rewriteButton(row), lockToggle(row)],
+    [ENTITY_STATE.catchUpDue]: row => [openEntryButton(row), catchUpButton(row), rewriteButton(row), lockToggle(row)],
+    [ENTITY_STATE.rewriteDue]: row => [openEntryButton(row), rewriteButton(row), lockToggle(row)],
     [ENTITY_STATE.editedByUser]: row => [
         openEntryButton(row),
-        button({ text: 'Rewrite anyway', icon: 'fa-rotate', data: actionData(row, ENTITY_LORE_ACTION.rewriteAnyway) }),
+        catchUpButton(row, ENTITY_LORE_ACTION.catchUpAnyway),
+        rewriteButton(row, ENTITY_LORE_ACTION.rewriteAnyway),
         lockToggle(row),
     ],
     [ENTITY_STATE.locked]: row => [...(row.uid === undefined ? [] : [openEntryButton(row)]), lockToggle(row)],

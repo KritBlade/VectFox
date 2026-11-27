@@ -60,7 +60,7 @@ import { initializeDatabaseBrowser } from './features/database-browser/index.js'
 import { KEY_CALLS_AT_ONCE_DEFAULT, LORE_BUDGET_DEFAULT, PICK_LIMIT_DEFAULT, initializeLoreBase, prepareLoreBesideRetrieval } from './features/lorebase/index.js';
 import { initializeReplyLore } from './features/reply-lore/index.js';
 import {
-    ENTITY_LORE_SETTING, REWRITE_EVERY_EVENTS, WRITE_AT_EVENTS, onEntityNameSplit, onEntityNamesMerged, onEventBaseRunEnded,
+    CATCH_UP_EVERY_EVENTS, ENTITY_LORE_SETTING, WRITE_AT_EVENTS, onEntityNameSplit, onEntityNamesMerged, onEventBaseRunEnded,
 } from './features/entity-lore/index.js';
 import {
     announceCollectionInUseChanged, announceEventBaseEventsRemoved, announceEventBaseRunEnded, announceLlmCallFinished,
@@ -258,7 +258,7 @@ const defaultSettings = {
     // Entity-Lore (entity-lore plan §8): its switch on the WorldInfo page's Entity-Lore tab, off until the user turns it on, and its two counts
     [ENTITY_LORE_SETTING.enabled]: false,
     [ENTITY_LORE_SETTING.writeAtEvents]: WRITE_AT_EVENTS.default,           // Write at: a named character's entry is written at this many events, 3 to 50
-    [ENTITY_LORE_SETTING.rewriteEveryEvents]: REWRITE_EVERY_EVENTS.default, // Rewrite every: written again after this many more events, 10 to 100
+    [ENTITY_LORE_SETTING.catchUpEveryEvents]: CATCH_UP_EVERY_EVENTS.default, // Catch up every: caught up after this many more events, 10 to 100
 
     // How text splits into words for BM25
     cjk_tokenizer_mode: CJK_TOKENIZER_MODES.intl, // intl | jieba | jieba_tw | tiny_segmenter

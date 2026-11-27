@@ -9,7 +9,8 @@
  *     merge the names on StoryArc's Entity tab; each button names its character and entry; Lock is offered wherever
  *     Entity-Lore would write the character, and a locked row offers Open entry, when it has one, and Lock; Lock's
  *     padlock shows the character's state, open in the success ink while unlocked, closed and pressed once locked,
- *     when pressing it unlocks; an entry due again as its names changed on StoryArc's Entity tab says why; a row whose
+ *     when pressing it unlocks; a written entry offers Catch up now and Rewrite now, an edited one each anyway, and one
+ *     due to be rewritten for a change of its names Rewrite now alone, saying why; a row whose
  *     name is in another book names that entry, a linked one with what the link means, Allow again, and, while
  *     LoreBase does not read its key in this chat, what it waits for,
  *   - the list pages 20 rows at a time, its page kept within the pages there are, and says why it is empty,
@@ -47,9 +48,10 @@ describe("a character's row (§3's table)", () => {
     it.each([
         [ENTITY_STATE.waiting, { eventCount: 7, writeAt: 10 }, ['7 events', 'Waiting, 7 of 10 events'], [LOCK]],
         [ENTITY_STATE.due, {}, ['12 events', 'Due'], ['Write now', LOCK]],
-        [ENTITY_STATE.written, { uid: '3', writtenAtEvents: 30 }, ['12 events', 'Written at 30 events'], ['Open entry', 'Rewrite now', LOCK]],
+        [ENTITY_STATE.written, { uid: '3', writtenAtEvents: 30 }, ['12 events', 'Written at 30 events'], ['Open entry', 'Catch up now', 'Rewrite now', LOCK]],
+        [ENTITY_STATE.catchUpDue, { uid: '3', writtenAtEvents: 10 }, ['12 events', 'Catch-up due'], ['Open entry', 'Catch up now', 'Rewrite now', LOCK]],
         [ENTITY_STATE.rewriteDue, { uid: '3', writtenAtEvents: 10 }, ['12 events', 'Rewrite due'], ['Open entry', 'Rewrite now', LOCK]],
-        [ENTITY_STATE.editedByUser, { uid: '3', writtenAtEvents: 10 }, ['12 events', 'Edited by you'], ['Open entry', 'Rewrite anyway', LOCK]],
+        [ENTITY_STATE.editedByUser, { uid: '3', writtenAtEvents: 10 }, ['12 events', 'Edited by you'], ['Open entry', 'Catch up anyway', 'Rewrite anyway', LOCK]],
         [ENTITY_STATE.locked, { uid: '3', writtenAtEvents: 30 }, ['12 events', 'Locked'], ['Open entry', LOCK]],
         [ENTITY_STATE.locked, {}, ['12 events', 'Locked'], [LOCK]],
         [ENTITY_STATE.deletedByUser, {}, ['12 events', 'Deleted by you'], ['Allow again']],
@@ -70,9 +72,13 @@ describe("a character's row (§3's table)", () => {
     });
 
     it("names each button's character and entry, and what it does", () => {
-        const [open, rewrite] = rowOf(ENTITY_STATE.editedByUser, { uid: '3' }).querySelectorAll('button');
+        const [open, catchUpAnyway, rewriteAnyway] = rowOf(ENTITY_STATE.editedByUser, { uid: '3' }).querySelectorAll('button');
         expect({ ...open.dataset }).toEqual({ i18nTitle: 'Open entry', entityLoreAction: ENTITY_LORE_ACTION.openEntry, name: 'Tamsin', uid: '3' });
-        expect({ ...rewrite.dataset }).toEqual({ entityLoreAction: ENTITY_LORE_ACTION.rewriteAnyway, name: 'Tamsin', uid: '3' });
+        expect({ ...catchUpAnyway.dataset }).toEqual({ entityLoreAction: ENTITY_LORE_ACTION.catchUpAnyway, name: 'Tamsin', uid: '3' });
+        expect({ ...rewriteAnyway.dataset }).toEqual({ entityLoreAction: ENTITY_LORE_ACTION.rewriteAnyway, name: 'Tamsin', uid: '3' });
+        const [, catchUp, rewrite] = rowOf(ENTITY_STATE.written, { uid: '3' }).querySelectorAll('button');
+        expect({ ...catchUp.dataset }).toEqual({ entityLoreAction: ENTITY_LORE_ACTION.catchUp, name: 'Tamsin', uid: '3' });
+        expect({ ...rewrite.dataset }).toEqual({ entityLoreAction: ENTITY_LORE_ACTION.rewrite, name: 'Tamsin', uid: '3' });
         expect({ ...rowOf(ENTITY_STATE.due).querySelector('button').dataset }).toEqual({ entityLoreAction: ENTITY_LORE_ACTION.write, name: 'Tamsin' });
     });
 
@@ -81,7 +87,7 @@ describe("a character's row (§3's table)", () => {
             const lock = holder.querySelector(`button[title="${LOCK}"]`);
             return { className: lock.className, isPressed: lock.getAttribute('aria-pressed'), icon: lock.querySelector('i').className, data: { ...lock.dataset } };
         };
-        const unlockedStates = [ENTITY_STATE.waiting, ENTITY_STATE.due, ENTITY_STATE.written, ENTITY_STATE.rewriteDue, ENTITY_STATE.editedByUser];
+        const unlockedStates = [ENTITY_STATE.waiting, ENTITY_STATE.due, ENTITY_STATE.written, ENTITY_STATE.catchUpDue, ENTITY_STATE.rewriteDue, ENTITY_STATE.editedByUser];
         const open = {
             className: 'vfx-btn vfx-btn-icon is-success', isPressed: 'false', icon: 'fa-solid fa-lock-open',
             data: { i18nTitle: LOCK, entityLoreAction: ENTITY_LORE_ACTION.lock, name: 'Tamsin', uid: '3' },
@@ -123,9 +129,11 @@ describe("a character's row (§3's table)", () => {
         expect([...holder.querySelectorAll('.vfx-row-sub')].map(line => line.textContent)).toEqual(['Kept apart from: Tamsin Vale · Tam']);
     });
 
-    it("says why an entry is due again when its names changed, on StoryArc's Entity tab or by Allow again", () => {
+    it("says why an entry is due to be rewritten when its names changed, on StoryArc's Entity tab, by the name check or by Allow again", () => {
         const subsOf = extra => [...rowOf(ENTITY_STATE.rewriteDue, { uid: '3', ...extra }).querySelectorAll('.vfx-row-sub')].map(line => line.textContent);
         expect(subsOf({ namesChangedBy: NAMES_CHANGED_BY.merge })).toEqual(["Names were merged on StoryArc's Entity tab, so the next run rewrites it with every name's events."]);
+        expect(subsOf({ namesChangedBy: NAMES_CHANGED_BY.match }))
+            .toEqual(["The name check found another name of this character, so the next run rewrites it with every name's events."]);
         expect(subsOf({ namesChangedBy: NAMES_CHANGED_BY.split }))
             .toEqual(["A name was split off on StoryArc's Entity tab, so the next run writes it again from scratch, from the events of the names shown on this row."]);
         expect(subsOf({ namesChangedBy: NAMES_CHANGED_BY.allowAgain }))

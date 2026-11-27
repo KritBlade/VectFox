@@ -10,9 +10,9 @@
  *     turning it on saves it and asks Run now's question, saying nothing when nothing is due,
  *   - the characters are read only while the card is shown, again as its tab opens, and drawn with the book line,
  *     searched by name and paged,
- *   - each row's button does what its state offers: Write now and Rewrite now write that entry, Rewrite anyway asks
- *     first, Allow again forgets the name, Lock locks the row's character and, pressed once locked, unlocks it, Open entry
- *     opens LoreBase's editor,
+ *   - each row's button does what its state offers: Write now and Rewrite now write that entry, Catch up now catches it
+ *     up, Rewrite anyway and Catch up anyway ask first, Allow again forgets the name, Lock locks the row's character and,
+ *     pressed once locked, unlocks it, Open entry opens LoreBase's editor,
  *     each reading the characters again; one
  *     that did nothing says why in a toast as well as on the status line, which sits above the rows, often out of view,
  *   - the notice's button opens the StoryArc page or the Main tab,
@@ -49,6 +49,7 @@ vi.mock('../src/features/entity-lore/index.js', async () => {
         ...core,
         ...ui,
         allowEntityLoreAgain: vi.fn(async () => ({ problem: null })),
+        catchUpEntityLoreEntryNow: vi.fn(async () => ({ problem: null })),
         lockEntityLoreCharacter: vi.fn(async () => ({ problem: null })),
         entityLoreBlocker: settings => core.entityLoreBlocker({
             loreBaseReason: settings.lorebase_enabled ? null : 'Use LoreBase is off.',
@@ -69,7 +70,7 @@ const { confirmPopup } = await import('../src/sillytavern/popup.js');
 const { showPanelTab } = await import('../src/features/settings-panel/panel-shell.js');
 const { editLoreBookEntry } = await import('../src/features/lorebase/index.js');
 const {
-    allowEntityLoreAgain, lockEntityLoreCharacter, readEntityLoreCharacters, runEntityLoreNow, writeEntityLoreEntryNow,
+    allowEntityLoreAgain, catchUpEntityLoreEntryNow, lockEntityLoreCharacter, readEntityLoreCharacters, runEntityLoreNow, writeEntityLoreEntryNow,
 } = await import('../src/features/entity-lore/index.js');
 const { ENTITY_LORE_ELEMENT_ID, WORLDINFO_TAB, WORLDINFO_TABS_ID, worldInfoPageMarkup } = await import('../src/features/settings-panel/worldinfo-page-markup.js');
 const { showSubTab } = await import('../src/shared/gui-dna/gene-behaviours.js');
@@ -225,6 +226,33 @@ describe("a row's buttons", () => {
         buttonFor('Brannoc', 'Rewrite anyway').click();
         await settle();
         expect(writeEntityLoreEntryNow).toHaveBeenLastCalledWith('Brannoc');
+        expect(catchUpEntityLoreEntryNow).not.toHaveBeenCalled();
+    });
+
+    it("catch that character's entry up: Catch up now at once, Catch up anyway once the user says yes, and say why one did nothing", async () => {
+        buttonFor('Hollis', 'Catch up now').click();
+        await settle();
+        expect(catchUpEntityLoreEntryNow.mock.calls).toEqual([['Hollis']]);
+
+        host.isYes = false;
+        buttonFor('Brannoc', 'Catch up anyway').click();
+        await settle();
+        expect(confirmPopup.mock.calls[0][0].map(line => line.text ?? line.name)).toEqual([
+            'Catch up this entry anyway?', 'Brannoc',
+            'You edited it. It is written again from the entry as you left it and the events since it was last written, in new words.',
+        ]);
+        expect(confirmPopup.mock.calls[0][1]).toEqual({ okButton: 'Catch up' });
+        expect(catchUpEntityLoreEntryNow).toHaveBeenCalledTimes(1);
+        host.isYes = true;
+        buttonFor('Brannoc', 'Catch up anyway').click();
+        await settle();
+        expect(catchUpEntityLoreEntryNow).toHaveBeenLastCalledWith('Brannoc');
+        expect(writeEntityLoreEntryNow).not.toHaveBeenCalled();
+
+        catchUpEntityLoreEntryNow.mockResolvedValueOnce({ problem: 'No event names Hollis since their entry was last written.' });
+        buttonFor('Hollis', 'Catch up now').click();
+        await settle();
+        expect(toastr.warning).toHaveBeenLastCalledWith('No event names Hollis since their entry was last written.', 'VectFox Entity-Lore');
     });
 
     it("forget a name on Allow again and open an entry in LoreBase's editor, each reading the rows again", async () => {

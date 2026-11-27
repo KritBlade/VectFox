@@ -3,15 +3,17 @@
  * InternalProject/Vectfox/plans/entity-lore.md).
  *
  * Guards that:
- *   - the switch is off unless turned on, and Write at and Rewrite every read as whole numbers in their ranges,
- *   - the record reads back only what it can use, finds a kept name in any case, and each change gives a new record,
+ *   - the switch is off unless turned on, and Write at and Catch up every read as whole numbers in their ranges,
+ *   - the record reads back only what it can use, finds a kept name in any case, and each change gives a new record; a
+ *     written entry records the place in the story of the newest event it was written from,
  *   - a character is locked by any of its names and unlocked by all of them; a locked one is never due, its entry kept,
  *   - a missing book starts the record over: its written entries are due again, the user's and the name check's answers kept,
  *   - names merged into one entity make its entry the kept name's, or else the first other name's the book holds, moved
  *     to the kept name with the names matched to it, and due again; another name's entry is named; a name split off one
  *     makes the kept name's entry due again, written afresh, which a later merge leaves so, unless the name check
  *     matched the name to it; Allow again on a name the name check matched does so to the entry it was matched to,
- *     and keeps the two apart, each pair once,
+ *     and keeps the two apart, each pair once; the name check matching a name to an entry makes it due to be rewritten,
+ *     one to be written afresh staying so,
  *   - a character kept apart from others names them, on both sides and with every merged name, whatever its state,
  *     but none once the two are merged,
  *   - an entry's hash ignores line endings and the ends of its text, so SillyTavern's own save is not the user's edit,
@@ -24,18 +26,21 @@
  *   - the name check is shown Entity-Lore's titles, then the other books', each once in any case, the titles of more
  *     than one entry named; its second ask, each other book's title with at most 8 of its author keys, in order, each
  *     once, none a form of the title or of a key shown before it, the keys of entries sharing a title merged,
- *   - each character's state follows the record first, then the exclusions and Write at, and a rewrite falls due at
- *     the count it was written at plus Rewrite every, or at once when its names changed, on StoryArc's Entity tab or by
- *     Allow again,
+ *   - each character's state follows the record first, then the exclusions and Write at; a catch-up falls due at the
+ *     count it was written at plus Catch up every, and a rewrite at once when its names changed, on StoryArc's Entity
+ *     tab or by Allow again,
  *   - what keeps Entity-Lore from running is named first by LoreBase, then StoryArc mode, then LoreBase's model, each
  *     with its fix and where the panel makes it,
- *   - a run writes new entries before rewrites, most events first, at most its limit; a row's button writes its own
- *     character's entry, new or again, an edited one only as accepted,
+ *   - a run writes new entries, then rewrites, then catch-ups, most events first, at most its limit; a row's button
+ *     writes its own character's entry new, catches it up or rewrites it, an edited one only as accepted, and catches
+ *     up none due to be rewritten for its names,
+ *   - a catch-up reads the events after the newest one its entry was written from, or every one for an entry that
+ *     records none,
  *   - an entry's keys are its names, then the keys it already had, each once in any case,
  *   - an event as an entry's call reads it has one time: its DateTime to the minute, or else its scene_time,
  *   - a character's events are cut into slices that fit, oldest first,
- *   - Run now's question says in plain words what it writes, into which lorebook, and the requests it makes, each
- *     count and the book's name a value,
+ *   - Run now's question says in plain words what it writes, catches up and rewrites, into which lorebook, and the
+ *     requests it makes, each count and the book's name a value, and a run's outcome names each kind,
  *   - a split asks whether the entry is written again from scratch, or kept as it is, the names values.
  *
  * Names are made up and match no story.
@@ -43,13 +48,13 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-    ENTITY_LORE_FIX_AT, ENTITY_LORE_NEED, ENTITY_STATE, ENTRIES_PER_AUTOMATIC_RUN, EVENT_SLICE_TOKENS, EXCLUSION, NAMES_CHANGED_BY, RECORD_STATE,
-    REWRITE_EVERY_EVENTS, WRITE_AT_EVENTS, dueCounts, entityLoreBlocker, entityLoreStates, entriesForName, entriesForRun, entryContentHash,
-    entryKeysOf, exclusionOf, heldLinks, isEntityLoreOn,
-    isCharacterLocked, isWrittenAfreshAfter, nameCheckTitles, readEntityLoreRecord, recordOfName, rewriteEveryEventsOf, runNowQuestion,
+    CATCH_UP_EVERY_EVENTS, ENTITY_LORE_FIX_AT, ENTITY_LORE_NEED, ENTITY_STATE, ENTRIES_PER_AUTOMATIC_RUN, ENTRY_UPDATE, EVENT_SLICE_TOKENS, EXCLUSION,
+    NAMES_CHANGED_BY, RECORD_STATE, WRITE_AT_EVENTS, catchUpEveryEventsOf, dueCounts, entityLoreBlocker, entityLoreStates, entriesForName,
+    entriesForRun, entryContentHash, entryKeysOf, eventsAfterLastRead, exclusionOf, heldLinks, isEntityLoreOn,
+    isCharacterLocked, isWrittenAfreshAfter, nameCheckTitles, readEntityLoreRecord, recordOfName, runNowQuestion, runOutcomeText,
     sliceEventLines, splitQuestion, withBookName,
     withBookStartedOver, withCharacterLocked, withMergedEntry, withMissingEntriesDeleted, withNameAllowedAgain, withNameCheckAnswer,
-    withNameInLorebook, withOneEventTime, withSplitName, withWrittenEntry,
+    withNameInLorebook, withNameMatchedToEntry, withOneEventTime, withSplitName, withWrittenEntry,
     writeAtEventsOf,
 } from '../src/features/entity-lore/entity-lore-core.js';
 
@@ -68,12 +73,12 @@ describe('the settings', () => {
         expect(isEntityLoreOn(undefined)).toBe(false);
     });
 
-    it('read Write at and Rewrite every as whole numbers in their ranges, or their defaults', () => {
+    it('read Write at and Catch up every as whole numbers in their ranges, or their defaults', () => {
         expect([writeAtEventsOf(undefined), writeAtEventsOf('x'), writeAtEventsOf('12'), writeAtEventsOf(2), writeAtEventsOf(99)])
             .toEqual([WRITE_AT_EVENTS.default, WRITE_AT_EVENTS.default, 12, WRITE_AT_EVENTS.min, WRITE_AT_EVENTS.max]);
-        expect([rewriteEveryEventsOf(null), rewriteEveryEventsOf(45.7), rewriteEveryEventsOf(5), rewriteEveryEventsOf(500)])
-            .toEqual([REWRITE_EVERY_EVENTS.default, 45, REWRITE_EVERY_EVENTS.min, REWRITE_EVERY_EVENTS.max]);
-        expect([WRITE_AT_EVENTS, REWRITE_EVERY_EVENTS]).toEqual([{ default: 10, min: 3, max: 50 }, { default: 30, min: 10, max: 100 }]);
+        expect([catchUpEveryEventsOf(null), catchUpEveryEventsOf(45.7), catchUpEveryEventsOf(5), catchUpEveryEventsOf(500)])
+            .toEqual([CATCH_UP_EVERY_EVENTS.default, 45, CATCH_UP_EVERY_EVENTS.min, CATCH_UP_EVERY_EVENTS.max]);
+        expect([WRITE_AT_EVENTS, CATCH_UP_EVERY_EVENTS]).toEqual([{ default: 10, min: 3, max: 50 }, { default: 30, min: 10, max: 100 }]);
     });
 });
 
@@ -94,10 +99,11 @@ describe('the record', () => {
         expect(readEntityLoreRecord(stored).entries.Mira).not.toBe(stored.entries.Mira);
     });
 
-    it('records a written entry under its kept name, replacing the same name in another case, in a new record', () => {
+    it('records a written entry under its kept name, with the newest event it was written from, replacing the same name in another case, in a new record', () => {
         const before = withNameCheckAnswer(emptyRecord(), 'MIRA', { state: RECORD_STATE.notNamed });
-        const after = withWrittenEntry(before, 'Mira', { uid: 4, writtenAtEvents: 12, content: 'Text' });
-        expect(after.entries).toEqual({ Mira: { state: 'written', uid: '4', writtenAtEvents: 12, contentHash: entryContentHash('Text') } });
+        const after = withWrittenEntry(before, 'Mira', { uid: 4, writtenAtEvents: 12, lastReadEventSortKey: 340002, content: 'Text' });
+        expect(after.entries).toEqual({ Mira: { state: 'written', uid: '4', writtenAtEvents: 12, lastReadEventSortKey: 340002, contentHash: entryContentHash('Text') } });
+        expect(readEntityLoreRecord(after).entries.Mira.lastReadEventSortKey).toBe(340002);
         expect(before.entries).toEqual({ MIRA: { state: 'not_named' } });
         expect(recordOfName(after, 'mira')).toBe(after.entries.Mira);
         expect(recordOfName(after, 'Corin')).toBeNull();
@@ -136,7 +142,7 @@ describe('the record', () => {
         expect(after.bookName).toBe('');
         expect(after.lockedNames).toEqual(['Bram']);
         expect(Object.keys(after.entries)).toEqual(['Bram', 'the bus driver', 'Corrie']);
-        expect(entityLoreStates([row('Mira', 40)], { record: after, writeAt: 10, rewriteEvery: 30 })[0].state).toBe(ENTITY_STATE.due);
+        expect(entityLoreStates([row('Mira', 40)], { record: after, writeAt: 10, catchUpEvery: 30 })[0].state).toBe(ENTITY_STATE.due);
         expect(record.entries.Mira.state).toBe('written');
     });
 
@@ -176,7 +182,7 @@ describe('exclusionOf', () => {
 });
 
 describe('entityLoreStates', () => {
-    const options = { writeAt: 10, rewriteEvery: 30 };
+    const options = { writeAt: 10, catchUpEvery: 30 };
     const stateOf = (rows, extra = {}) => entityLoreStates(rows, { record: emptyRecord(), ...options, ...extra })
         .map(each => [each.name, each.state, each.writeAt ?? each.writtenAtEvents ?? each.sameAs ?? each.exclusion ?? null]);
 
@@ -188,9 +194,9 @@ describe('entityLoreStates', () => {
         ]);
     });
 
-    it('follows a written entry: written, due again at its count plus Rewrite every, edited by the user, or deleted', () => {
-        let record = withWrittenEntry(emptyRecord(), 'Mira', { uid: 1, writtenAtEvents: 12, content: 'Mira text' });
-        record = withWrittenEntry(record, 'Corin', { uid: 2, writtenAtEvents: 12, content: 'Corin text' });
+    it('follows a written entry: written, due to catch up at its count plus Catch up every, edited by the user, or deleted', () => {
+        let record = withWrittenEntry(emptyRecord(), 'Mira', { uid: 1, writtenAtEvents: 12, lastReadEventSortKey: 80001, content: 'Mira text' });
+        record = withWrittenEntry(record, 'Corin', { uid: 2, writtenAtEvents: 12, lastReadEventSortKey: 90000, content: 'Corin text' });
         record = withWrittenEntry(record, 'Tess', { uid: 3, writtenAtEvents: 12, content: 'Tess text' });
         record = withWrittenEntry(record, 'Bram', { uid: 4, writtenAtEvents: 12, content: 'Bram text' });
         const bookEntries = [
@@ -200,10 +206,12 @@ describe('entityLoreStates', () => {
         ];
         expect(stateOf([row('Mira', 41), row('Corin', 42), row('Tess', 80), row('Bram', 50)], { record, bookEntries })).toEqual([
             ['Mira', ENTITY_STATE.written, 12],
-            ['Corin', ENTITY_STATE.rewriteDue, 12],
+            ['Corin', ENTITY_STATE.catchUpDue, 12],
             ['Tess', ENTITY_STATE.editedByUser, 12],
             ['Bram', ENTITY_STATE.deletedByUser, 12],
         ]);
+        const [, corin] = entityLoreStates([row('Mira', 41), row('Corin', 42)], { record, ...options, bookEntries });
+        expect(corin).toMatchObject({ uid: '2', writtenAtEvents: 12, lastReadEventSortKey: 90000 });
     });
 
     it("puts the record first, found in any case, over the exclusions and Write at", () => {
@@ -258,7 +266,7 @@ describe('entityLoreStates', () => {
 });
 
 describe('names in another book the chat loads (E1 to E3 of entity-lore-names-across-languages.md)', () => {
-    const options = { writeAt: 10, rewriteEvery: 30 };
+    const options = { writeAt: 10, catchUpEvery: 30 };
     const ysolde = loreEntry('Harbor Atlas', 7, '[NPC] Ysolde', ['Ysolde Marr'], { isDecidedHere: true });
     const loreEntries = [loreEntry('Harbor Atlas', 3, 'Harbor Watch', ['Tidewardens']), ysolde, loreEntry('Tide Tables', 2, 'Tidewardens')];
     const linkedRecord = () => withNameInLorebook(emptyRecord(), 'Isolde', { bookName: 'Harbor Atlas', uid: 7, title: '[NPC] Ysolde' });
@@ -300,7 +308,7 @@ describe('names in another book the chat loads (E1 to E3 of entity-lore-names-ac
         const [linked] = entityLoreStates([row('Isolde', 30)], { record, ...options, chat: { loreEntries } });
         expect(linked).toMatchObject({ state: ENTITY_STATE.inLorebook, lorebookEntry: ysolde });
         expect(entriesForName([linked], 'Isolde')).toEqual([]);
-        expect(dueCounts([linked])).toEqual({ newCount: 0, rewriteCount: 0 });
+        expect(dueCounts([linked])).toEqual({ newCount: 0, catchUpCount: 0, rewriteCount: 0 });
         expect(heldLinks(record, loreEntries)).toEqual([{ name: 'Isolde', lorebookEntry: ysolde }]);
         const otherCase = [{ ...ysolde, title: '[npc] YSOLDE' }];
         expect(entityLoreStates([row('Isolde', 30)], { record, ...options, chat: { loreEntries: otherCase } })[0].state).toBe(ENTITY_STATE.inLorebook);
@@ -369,30 +377,59 @@ describe('a run', () => {
         { name: 'Bram', eventCount: 70, state: ENTITY_STATE.rewriteDue },
         { name: 'Mira', eventCount: 12, state: ENTITY_STATE.due },
         { name: 'Corin', eventCount: 30, state: ENTITY_STATE.due },
+        { name: 'Hollis', eventCount: 95, state: ENTITY_STATE.catchUpDue },
         { name: 'Ada', eventCount: 12, state: ENTITY_STATE.due },
         { name: 'Tess', eventCount: 45, state: ENTITY_STATE.rewriteDue },
         { name: 'Wren', eventCount: 90, state: ENTITY_STATE.waiting },
         { name: 'Oswin', eventCount: 90, state: ENTITY_STATE.editedByUser },
+        { name: 'Pell', eventCount: 40, state: ENTITY_STATE.catchUpDue },
     ];
 
-    it('writes new entries before rewrites, each most events first, then by name, up to its limit', () => {
-        expect(entriesForRun(states).map(each => each.name)).toEqual(['Corin', 'Ada', 'Mira', 'Bram', 'Tess']);
+    it('writes new entries, then rewrites, then catch-ups, each most events first, then by name, up to its limit', () => {
+        expect(entriesForRun(states).map(each => each.name)).toEqual(['Corin', 'Ada', 'Mira', 'Bram', 'Tess', 'Hollis', 'Pell']);
         expect(entriesForRun(states, 4).map(each => each.name)).toEqual(['Corin', 'Ada', 'Mira', 'Bram']);
         expect(ENTRIES_PER_AUTOMATIC_RUN).toBe(5);
     });
 
-    it('counts what is due, new and again', () => {
-        expect(dueCounts(states)).toEqual({ newCount: 3, rewriteCount: 2 });
-        expect(dueCounts([])).toEqual({ newCount: 0, rewriteCount: 0 });
+    it('counts what is due: new, to catch up and to be rewritten', () => {
+        expect(dueCounts(states)).toEqual({ newCount: 3, catchUpCount: 2, rewriteCount: 2 });
+        expect(dueCounts([])).toEqual({ newCount: 0, catchUpCount: 0, rewriteCount: 0 });
     });
 
-    it("writes a row's own character from its button: due new, written or due again, edited only as accepted, any other none", () => {
-        const rows = [...states, { name: 'Pell', eventCount: 20, state: ENTITY_STATE.written }, { name: 'Quill', eventCount: 20, state: ENTITY_STATE.deletedByUser }];
-        expect(entriesForName(rows, 'mira')).toEqual([states[1]]);
-        expect(entriesForName(rows, 'Pell')).toEqual([{ name: 'Pell', eventCount: 20, state: ENTITY_STATE.rewriteDue }]);
+    it("writes a row's own character from its button: due new, written caught up or rewritten, edited only as accepted, any other none", () => {
+        const rows = [...states, { name: 'Ivo', eventCount: 20, state: ENTITY_STATE.written }, { name: 'Quill', eventCount: 20, state: ENTITY_STATE.deletedByUser }];
+        for (const update of Object.values(ENTRY_UPDATE)) expect(entriesForName(rows, 'mira', update)).toEqual([states[1]]);
+        expect(entriesForName(rows, 'Ivo')).toEqual([{ name: 'Ivo', eventCount: 20, state: ENTITY_STATE.rewriteDue }]);
+        expect(entriesForName(rows, 'Ivo', ENTRY_UPDATE.rewrite)).toEqual([{ name: 'Ivo', eventCount: 20, state: ENTITY_STATE.rewriteDue }]);
+        expect(entriesForName(rows, 'Ivo', ENTRY_UPDATE.catchUp)).toEqual([{ name: 'Ivo', eventCount: 20, state: ENTITY_STATE.catchUpDue }]);
+        expect(entriesForName(rows, 'Hollis', ENTRY_UPDATE.rewrite)).toEqual([{ ...states[3], state: ENTITY_STATE.rewriteDue }]);
+        expect(entriesForName(rows, 'Hollis', ENTRY_UPDATE.catchUp)).toEqual([states[3]]);
         expect(entriesForName(rows, 'Bram')).toEqual([states[0]]);
-        expect(entriesForName(rows, 'Oswin')).toEqual([{ name: 'Oswin', eventCount: 90, state: ENTITY_STATE.rewriteDue, isEditAccepted: true }]);
-        for (const name of ['Wren', 'Quill', 'Nobody']) expect(entriesForName(rows, name)).toEqual([]);
+        expect(entriesForName(rows, 'Oswin', ENTRY_UPDATE.rewrite)).toEqual([{ name: 'Oswin', eventCount: 90, state: ENTITY_STATE.rewriteDue, isEditAccepted: true }]);
+        expect(entriesForName(rows, 'Oswin', ENTRY_UPDATE.catchUp)).toEqual([{ name: 'Oswin', eventCount: 90, state: ENTITY_STATE.catchUpDue, isEditAccepted: true }]);
+        for (const update of Object.values(ENTRY_UPDATE)) {
+            for (const name of ['Wren', 'Quill', 'Nobody']) expect(entriesForName(rows, name, update)).toEqual([]);
+        }
+    });
+
+    it('catches up no entry due to be rewritten for a change of its names, as the events that change brings are not new (D17)', () => {
+        expect(entriesForName(states, 'Bram', ENTRY_UPDATE.catchUp)).toEqual([]);
+        expect(entriesForName(states, 'Bram', ENTRY_UPDATE.rewrite)).toEqual([states[0]]);
+    });
+
+    it('catches up on the events after the newest one the last write read, by their place in the story, or on every one when the record holds none', () => {
+        const events = [{ at: 10004 }, { at: 20000 }, { at: 20001 }, { at: 30000 }];
+        const placeOf = event => event.at;
+        expect(eventsAfterLastRead(events, 20000, placeOf)).toEqual([{ at: 20001 }, { at: 30000 }]);
+        expect(eventsAfterLastRead(events, 30000, placeOf)).toEqual([]);
+        expect(eventsAfterLastRead(events, 0, placeOf)).toEqual(events);
+        expect(eventsAfterLastRead(events, undefined, placeOf)).toEqual(events);
+    });
+
+    it("names what a run did: the entries written, caught up and rewritten, and the failures", () => {
+        expect(runOutcomeText({ written: 2, caughtUp: 3, rewritten: 1, failed: 1 })).toBe('2 entries written, 3 caught up, 1 rewritten, 1 failed (see the console)');
+        expect(runOutcomeText({ written: 0, caughtUp: 1, rewritten: 0, failed: 0 })).toBe('0 entries written, 1 caught up');
+        expect(runOutcomeText({ written: 1, caughtUp: 0, rewritten: 0, failed: 0 })).toBe('1 entry written');
     });
 });
 
@@ -450,7 +487,7 @@ describe('a lock (T3)', () => {
         for (const name of ['Mira', 'Corin', 'Tess', 'Bram', 'the bus driver', 'Keeper Orrin']) record = withCharacterLocked(record, row(name, 1), true);
         const rows = [row('Mira', 90), row('Corin', 90), row('Tess', 40), row('Bram', 3), row('the bus driver', 40), row('Keeper Orrin', 40)];
         const states = entityLoreStates(rows, {
-            record, writeAt: 10, rewriteEvery: 30, chat: { characterNames: ['Keeper Orrin'] }, bookEntries: [{ uid: 4, content: 'a' }, { uid: 5, content: 'edited' }],
+            record, writeAt: 10, catchUpEvery: 30, chat: { characterNames: ['Keeper Orrin'] }, bookEntries: [{ uid: 4, content: 'a' }, { uid: 5, content: 'edited' }],
         });
         expect(states.map(({ name, state }) => [name, state])).toEqual([
             ['Mira', ENTITY_STATE.locked], ['Corin', ENTITY_STATE.locked], ['Tess', ENTITY_STATE.locked], ['Bram', ENTITY_STATE.locked],
@@ -458,9 +495,9 @@ describe('a lock (T3)', () => {
         ]);
         expect(states[0]).toMatchObject({ uid: '4', writtenAtEvents: 12 });
         expect(entriesForRun(states)).toEqual([]);
-        expect(dueCounts(states)).toEqual({ newCount: 0, rewriteCount: 0 });
-        expect(entriesForName(states, 'Mira')).toEqual([]);
-        expect(entityLoreStates([row('Mira', 90)], { record: withMissingEntriesDeleted(record, []), writeAt: 10, rewriteEvery: 30 })[0].state)
+        expect(dueCounts(states)).toEqual({ newCount: 0, catchUpCount: 0, rewriteCount: 0 });
+        for (const update of Object.values(ENTRY_UPDATE)) expect(entriesForName(states, 'Mira', update)).toEqual([]);
+        expect(entityLoreStates([row('Mira', 90)], { record: withMissingEntriesDeleted(record, []), writeAt: 10, catchUpEvery: 30 })[0].state)
             .toBe(ENTITY_STATE.deletedByUser);
     });
 });
@@ -530,7 +567,20 @@ describe("names merged or split on StoryArc's Entity tab, and a matched name all
         });
         const matchedAgain = withNameCheckAnswer(allowed.record, 'Marrow', { state: RECORD_STATE.sameAs, sameAs: 'Tamsin' });
         expect(withNameAllowedAgain(matchedAgain, 'marrow', [2]).record.keptApart).toEqual([{ name: 'MARROW', from: 'Tamsin' }]);
-        expect([NAMES_CHANGED_BY.merge, NAMES_CHANGED_BY.split, NAMES_CHANGED_BY.allowAgain, undefined].map(isWrittenAfreshAfter)).toEqual([false, true, true, false]);
+        expect([NAMES_CHANGED_BY.merge, NAMES_CHANGED_BY.match, NAMES_CHANGED_BY.split, NAMES_CHANGED_BY.allowAgain, undefined].map(isWrittenAfreshAfter))
+            .toEqual([false, false, true, true, false]);
+    });
+
+    it('marks an entry the name check matched a name to for a rewrite with every name\'s events (D23), one to be written afresh staying so, and nothing else', () => {
+        const record = written(emptyRecord(), 'Tamsin', 2);
+        const matched = withNameMatchedToEntry(record, 'TAMSIN', [2]);
+        expect(matched).toEqual({ ...record, entries: { Tamsin: { ...record.entries.Tamsin, namesChangedBy: NAMES_CHANGED_BY.match } } });
+        expect(entityLoreStates([row('Tamsin', 13)], { record: matched, writeAt: 10, catchUpEvery: 30, bookEntries: [{ uid: 2, content: 'Tamsin keeps the ferry.' }] })[0])
+            .toMatchObject({ state: ENTITY_STATE.rewriteDue, namesChangedBy: NAMES_CHANGED_BY.match });
+        expect(withNameMatchedToEntry(record, 'Tamsin', [])).toBe(record);
+        expect(withNameMatchedToEntry(record, 'Marrow', [2])).toBe(record);
+        const split = withSplitName(record, { keptName: 'Tamsin', splitName: 'Marrow' }, [2]).record;
+        expect(recordOfName(withNameMatchedToEntry(split, 'Tamsin', [2]), 'Tamsin').namesChangedBy).toBe(NAMES_CHANGED_BY.split);
     });
 });
 
@@ -578,24 +628,42 @@ describe("Run now's question (§4.1)", () => {
         expect(lines[2]).toEqual({ text: CHECK_LINE });
     });
 
-    it('names the new lorebook the first entry makes, says one character in the singular, and adds the rewrites', () => {
-        expect(linesText(runNowQuestion({ newCount: 1, rewriteCount: 1, bookName: 'VectFox NPCs - Harbor', isBookMade: false }))).toEqual([
+    const CATCH_UP_LINE = "A catch-up adds the character's events since their entry was last written to the entry as it stands, one request each, "
+        + 'a few when very many came since.';
+    const REWRITE_LINE = "A rewrite writes the entry again from the character's whole story so far, one request each, a few for a very long story.";
+    const asked = counts => linesText(runNowQuestion({ newCount: 0, catchUpCount: 0, rewriteCount: 0, bookName: 'VectFox NPCs - Harbor', isBookMade: true, ...counts }));
+
+    it('names the new lorebook the first entry makes, says one character in the singular, and adds the catch-ups and rewrites', () => {
+        expect(linesText(runNowQuestion({ newCount: 1, catchUpCount: 0, rewriteCount: 1, bookName: 'VectFox NPCs - Harbor', isBookMade: false }))).toEqual([
             'Write a lorebook entry for 1 character, and rewrite 1 existing one?',
             "One entry per character, from the story's events about them, into a new lorebook for this chat, VectFox NPCs - Harbor.",
             CHECK_LINE,
-            "A rewrite writes an existing entry again from the character's whole story so far, one request each.",
+            REWRITE_LINE,
         ]);
-        expect(linesText(runNowQuestion({ newCount: 3, rewriteCount: 4, bookName: 'VectFox NPCs - Harbor', isBookMade: true }))[0])
-            .toBe('Write lorebook entries for 3 characters, and rewrite 4 existing ones?');
+        expect(asked({ newCount: 3, rewriteCount: 4 })[0]).toBe('Write lorebook entries for 3 characters, and rewrite 4 existing ones?');
+        expect(asked({ newCount: 2, catchUpCount: 1 })).toEqual([
+            'Write lorebook entries for 2 characters, and catch up 1 existing one?',
+            "One entry per character, from the story's events about them, into this chat's lorebook VectFox NPCs - Harbor.",
+            CHECK_LINE,
+            CATCH_UP_LINE,
+        ]);
+        expect(asked({ newCount: 2, catchUpCount: 3, rewriteCount: 1 })).toEqual([
+            'Write lorebook entries for 2 characters, catch up 3 existing ones and rewrite 1?',
+            "One entry per character, from the story's events about them, into this chat's lorebook VectFox NPCs - Harbor.",
+            CHECK_LINE,
+            CATCH_UP_LINE,
+            REWRITE_LINE,
+        ]);
     });
 
-    it('asks about the rewrites alone when no new entry is due, with no name check', () => {
-        expect(linesText(runNowQuestion({ newCount: 0, rewriteCount: 4, bookName: 'VectFox NPCs - Harbor', isBookMade: true }))).toEqual([
-            'Rewrite 4 lorebook entries?',
-            "Each is written again from the character's whole story so far, in this chat's lorebook VectFox NPCs - Harbor.",
-            "Each takes one request to LoreBase's model, a few for a very long story, and LoreBase writes their keys and vectors again.",
-        ]);
-        expect(linesText(runNowQuestion({ newCount: 0, rewriteCount: 1, bookName: 'VectFox NPCs - Harbor', isBookMade: true }))[0]).toBe('Rewrite 1 lorebook entry?');
+    it('asks about the catch-ups and rewrites alone when no new entry is due, with no name check', () => {
+        const IN_BOOK = "They are in this chat's lorebook VectFox NPCs - Harbor, and LoreBase writes their keys and vectors again.";
+        expect(asked({ rewriteCount: 4 })).toEqual(['Rewrite 4 lorebook entries?', REWRITE_LINE, IN_BOOK]);
+        expect(asked({ rewriteCount: 1 })[0]).toBe('Rewrite 1 lorebook entry?');
+        expect(asked({ catchUpCount: 3 })).toEqual(['Catch up 3 lorebook entries?', CATCH_UP_LINE, IN_BOOK]);
+        expect(asked({ catchUpCount: 1, rewriteCount: 2 })).toEqual(['Catch up 1 lorebook entry and rewrite 2?', CATCH_UP_LINE, REWRITE_LINE, IN_BOOK]);
+        const [headline] = runNowQuestion({ newCount: 0, catchUpCount: 3, rewriteCount: 0, bookName: 'VectFox NPCs - Harbor', isBookMade: true });
+        expect(headline).toEqual({ icon: 'fa-users-viewfinder', parts: [{ text: 'Catch up ' }, { name: '3' }, { text: ' lorebook entries' }, { text: '?' }] });
     });
 });
 

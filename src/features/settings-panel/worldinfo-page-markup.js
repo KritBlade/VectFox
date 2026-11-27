@@ -172,7 +172,7 @@ export const ENTITY_LORE_ELEMENT_ID = Object.freeze({
     enabled: 'VectFox_entity_lore_enabled',
     notice: 'VectFox_entity_lore_notice',
     writeAt: 'VectFox_entity_lore_write_at_events',
-    rewriteEvery: 'VectFox_entity_lore_rewrite_every_events',
+    catchUpEvery: 'VectFox_entity_lore_catch_up_every_events',
     book: 'VectFox_entity_lore_book',
     runNow: 'VectFox_entity_lore_run_now',
     status: 'VectFox_entity_lore_status',
@@ -183,8 +183,8 @@ export const ENTITY_LORE_ELEMENT_ID = Object.freeze({
 
 // Entity-Lore's card (§3 of entity-lore.md): Use Entity-Lore, off by default, and the notice entity-lore-card.js fills
 // with what keeps it from running; Write at (10 events by default, 3 to 50, WRITE_AT_EVENTS in entity-lore-core.js) and
-// Rewrite every (30 by default, 10 to 100, REWRITE_EVERY_EVENTS); the line naming the chat's book; Run now and the last
-// run's line; then the open chat's characters, searched by name, a page at a time, which entity-lore-ui.js draws.
+// Catch up every (30 by default, 10 to 100, CATCH_UP_EVERY_EVENTS); the line naming the chat's book; Run now and the
+// last run's line; then the open chat's characters, searched by name, a page at a time, which entity-lore-ui.js draws.
 function entityLoreCard() {
     const id = ENTITY_LORE_ELEMENT_ID;
     return `<section id="${id.card}" class="vfx-card">
@@ -198,9 +198,9 @@ function entityLoreCard() {
                 hint({ text: 'A named character gets an entry once this many events name them.' }),
             ])}
             ${field([
-                fieldLabel({ text: 'Rewrite every', forId: id.rewriteEvery }),
-                sliderNumber({ id: id.rewriteEvery, min: 10, max: 100, step: 1, title: 'Events' }),
-                hint({ text: 'Their entry is written again from their whole story after this many more events.' }),
+                fieldLabel({ text: 'Catch up every', forId: id.catchUpEvery }),
+                sliderNumber({ id: id.catchUpEvery, min: 10, max: 100, step: 1, title: 'Events' }),
+                hint({ text: 'After this many more events, their entry catches up on the events since its last write.' }),
             ])}
             <p id="${id.book}" class="vfx-hint" hidden></p>
             ${field([

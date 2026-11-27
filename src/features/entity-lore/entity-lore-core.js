@@ -2,22 +2,22 @@
  * ============================================================================
  * ENTITY-LORE, PURE
  * ============================================================================
- * Which named characters get a lorebook entry, and when one is written again
- * (InternalProject/Vectfox/plans/entity-lore.md §4.2, §4.4, §4.5, §5, §6): the
- * switch and the two counts, read from settings and kept in their ranges; what
- * else keeps it from running; the names a chat already has a place for, and
- * the entry of another book that names each; where each counted character
- * stands, which the Entity-Lore tab's rows and a run both read, so the two
- * never disagree; the entries a run writes, and the one a row's button writes;
- * an entry's keys; the record kept in the collection's metadata, the
- * characters the user locked in it, the names Allow again kept apart, the
- * names the name check linked to an entry of another book, and what a merge of
- * names on StoryArc's Entity tab, a split, or Allow again makes of it; an event
- * with one time, as an entry's call reads it; the cut of a character's events
- * into slices one call can read; and what a run names: its book, the titles
- * the name check is shown and the author keys its second ask shows under them,
- * the names matched to an entry, the links that hold, Run now's question and
- * the run's outcome.
+ * Which named characters get a lorebook entry, and when one catches up or is
+ * written again (InternalProject/Vectfox/plans/entity-lore.md §4.2, §4.4,
+ * §4.5, §5, §6): the switch and the two counts, read from settings and kept in
+ * their ranges; what else keeps it from running; the names a chat already has
+ * a place for, and the entry of another book that names each; where each
+ * counted character stands, which the Entity-Lore tab's rows and a run both
+ * read, so the two never disagree; the entries a run writes, and the one a
+ * row's button writes or updates; an entry's keys; the record kept in the
+ * collection's metadata, the characters the user locked in it, the names Allow
+ * again kept apart, the names the name check linked to an entry of another
+ * book, and what a merge of names on StoryArc's Entity tab, a split, or Allow
+ * again makes of it; an event with one time, as an entry's call reads it; the
+ * events a catch-up reads; the cut of a character's events into slices one
+ * call can read; and what a run names: its book, the titles the name check is
+ * shown and the author keys its second ask shows under them, the names matched
+ * to an entry, the links that hold, Run now's question and the run's outcome.
  *
  * Pure: no host or feature imports. What another feature knows, such as
  * whether the card's description holds a name or how many tokens a text is,
@@ -32,12 +32,15 @@ import { cyrb53 } from '../../shared/point-ids.js';
 export const ENTITY_LORE_SETTING = Object.freeze({
     enabled: 'entity_lore_enabled',
     writeAtEvents: 'entity_lore_write_at_events',
-    rewriteEveryEvents: 'entity_lore_rewrite_every_events',
+    catchUpEveryEvents: 'entity_lore_catch_up_every_events',
 });
 /** Write at: a named character gets an entry once this many events name them (D3). */
 export const WRITE_AT_EVENTS = Object.freeze({ default: 10, min: 3, max: 50 });
-/** Rewrite every: an entry is written again after this many more events (D3). */
-export const REWRITE_EVERY_EVENTS = Object.freeze({ default: 30, min: 10, max: 100 });
+/** Catch up every: an entry catches up on the events since its last write after this many more events (D3, D23). */
+export const CATCH_UP_EVERY_EVENTS = Object.freeze({ default: 30, min: 10, max: 100 });
+
+/** How a written entry is updated (§5, D23): a catch-up reads the events since its last write, a rewrite every event. */
+export const ENTRY_UPDATE = Object.freeze({ catchUp: 'catch_up', rewrite: 'rewrite' });
 
 /** The most entries a run after an EventBase run writes (D7); Run now writes every entry that is due. */
 export const ENTRIES_PER_AUTOMATIC_RUN = 5;
@@ -52,11 +55,12 @@ export const EVENT_SLICE_TOKENS = 30000;
 export const RECORD_STATE = Object.freeze({ written: 'written', notNamed: 'not_named', sameAs: 'same_as', deleted: 'deleted', inLorebook: 'in_lorebook' });
 const RECORD_STATES = new Set(Object.values(RECORD_STATE));
 /**
- * How a written entry's character changed its names since the entry was written, which makes it due again (D17): a
- * merge on StoryArc's Entity tab, rewritten from the entry as it stands; a split there, or Allow again on a name the
- * name check matched to it, each written afresh (isWrittenAfreshAfter).
+ * How a written entry's character changed its names since the entry was written, which makes it due to be rewritten
+ * (D17): a merge on StoryArc's Entity tab, or the name check matching another name to it (D23), each rewritten from the
+ * entry as it stands with every name's events, as a catch-up reads none of the events those names had before; a split
+ * there, or Allow again on a name the name check matched to it, each written afresh (isWrittenAfreshAfter).
  */
-export const NAMES_CHANGED_BY = Object.freeze({ merge: 'merge', split: 'split', allowAgain: 'allow_again' });
+export const NAMES_CHANGED_BY = Object.freeze({ merge: 'merge', match: 'match', split: 'split', allowAgain: 'allow_again' });
 
 /** Why a counted character gets no entry (§4.2). */
 export const EXCLUSION = Object.freeze({
@@ -66,11 +70,15 @@ export const EXCLUSION = Object.freeze({
     cardDescription: 'card_description',
 });
 
-/** Where a counted character stands (§3's states). */
+/**
+ * Where a counted character stands (§3's states). A written entry is due to catch up once Catch up every more events
+ * name its character, and due to be rewritten once its character's names changed (D17).
+ */
 export const ENTITY_STATE = Object.freeze({
     waiting: 'waiting',
     due: 'due',
     written: 'written',
+    catchUpDue: 'catch_up_due',
     rewriteDue: 'rewrite_due',
     editedByUser: 'edited_by_user',
     deletedByUser: 'deleted_by_user',
@@ -128,13 +136,13 @@ export function writeAtEventsOf(value) {
 }
 
 /**
- * Rewrite every, from its saved value: a whole number in its range, or the default for a value that holds no number.
+ * Catch up every, from its saved value: a whole number in its range, or the default for a value that holds no number.
  *
  * @param {unknown} value
  * @returns {number}
  */
-export function rewriteEveryEventsOf(value) {
-    return wholeNumberIn(value, REWRITE_EVERY_EVENTS);
+export function catchUpEveryEventsOf(value) {
+    return wholeNumberIn(value, CATCH_UP_EVERY_EVENTS);
 }
 
 /** What Entity-Lore runs on (D8): LoreBase, StoryArc mode, and LoreBase's model. */
@@ -259,16 +267,20 @@ export function entryContentHash(content) {
 }
 
 /**
- * The record with an entry written for a kept name: its uid, the count it was written at, and its text's hash, no
- * longer due for a change of its names (D17).
+ * The record with an entry written for a kept name: its uid, the count it was written at, the place in the story of the
+ * newest event it was written from, where its next catch-up starts (§5.2), and its text's hash, no longer due for a
+ * change of its names (D17).
  *
  * @param {object} record
  * @param {string} name
- * @param {{uid: string|number, writtenAtEvents: number, content: string}} entry
+ * @param {{uid: string|number, writtenAtEvents: number, lastReadEventSortKey: number, content: string}} entry -
+ *   lastReadEventSortKey as timelineValueOf in EventBase's story-arc-links-core.js gives it
  * @returns {object} a new record
  */
-export function withWrittenEntry(record, name, { uid, writtenAtEvents, content }) {
-    return withEntry(record, name, { state: RECORD_STATE.written, uid: String(uid), writtenAtEvents, contentHash: entryContentHash(content) });
+export function withWrittenEntry(record, name, { uid, writtenAtEvents, lastReadEventSortKey, content }) {
+    return withEntry(record, name, {
+        state: RECORD_STATE.written, uid: String(uid), writtenAtEvents, lastReadEventSortKey, contentHash: entryContentHash(content),
+    });
 }
 
 /**
@@ -384,6 +396,20 @@ function withEntryNamesChanged(record, name, changedBy, bookUids) {
     if (!entry) return null;
     const title = Object.keys(record.entries).find(each => isSameName(each, name));
     return { record: withEntry(record, title, withNamesChanged(entry, changedBy)), uid: entry.uid, title };
+}
+
+/**
+ * The record after the name check matched a name to an entry Entity-Lore wrote (§4.3): that entry is due to be
+ * rewritten with every name's events (D17, D23), as a catch-up would read none of the events the name had before. The
+ * record as it was when the title names no entry written and held by the book still.
+ *
+ * @param {object} record
+ * @param {string} title - The entry's title, as the name check's same_as names it
+ * @param {Array<string|number>} bookUids - The uids of the entries the book holds now
+ * @returns {object} a new record, or the record given
+ */
+export function withNameMatchedToEntry(record, title, bookUids) {
+    return withEntryNamesChanged(record, title, NAMES_CHANGED_BY.match, bookUids)?.record ?? record;
 }
 
 /**
@@ -587,11 +613,12 @@ function loreEntryNamer(loreEntries) {
  * name with no record is excluded, locked, waiting below Write at, or due.
  *
  * - A written entry is deleted by the user once its uid is gone from the book, locked while the user locked its
- *   character (T3), edited by the user once its text no longer matches the hash of its last write (D4), due again once
- *   its character's names changed, on StoryArc's Entity tab or by Allow again (D17, `namesChangedBy`), or its count
- *   reaches the count it was written at plus Rewrite every (§5.1), and written otherwise.
- * - A locked character is never due, so no run writes or rewrites it; one deleted, not named, another name of an
- *   entry or excluded stays so.
+ *   character (T3), edited by the user once its text no longer matches the hash of its last write (D4), due to be
+ *   rewritten once its character's names changed, on StoryArc's Entity tab or by Allow again (D17, `namesChangedBy`),
+ *   due to catch up once its count reaches the count it was written at plus Catch up every (§5.1, D23), and written
+ *   otherwise.
+ * - A locked character is never due, so no run writes, catches up or rewrites it; one deleted, not named, another name
+ *   of an entry or excluded stays so.
  * - A name the name check linked to an entry of another book reads as in that book while the link holds (E2,
  *   heldLinkOf), `lorebookEntry` naming the entry; one whose entry the chat no longer holds so reads as no record. A
  *   row excluded for a lorebook names the entry its name is in the same way (E3).
@@ -602,13 +629,13 @@ function loreEntryNamer(loreEntries) {
  * @param {object} options
  * @param {object} options.record - From readEntityLoreRecord
  * @param {number} options.writeAt - From writeAtEventsOf
- * @param {number} options.rewriteEvery - From rewriteEveryEventsOf
+ * @param {number} options.catchUpEvery - From catchUpEveryEventsOf
  * @param {object} [options.chat] - What exclusionOf reads
  * @param {Array<{uid: string|number, content: string}>} [options.bookEntries] - The entries Entity-Lore's book holds now
- * @returns {object[]} each row with its `state`, and as it applies `writeAt`, `uid`, `writtenAtEvents`, `namesChangedBy`,
- *   `sameAs`, `exclusion`, `lorebookEntry` or `keptApartFrom`
+ * @returns {object[]} each row with its `state`, and as it applies `writeAt`, `uid`, `writtenAtEvents`,
+ *   `lastReadEventSortKey`, `namesChangedBy`, `sameAs`, `exclusion`, `lorebookEntry` or `keptApartFrom`
  */
-export function entityLoreStates(rows, { record, writeAt, rewriteEvery, chat = {}, bookEntries = [] }) {
+export function entityLoreStates(rows, { record, writeAt, catchUpEvery, chat = {}, bookEntries = [] }) {
     const hashByUid = new Map(bookEntries.map(entry => [String(entry.uid), entryContentHash(entry.content)]));
     const loreEntries = chat.loreEntries ?? [];
     const lorebookEntryNaming = loreEntryNamer(loreEntries);
@@ -623,13 +650,13 @@ export function entityLoreStates(rows, { record, writeAt, rewriteEvery, chat = {
         if (linked) return { ...row, state: ENTITY_STATE.inLorebook, lorebookEntry: linked };
         const isLocked = isCharacterLocked(record, row);
         if (entry?.state === RECORD_STATE.written) {
-            const written = { uid: entry.uid, writtenAtEvents: entry.writtenAtEvents };
+            const written = { uid: entry.uid, writtenAtEvents: entry.writtenAtEvents, lastReadEventSortKey: entry.lastReadEventSortKey };
             if (!hashByUid.has(String(entry.uid))) return { ...row, ...written, state: ENTITY_STATE.deletedByUser };
             if (isLocked) return { ...row, ...written, state: ENTITY_STATE.locked };
             if (hashByUid.get(String(entry.uid)) !== entry.contentHash) return { ...row, ...written, state: ENTITY_STATE.editedByUser };
             if (entry.namesChangedBy) return { ...row, ...written, state: ENTITY_STATE.rewriteDue, namesChangedBy: entry.namesChangedBy };
-            const isDueAgain = row.eventCount >= entry.writtenAtEvents + rewriteEvery;
-            return { ...row, ...written, state: isDueAgain ? ENTITY_STATE.rewriteDue : ENTITY_STATE.written };
+            const isCatchUpDue = row.eventCount >= entry.writtenAtEvents + catchUpEvery;
+            return { ...row, ...written, state: isCatchUpDue ? ENTITY_STATE.catchUpDue : ENTITY_STATE.written };
         }
         const exclusion = exclusionOf(row, chat);
         if (exclusion === EXCLUSION.lorebook) return { ...row, state: ENTITY_STATE.excluded, exclusion, lorebookEntry: lorebookEntryNaming(row) };
@@ -641,8 +668,8 @@ export function entityLoreStates(rows, { record, writeAt, rewriteEvery, chat = {
 }
 
 /**
- * The entries a run writes, from entityLoreStates: new entries before rewrites, each most events first, then by name;
- * at most `limit` of them (§4.1).
+ * The entries a run writes, from entityLoreStates: new entries, then rewrites, then catch-ups, each most events first,
+ * then by name; at most `limit` of them (§4.1).
  *
  * @param {object[]} states
  * @param {number} [limit] - ENTRIES_PER_AUTOMATIC_RUN after an EventBase run; none for Run now
@@ -651,37 +678,58 @@ export function entityLoreStates(rows, { record, writeAt, rewriteEvery, chat = {
 export function entriesForRun(states, limit = Number.POSITIVE_INFINITY) {
     const byMostEvents = (a, b) => (b.eventCount - a.eventCount) || a.name.localeCompare(b.name);
     const inState = state => states.filter(each => each.state === state).sort(byMostEvents);
-    return [...inState(ENTITY_STATE.due), ...inState(ENTITY_STATE.rewriteDue)].slice(0, limit);
+    return [...inState(ENTITY_STATE.due), ...inState(ENTITY_STATE.rewriteDue), ...inState(ENTITY_STATE.catchUpDue)].slice(0, limit);
 }
 
+// The states of a written entry a row's Catch up now or Rewrite now updates, due or not.
+const UPDATABLE_STATES = new Set([ENTITY_STATE.written, ENTITY_STATE.catchUpDue, ENTITY_STATE.rewriteDue]);
+
 /**
- * The entry a row's button writes now (§3): a due character's, new; a written one's, again, due or not (Rewrite now);
- * and one the user edited, again from the entry as they left it (Rewrite anyway, D4), marked `isEditAccepted`. None
- * for a row in any other state, or a name no row has.
+ * The entry a row's button writes now (§3): a due character's, new, whichever the update; a written one's, due or not,
+ * caught up (Catch up now) or rewritten (Rewrite now); and one the user edited, from the entry as they left it (Catch
+ * up anyway, Rewrite anyway, D4), marked `isEditAccepted`. An entry due to be rewritten for a change of its names
+ * (D17) is not caught up, as a catch-up reads none of the events that change brings. None for a row in any other
+ * state, or a name no row has.
  *
  * @param {object[]} states - From entityLoreStates
  * @param {string} name - The row's kept name, in any case
- * @returns {object[]} no entry, or one, its state due or rewrite_due
+ * @param {string} [update] - One of ENTRY_UPDATE
+ * @returns {object[]} no entry, or one, its state due, catch_up_due or rewrite_due
  */
-export function entriesForName(states, name) {
+export function entriesForName(states, name, update = ENTRY_UPDATE.rewrite) {
     const row = states.find(each => isSameName(each.name, name));
     if (row?.state === ENTITY_STATE.due) return [row];
-    if (row?.state === ENTITY_STATE.written || row?.state === ENTITY_STATE.rewriteDue) return [{ ...row, state: ENTITY_STATE.rewriteDue }];
-    if (row?.state === ENTITY_STATE.editedByUser) return [{ ...row, state: ENTITY_STATE.rewriteDue, isEditAccepted: true }];
-    return [];
+    const isEdited = row?.state === ENTITY_STATE.editedByUser;
+    if (!isEdited && !UPDATABLE_STATES.has(row?.state)) return [];
+    const accepted = isEdited ? { isEditAccepted: true } : {};
+    if (update !== ENTRY_UPDATE.catchUp) return [{ ...row, state: ENTITY_STATE.rewriteDue, ...accepted }];
+    if (row.state === ENTITY_STATE.rewriteDue) return [];
+    return [{ ...row, state: ENTITY_STATE.catchUpDue, ...accepted }];
 }
 
 /**
- * How many entries are due, new and again, which Run now's question names (§4.1).
+ * How many entries are due, new, to catch up and to be rewritten, which Run now's question names (§4.1).
  *
  * @param {object[]} states - From entityLoreStates
- * @returns {{newCount: number, rewriteCount: number}}
+ * @returns {{newCount: number, catchUpCount: number, rewriteCount: number}}
  */
 export function dueCounts(states) {
-    return {
-        newCount: states.filter(each => each.state === ENTITY_STATE.due).length,
-        rewriteCount: states.filter(each => each.state === ENTITY_STATE.rewriteDue).length,
-    };
+    const countOf = state => states.filter(each => each.state === state).length;
+    return { newCount: countOf(ENTITY_STATE.due), catchUpCount: countOf(ENTITY_STATE.catchUpDue), rewriteCount: countOf(ENTITY_STATE.rewriteDue) };
+}
+
+/**
+ * The events a catch-up reads (§5.2), from a character's events in story order: those after the newest event its
+ * entry's last write read, by their place in the story; every one for an entry whose record holds no such place.
+ *
+ * @param {object[]} orderedEvents - Oldest first
+ * @param {number|undefined} lastReadEventSortKey - From the record (withWrittenEntry)
+ * @param {(event: object) => number} sortKeyOf - timelineValueOf in EventBase's story-arc-links-core.js
+ * @returns {object[]}
+ */
+export function eventsAfterLastRead(orderedEvents, lastReadEventSortKey, sortKeyOf) {
+    if (typeof lastReadEventSortKey !== 'number') return orderedEvents;
+    return orderedEvents.filter(event => sortKeyOf(event) > lastReadEventSortKey);
 }
 
 /**
@@ -849,37 +897,53 @@ export function namesMatchedTo(record, name) {
         .map(([other]) => other);
 }
 
+const CATCH_UP_LINE = "A catch-up adds the character's events since their entry was last written to the entry as it stands, "
+    + 'one request each, a few when very many came since.';
+const REWRITE_LINE = "A rewrite writes the entry again from the character's whole story so far, one request each, a few for a very long story.";
+
 /**
- * Run now's question (§4.1), in plain words: what it writes, into which lorebook, and the requests it makes on
- * LoreBase's model. The name check comes first only when there are new entries. Lines for confirmPopup, each count
- * and the book's name a value, never part of a fixed sentence.
+ * Run now's question (§4.1), in plain words: what it writes, catches up and rewrites, into which lorebook, and the
+ * requests it makes on LoreBase's model. The name check comes first only when there are new entries. Lines for
+ * confirmPopup, each count and the book's name a value, never part of a fixed sentence.
  *
  * @param {object} run
- * @param {number} run.newCount - From dueCounts; with rewriteCount, at least one above 0
+ * @param {number} run.newCount - From dueCounts; with catchUpCount and rewriteCount, at least one above 0
+ * @param {number} run.catchUpCount
  * @param {number} run.rewriteCount
  * @param {string} run.bookName - The chat's book, or the one its first entry makes
  * @param {boolean} run.isBookMade - Whether that book is made yet
  * @returns {object[]} confirmPopup's lines (src/sillytavern/popup-core.js)
  */
-export function runNowQuestion({ newCount, rewriteCount, bookName, isBookMade }) {
+export function runNowQuestion({ newCount, catchUpCount, rewriteCount, bookName, isBookMade }) {
     const countOf = number => ({ name: String(number) });
     const book = { name: bookName };
+    const updateLines = [...(catchUpCount ? [{ text: CATCH_UP_LINE }] : []), ...(rewriteCount ? [{ text: REWRITE_LINE }] : [])];
     if (!newCount) {
+        const entries = count => (count === 1 ? ' lorebook entry' : ' lorebook entries');
+        const headline = catchUpCount
+            ? [{ text: 'Catch up ' }, countOf(catchUpCount), { text: entries(catchUpCount) }, ...(rewriteCount ? [{ text: ' and rewrite ' }, countOf(rewriteCount)] : []), { text: '?' }]
+            : [{ text: 'Rewrite ' }, countOf(rewriteCount), { text: `${entries(rewriteCount)}?` }];
         return [
-            { icon: 'fa-users-viewfinder', parts: [{ text: 'Rewrite ' }, countOf(rewriteCount), { text: rewriteCount === 1 ? ' lorebook entry?' : ' lorebook entries?' }] },
-            { parts: [{ text: "Each is written again from the character's whole story so far, in this chat's lorebook " }, book, { text: '.' }] },
-            { text: "Each takes one request to LoreBase's model, a few for a very long story, and LoreBase writes their keys and vectors again." },
+            { icon: 'fa-users-viewfinder', parts: headline },
+            ...updateLines,
+            { parts: [{ text: "They are in this chat's lorebook " }, book, { text: ', and LoreBase writes their keys and vectors again.' }] },
         ];
     }
-    const rewrites = rewriteCount
-        ? [{ text: ', and rewrite ' }, countOf(rewriteCount), { text: rewriteCount === 1 ? ' existing one?' : ' existing ones?' }]
-        : [{ text: '?' }];
+    const existing = count => (count === 1 ? ' existing one' : ' existing ones');
+    let updates = [{ text: '?' }];
+    if (catchUpCount && rewriteCount) {
+        updates = [{ text: ', catch up ' }, countOf(catchUpCount), { text: existing(catchUpCount) }, { text: ' and rewrite ' }, countOf(rewriteCount), { text: '?' }];
+    } else if (catchUpCount) {
+        updates = [{ text: ', and catch up ' }, countOf(catchUpCount), { text: `${existing(catchUpCount)}?` }];
+    } else if (rewriteCount) {
+        updates = [{ text: ', and rewrite ' }, countOf(rewriteCount), { text: `${existing(rewriteCount)}?` }];
+    }
     return [
         {
             icon: 'fa-users-viewfinder',
             parts: [
                 { text: newCount === 1 ? 'Write a lorebook entry for ' : 'Write lorebook entries for ' }, countOf(newCount),
-                { text: newCount === 1 ? ' character' : ' characters' }, ...rewrites,
+                { text: newCount === 1 ? ' character' : ' characters' }, ...updates,
             ],
         },
         {
@@ -895,7 +959,7 @@ export function runNowQuestion({ newCount, rewriteCount, bookName, isBookMade })
                 + "keys of the chat's other lorebooks, when they have keys. Each entry then takes one more request, a few for a very "
                 + 'long story, and LoreBase writes their keys and vectors.',
         },
-        ...(rewriteCount ? [{ text: "A rewrite writes an existing entry again from the character's whole story so far, one request each." }] : []),
+        ...updateLines,
     ];
 }
 
@@ -921,14 +985,15 @@ export function splitQuestion({ title, splitName }) {
 }
 
 /**
- * What a run did, for the progress panel and the console (§3's status line): the entries written and rewritten, and how
- * many failed, whose reasons are in the console.
+ * What a run did, for the progress panel and the console (§3's status line): the entries written, caught up and
+ * rewritten, and how many failed, whose reasons are in the console.
  *
- * @param {{written: number, rewritten: number, failed: number}} outcome
+ * @param {{written: number, caughtUp: number, rewritten: number, failed: number}} outcome
  * @returns {string}
  */
-export function runOutcomeText({ written, rewritten, failed }) {
+export function runOutcomeText({ written, caughtUp, rewritten, failed }) {
     const parts = [`${counted(written, 'entry', 'entries')} written`];
+    if (caughtUp) parts.push(`${caughtUp} caught up`);
     if (rewritten) parts.push(`${rewritten} rewritten`);
     if (failed) parts.push(`${failed} failed (see the console)`);
     return parts.join(', ');
