@@ -9,7 +9,9 @@
  *     merge the names on StoryArc's Entity tab; each button names its character and entry; Lock is offered wherever
  *     Entity-Lore would write the character, and a locked row offers Open entry, when it has one, and Lock; Lock's
  *     padlock shows the character's state, open in the success ink while unlocked, closed and pressed once locked,
- *     when pressing it unlocks; an entry due again as its names changed on StoryArc's Entity tab says why,
+ *     when pressing it unlocks; an entry due again as its names changed on StoryArc's Entity tab says why; a row whose
+ *     name is in another book names that entry, a linked one with what the link means, Allow again, and, while
+ *     LoreBase does not read its key in this chat, what it waits for,
  *   - the list pages 20 rows at a time, its page kept within the pages there are, and says why it is empty,
  *   - the notice says what to turn on first while Entity-Lore is off, that it is paused while it is on, and offers the
  *     button to where it is fixed; LoreBase or StoryArc not acting disables the switch, the model not set does not,
@@ -35,7 +37,11 @@ const row = (name, state, extra = {}) => ({ name, otherNames: [], eventCount: 12
 const rowOf = (state, extra) => drawn(entityLoreListMarkup({ rows: [row('Tamsin', state, extra)], pageIndex: 0, isSearching: false }).list);
 const pillsOf = holder => [...holder.querySelectorAll('.vfx-pill')].map(pill => pill.textContent);
 const buttonsOf = holder => [...holder.querySelectorAll('button')].map(button => button.textContent || button.title);
+const subsOf = holder => [...holder.querySelectorAll('.vfx-row-sub')].map(line => line.textContent);
 const LOCK = "Lock: Entity-Lore leaves this character's entry as it is";
+// An entry of another book the chat loads, as the row's lorebookEntry carries it, which LoreBase decides here.
+const YSOLDE = { bookName: 'Harbor Atlas', uid: '7', title: '[NPC] Ysolde', names: ['[NPC] Ysolde'], isDecidedHere: true, isConstant: false };
+const LINK_LINE = "The name check found this is another name of that entry's character, so LoreBase reads it as one of the entry's keys.";
 
 describe("a character's row (§3's table)", () => {
     it.each([
@@ -49,6 +55,7 @@ describe("a character's row (§3's table)", () => {
         [ENTITY_STATE.deletedByUser, {}, ['12 events', 'Deleted by you'], ['Allow again']],
         [ENTITY_STATE.notNamed, {}, ['12 events', 'Not a named character'], ['Allow again']],
         [ENTITY_STATE.sameAs, { sameAs: 'Tamsin Vale' }, ['12 events', 'Same as Tamsin Vale'], ['Allow again']],
+        [ENTITY_STATE.inLorebook, { lorebookEntry: YSOLDE }, ['12 events', 'Already in a lorebook'], ['Allow again']],
     ])('%s: its pills and buttons', (state, extra, pills, buttons) => {
         const holder = rowOf(state, extra);
         expect(pillsOf(holder)).toEqual(pills);
@@ -91,6 +98,24 @@ describe("a character's row (§3's table)", () => {
         expect([...holder.querySelectorAll('.vfx-row-sub')].map(line => line.textContent)).toEqual([
             'Also known as: Tam', "To count the two as one, merge their names on StoryArc's Entity tab.",
         ]);
+    });
+
+    it('names the entry of another book a name is in, by its title or its uid, whether excluded by its name or linked by the name check (E2, E3)', () => {
+        expect(subsOf(rowOf(ENTITY_STATE.excluded, { exclusion: EXCLUSION.lorebook, lorebookEntry: YSOLDE }))).toEqual(['In Harbor Atlas: [NPC] Ysolde']);
+        expect(subsOf(rowOf(ENTITY_STATE.excluded, { exclusion: EXCLUSION.lorebook, lorebookEntry: { ...YSOLDE, title: '' } }))).toEqual(['In Harbor Atlas: entry 7']);
+        expect(subsOf(rowOf(ENTITY_STATE.excluded, { exclusion: EXCLUSION.persona }))).toEqual([]);
+        const linked = rowOf(ENTITY_STATE.inLorebook, { lorebookEntry: YSOLDE });
+        expect(subsOf(linked)).toEqual(['In Harbor Atlas: [NPC] Ysolde', LINK_LINE]);
+        expect(linked.querySelectorAll('.vfx-pill')[1].querySelector('i').className).toContain('fa-link');
+        expect({ ...linked.querySelector('button').dataset }).toEqual({ entityLoreAction: ENTITY_LORE_ACTION.allowAgain, name: 'Tamsin' });
+    });
+
+    it("says on a link that LoreBase reads its key only once the entry is on and selected here, unless SillyTavern always sends it (E2)", () => {
+        expect(subsOf(rowOf(ENTITY_STATE.inLorebook, { lorebookEntry: { ...YSOLDE, isDecidedHere: false } }))).toEqual([
+            'In Harbor Atlas: [NPC] Ysolde', LINK_LINE, 'LoreBase reads Tamsin only while the entry is on and selected for this chat, in Choose entries on the Main tab.',
+        ]);
+        expect(subsOf(rowOf(ENTITY_STATE.inLorebook, { lorebookEntry: { ...YSOLDE, isDecidedHere: false, isConstant: true } })))
+            .toEqual(['In Harbor Atlas: [NPC] Ysolde', LINK_LINE]);
     });
 
     it('shows the names Allow again kept a character apart from', () => {

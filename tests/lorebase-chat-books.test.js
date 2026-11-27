@@ -5,7 +5,8 @@
  * decides (loadDecidedEntries, the count the keys line reads), its saved selection when the book cannot be loaded,
  * whether it is locked to this chat or to the character it loads the book through, by the character's avatar file name,
  * in a group chat between replies each member's books with that member's lock, and whether its row offers Unlink: a
- * list Unlink takes books out of loads it. And the lock a key run
+ * list Unlink takes books out of loads it. And the entries of a book LoreBase decides in the open chat, by the
+ * selection in use here (decidedUidsHere, which Entity-Lore's links read). And the lock a key run
  * makes (§6.1 of InternalProject/Vectfox/plans/executed/lorebook-multi-vector.md): where, read as the run starts, and which of
  * the books it wrote keys for lock to that chat. And Add a lorebook (§6 of lorebook-multi-vector.md, L1 of
  * InternalProject/Vectfox/plans/entity-lore.md): the books the chat does not load, each added to this chat's own books,
@@ -78,7 +79,7 @@ const {
 } = await import('../src/sillytavern/world-info.js');
 const {
     ADD_TO_CHARACTER, ADD_TO_CHAT, addLoreBookToChat, addedChatBookNames, booksToAdd, chatBookLinks, chatBookLocks, chatBookNames,
-    keyRunLockPlace, lockKeyedBooks, newLoreSelectionHere, unlinkLoreBookFromChat, useLoreSelectionHere,
+    decidedUidsHere, keyRunLockPlace, lockKeyedBooks, newLoreSelectionHere, unlinkLoreBookFromChat, useLoreSelectionHere,
 } = await import('../src/features/lorebase/lorebase-chat-books.js');
 const { loreBaseBooksMarkup } = await import('../src/features/settings-panel/worldinfo-page-markup.js');
 const { oneSelectionRecord } = await import('./lorebase-book-record.js');
@@ -189,6 +190,22 @@ describe('chatBookLocks', () => {
         host.context = { characters: host.context.characters, characterId: undefined, chatMetadata: {}, powerUserSettings: {} };
 
         expect(await chatBookLocks()).toEqual({ hasChat: false, books: [bookOf('Tide Tables', 0, false, false, true)] });
+    });
+});
+
+describe('the entries LoreBase decides in the open chat (decidedUidsHere)', () => {
+    it('names those of the selection in use here that LoreBase decides, and none for a book with no selection in use here', () => {
+        host.settings.vectfox.lorebase_books = {
+            'Harbor Atlas': recordOf({ selected: ['0', '1', '2'], chats: ['chat-harbor'] }),
+            'Tide Tables': recordOf({ selected: ['2'], chats: ['chat-other'] }),
+        };
+        const harbor = { entries: {
+            0: { uid: 0, content: 'The harbor bells.' }, 1: { uid: 1, content: 'Off.', disable: true }, 2: { uid: 2, content: 'Always sent.', constant: true },
+            3: { uid: 3, content: 'Not selected.' },
+        } };
+        expect(decidedUidsHere('Harbor Atlas', harbor)).toEqual(new Set(['0']));
+        expect(decidedUidsHere('Tide Tables', bookWith(2))).toEqual(new Set());
+        expect(decidedUidsHere('Voyage Log', null)).toEqual(new Set());
     });
 });
 

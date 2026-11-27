@@ -30,7 +30,13 @@
  *     whatever is switched off, after a run under way ends, in order; a split changes nothing for a name the name check
  *     matched; a failed Allow again says why,
  *   - the changes to the record made outside a run go one at a time, Lock's too, and a run reads the record once they
- *     are made.
+ *     are made,
+ *   - the name check is shown the titles of the chat's other books, and a name it says is another name of one's
+ *     character gets no entry: the record keeps the link, the author's book stays as it was, and the name joins that
+ *     entry's LoreBase keys at the run's end and again at each run, never while LoreBase writes or before the entry has
+ *     keys; a link whose book the chat no longer loads reads as due; a title two books share links nothing; Allow again
+ *     takes the name off those keys and keeps the two apart, or says why it failed (E1 to E3 of
+ *     InternalProject/Vectfox/plans/entity-lore-names-across-languages.md).
  *
  * Names are made up and match no story.
  */
@@ -38,7 +44,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const host = vi.hoisted(() => ({
     settings: {}, chatId: '', worldNames: [], books: {}, collectionMeta: {}, events: [], merges: {}, chatBooks: [], characters: [],
-    selections: {}, chatChangeHandlers: new Set(), isYes: true, isLoreBaseWriting: false, inUseCollectionId: '', ask: null,
+    selections: {}, chatChangeHandlers: new Set(), isYes: true, isLoreBaseWriting: false, inUseCollectionId: '', ask: null, loreBaseKeys: {},
 }));
 
 vi.mock('../src/sillytavern/log.js', () => ({ log: { warn: vi.fn(), error: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn() } }));
@@ -117,6 +123,8 @@ vi.mock('../src/features/lorebase/index.js', () => ({
     askTextOnLoreBase: vi.fn(() => (...args) => host.ask(...args)),
     chatBookNames: () => [...host.chatBooks],
     chatCharacters: () => host.characters,
+    // What LoreBase decides here: the entries the selection in use holds.
+    decidedUidsHere: vi.fn(bookName => new Set((host.selections[bookName]?.selectedEntries ?? []).map(String))),
     ensureLoreSelection: vi.fn(bookName => (host.selections[bookName] ??= { id: 'selection-1', selectedEntries: [] })),
     // A character is a token here, so a test makes a long arc with long events.
     estimatedTokens: text => text.length,
@@ -133,6 +141,19 @@ vi.mock('../src/features/lorebase/index.js', () => ({
     setLoreBookSelection: vi.fn((bookName, _id, uids) => { host.selections[bookName].selectedEntries = [...new Set([...uids].map(String))]; }),
     selectedUidsOf: selection => [...(selection?.selectedEntries ?? [])],
     setLoreSelectionLock: vi.fn(),
+    // LoreBase's stored keys (host.loreBaseKeys: book, uid, keys), changed as it changes them: a name added or taken off in
+    // any case, an entry with no keys left as it is, refused while LoreBase writes.
+    setNamesInLoreBaseKeys: vi.fn(async (changes) => {
+        if (host.isLoreBaseWriting) throw new Error('LoreBase is already writing keys or vectors; the progress panel shows them. Wait for it, or press Stop there.');
+        return changes.map(({ bookName, uid, name, isHeld }) => {
+            const keys = host.loreBaseKeys[bookName]?.[uid];
+            if (!keys) return 'no_keys';
+            const isName = key => key.toLowerCase() === name.toLowerCase();
+            if (keys.some(isName) === isHeld) return 'unchanged';
+            host.loreBaseKeys[bookName][uid] = isHeld ? [...keys, name] : keys.filter(key => !isName(key));
+            return 'changed';
+        });
+    }),
     writeMissing: vi.fn(async () => ({})),
 }));
 
@@ -143,7 +164,7 @@ const { notifyInvalidModel } = await import('../src/shared/model-config-notifier
 const { log } = await import('../src/sillytavern/log.js');
 const { readChatStoryEvents } = await import('../src/features/eventbase/index.js');
 const { selectedUidsOf } = await import('../src/features/lorebase/lorebase-selections-core.js');
-const { addLoreBookToChat, regenerateKeysOfEntries, saveEntryWithVectors, writeMissing } = await import('../src/features/lorebase/index.js');
+const { addLoreBookToChat, regenerateKeysOfEntries, saveEntryWithVectors, setNamesInLoreBaseKeys, writeMissing } = await import('../src/features/lorebase/index.js');
 const {
     allowEntityLoreAgain, lastEntityLoreRun, lockEntityLoreCharacter, onEntityLoreRunEnded, onEntityNameSplit, onEntityNamesMerged, onEventBaseRunEnded,
     readEntityLoreCharacters, runEntityLoreNow, writeEntityLoreEntryNow,
@@ -192,7 +213,7 @@ beforeEach(() => {
         settings: { entity_lore_enabled: true, story_arc_mode_enabled: true, lorebase_enabled: true, vector_backend: 'qdrant' },
         chatId: CHAT_ID, worldNames: ['Harbor Atlas'], books: { 'Harbor Atlas': { entries: { 0: { uid: 0, comment: 'Captain Brannoc', key: ['Brannoc'], content: 'A captain.' } } } },
         collectionMeta: {}, events: [], merges: {}, chatBooks: ['Harbor Atlas'], selections: {}, isYes: true, isLoreBaseWriting: false,
-        inUseCollectionId: 'harbor-collection', ask: answering(),
+        inUseCollectionId: 'harbor-collection', ask: answering(), loreBaseKeys: {},
         characters: [{ name: 'Keeper Orrin', description: 'Keeper Orrin keeps the lighthouse with his cat, Biscuit.' }],
     });
     host.chatChangeHandlers.clear();
@@ -821,6 +842,106 @@ describe("names merged or split on StoryArc's Entity tab, and a matched name all
         }
         expect(createLorebookEntry.mock.calls.map(([, entry]) => entry.comment)).toEqual(['Hollis', 'Corin']);
         expect(record().entries.Tamsin).toMatchObject({ state: 'written', uid: '0' });
+    });
+});
+
+describe('names in another book the chat loads (E1 to E3 of entity-lore-names-across-languages.md)', () => {
+    const YSOLDE = { uid: 1, comment: '[NPC] Ysolde', key: ['Ysolde'], content: 'A harbor witch.' };
+    const LINK = { state: 'in_lorebook', bookName: 'Harbor Atlas', uid: '1', title: '[NPC] Ysolde' };
+    const STILL_WRITING = 'LoreBase is already writing keys or vectors; the progress panel shows them. Wait for it, or press Stop there.';
+    const checkText = () => host.ask.mock.calls.find(([messages]) => isCheck(messages))[0][1].content;
+
+    beforeEach(() => {
+        host.books['Harbor Atlas'].entries[1] = structuredClone(YSOLDE);
+        host.loreBaseKeys = { 'Harbor Atlas': { 1: ['Ysolde', 'harbor witch'] } };
+    });
+
+    it("shows the check the other books' titles, and links a name it says is another name of one: no entry of its own, the author's book as it was, the name in that entry's LoreBase keys", async () => {
+        host.events = [...eventsNaming('Isolde', 12), ...eventsNaming('Tamsin', 10)];
+        host.ask = answering({ Isolde: { answer: 'same_as', same_as: 'Ysolde' } });
+        await runAfterEventBase();
+
+        expect(checkText()).toContain('Entries already written for this story, by title:\n- Captain Brannoc\n- [NPC] Ysolde\n');
+        expect(record().entries.Isolde).toEqual(LINK);
+        expect(createLorebookEntry.mock.calls.map(([, fields]) => fields.comment)).toEqual(['Tamsin']);
+        expect(host.books['Harbor Atlas'].entries[1]).toEqual(YSOLDE);
+        expect(host.loreBaseKeys['Harbor Atlas'][1]).toEqual(['Ysolde', 'harbor witch', 'Isolde']);
+        expect(log.lifecycle).toHaveBeenCalledWith(expect.stringContaining('Isolde same_as [NPC] Ysolde in "Harbor Atlas"'));
+        expect((await readEntityLoreCharacters()).states.find(each => each.name === 'Isolde')).toMatchObject({
+            state: 'in_lorebook', lorebookEntry: { bookName: 'Harbor Atlas', uid: '1', title: '[NPC] Ysolde', isDecidedHere: false, isConstant: false },
+        });
+    });
+
+    it('adds the name again at a later run once its keys were rewritten, but never while LoreBase writes, or to an entry with no keys yet', async () => {
+        host.events = eventsNaming('Isolde', 12);
+        host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: '', entries: { Isolde: LINK } } };
+        await runAfterEventBase();
+        expect(host.ask).not.toHaveBeenCalled();
+        expect(host.loreBaseKeys['Harbor Atlas'][1]).toEqual(['Ysolde', 'harbor witch', 'Isolde']);
+
+        host.loreBaseKeys['Harbor Atlas'][1] = ['Ysolde', 'witch of the harbor'];
+        host.isLoreBaseWriting = true;
+        setNamesInLoreBaseKeys.mockClear();
+        await runAfterEventBase();
+        expect(host.loreBaseKeys['Harbor Atlas'][1]).toEqual(['Ysolde', 'witch of the harbor']);
+        // Asked nothing, as LoreBase's guard would bring its panel up.
+        expect(setNamesInLoreBaseKeys).not.toHaveBeenCalled();
+        host.isLoreBaseWriting = false;
+        await runAfterEventBase();
+        expect(host.loreBaseKeys['Harbor Atlas'][1]).toEqual(['Ysolde', 'witch of the harbor', 'Isolde']);
+
+        delete host.loreBaseKeys['Harbor Atlas'][1];
+        await runAfterEventBase();
+        expect(host.loreBaseKeys['Harbor Atlas']).toEqual({});
+    });
+
+    it('reads a link as due once the chat no longer loads its book, and asks the check about the name again', async () => {
+        host.events = eventsNaming('Isolde', 12);
+        host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: '', entries: { Isolde: LINK } } };
+        host.chatBooks = [];
+        expect((await readEntityLoreCharacters()).states[0]).toMatchObject({ name: 'Isolde', state: 'due' });
+        await runAfterEventBase();
+        expect(checkedNames()).toEqual(['Isolde']);
+        expect(record().entries.Isolde).toMatchObject({ state: 'written', uid: '0' });
+    });
+
+    it('links nothing to a title two books share: the answer is not read, and the name is written as its own entry', async () => {
+        host.worldNames.push('Tide Tables');
+        host.chatBooks.push('Tide Tables');
+        host.books['Tide Tables'] = { entries: { 4: { uid: 4, comment: '[npc] ysolde', key: [], content: 'Another Ysolde.' } } };
+        host.events = eventsNaming('Isolde', 12);
+        host.ask = answering({ Isolde: { answer: 'same_as', same_as: '[NPC] Ysolde' } });
+        await runAfterEventBase();
+        expect(checkText()).toContain('- Captain Brannoc\n- [NPC] Ysolde\n\n');
+        expect(log.warn).toHaveBeenCalledWith('[VectFox-EntityLore] The name check: 1 answer could not be read; those names stay due');
+        expect(record().entries.Isolde).toMatchObject({ state: 'written' });
+        expect(host.loreBaseKeys['Harbor Atlas'][1]).toEqual(['Ysolde', 'harbor witch']);
+    });
+
+    it("takes a linked name off that entry's LoreBase keys on Allow again and keeps the two apart, so the check's same_as to it reads as named", async () => {
+        host.events = eventsNaming('Isolde', 12);
+        host.loreBaseKeys['Harbor Atlas'][1].push('Isolde');
+        host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: '', entries: { Isolde: LINK } } };
+        expect(await allowEntityLoreAgain('isolde')).toEqual({ problem: null });
+        expect(host.loreBaseKeys['Harbor Atlas'][1]).toEqual(['Ysolde', 'harbor witch']);
+        expect(record()).toEqual({ bookName: '', entries: {}, lockedNames: [], keptApart: [{ name: 'isolde', from: '[NPC] Ysolde' }] });
+        expect(host.books['Harbor Atlas'].entries[1]).toEqual(YSOLDE);
+
+        host.ask = answering({ Isolde: { answer: 'same_as', same_as: 'Ysolde' } });
+        await runAfterEventBase();
+        expect(checkText()).toContain('\n   Not the same character as [NPC] Ysolde.\n');
+        expect(record().entries.Isolde).toMatchObject({ state: 'written' });
+        expect(host.loreBaseKeys['Harbor Atlas'][1]).toEqual(['Ysolde', 'harbor witch']);
+    });
+
+    it('says why Allow again on a link failed while LoreBase writes, the record and the keys as they were', async () => {
+        host.loreBaseKeys['Harbor Atlas'][1].push('Isolde');
+        const entityLore = { bookName: '', entries: { Isolde: LINK } };
+        host.collectionMeta[REGISTRY_KEY] = { entityLore };
+        host.isLoreBaseWriting = true;
+        expect(await allowEntityLoreAgain('Isolde')).toEqual({ problem: `Allow again failed: ${STILL_WRITING}` });
+        expect(record()).toEqual(entityLore);
+        expect(host.loreBaseKeys['Harbor Atlas'][1]).toEqual(['Ysolde', 'harbor witch', 'Isolde']);
     });
 });
 

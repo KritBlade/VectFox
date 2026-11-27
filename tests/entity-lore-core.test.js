@@ -16,7 +16,12 @@
  *     but none once the two are merged,
  *   - an entry's hash ignores line endings and the ends of its text, so SillyTavern's own save is not the user's edit,
  *   - a character is excluded by any of its names, in any case: the chat's character, the persona, another lorebook's
- *     entry, or the card's description,
+ *     entry, or the card's description; a row excluded for a lorebook names the first entry its name is in,
+ *   - a name the name check linked to an entry of another book reads as in that book while the chat holds the entry
+ *     under its title, and as no record once it does not; the links that hold are listed for their keys; Allow again
+ *     on one keeps the name apart from that title and names the entry to take it off; a missing book keeps them,
+ *   - the name check is shown Entity-Lore's titles, then the other books', each once in any case, the titles of more
+ *     than one entry named,
  *   - each character's state follows the record first, then the exclusions and Write at, and a rewrite falls due at
  *     the count it was written at plus Rewrite every, or at once when its names changed, on StoryArc's Entity tab or by
  *     Allow again,
@@ -38,16 +43,20 @@ import { describe, it, expect } from 'vitest';
 import {
     ENTITY_LORE_FIX_AT, ENTITY_LORE_NEED, ENTITY_STATE, ENTRIES_PER_AUTOMATIC_RUN, EVENT_SLICE_TOKENS, EXCLUSION, NAMES_CHANGED_BY, RECORD_STATE,
     REWRITE_EVERY_EVENTS, WRITE_AT_EVENTS, dueCounts, entityLoreBlocker, entityLoreStates, entriesForName, entriesForRun, entryContentHash,
-    entryKeysOf, exclusionOf, isEntityLoreOn,
-    isCharacterLocked, isWrittenAfreshAfter, readEntityLoreRecord, recordOfName, rewriteEveryEventsOf, runNowQuestion, sliceEventLines, splitQuestion,
-    withBookName,
-    withBookStartedOver, withCharacterLocked, withMergedEntry, withMissingEntriesDeleted, withNameAllowedAgain, withNameCheckAnswer, withOneEventTime,
-    withSplitName, withWrittenEntry,
+    entryKeysOf, exclusionOf, heldLinks, isEntityLoreOn,
+    isCharacterLocked, isWrittenAfreshAfter, nameCheckTitles, readEntityLoreRecord, recordOfName, rewriteEveryEventsOf, runNowQuestion,
+    sliceEventLines, splitQuestion, withBookName,
+    withBookStartedOver, withCharacterLocked, withMergedEntry, withMissingEntriesDeleted, withNameAllowedAgain, withNameCheckAnswer,
+    withNameInLorebook, withOneEventTime, withSplitName, withWrittenEntry,
     writeAtEventsOf,
 } from '../src/features/entity-lore/entity-lore-core.js';
 
 const row = (name, eventCount, otherNames = []) => ({ name, otherNames, eventCount });
 const emptyRecord = () => readEntityLoreRecord(undefined);
+// An entry of another book the chat loads, as chatExclusions in entity-lore.js reads it.
+const loreEntry = (bookName, uid, title, keys = [], standing = {}) => ({
+    bookName, uid: String(uid), title, names: [title, ...keys].filter(Boolean), isDecidedHere: false, isConstant: false, ...standing,
+});
 
 describe('the settings', () => {
     it('keep Entity-Lore off unless it was turned on', () => {
@@ -101,7 +110,7 @@ describe('the record', () => {
     it('forgets a kept name in any case on Allow again', () => {
         const record = withNameCheckAnswer(withNameCheckAnswer(emptyRecord(), 'Bram', { state: RECORD_STATE.notNamed }), 'Tess', { state: RECORD_STATE.notNamed });
         expect(withNameAllowedAgain(record, 'BRAM', []))
-            .toEqual({ record: { ...record, entries: { Tess: { state: 'not_named' } } }, keptApartFrom: null, matchedEntryUid: null });
+            .toEqual({ record: { ...record, entries: { Tess: { state: 'not_named' } } }, keptApartFrom: null, matchedEntryUid: null, lorebookEntry: null });
     });
 
     it('marks deleted only the written entries whose uid the book no longer holds', () => {
@@ -144,7 +153,7 @@ describe('exclusionOf', () => {
     const chat = {
         characterNames: ['Captain Oswin', 'Wren'],
         personaName: 'Ash',
-        loreNames: ['Harbor Watch', 'Tidewardens'],
+        loreEntries: [loreEntry('Harbor Atlas', 1, 'Harbor Watch'), loreEntry('Harbor Atlas', 2, '', ['Tidewardens'])],
         isInCardDescription: name => ['Gull'].includes(name),
     };
 
@@ -243,6 +252,67 @@ describe('entityLoreStates', () => {
         expect(entityLoreStates(rows, { record: emptyRecord(), ...options })).toEqual(first);
         expect(first[0]).toMatchObject(rows[0]);
         expect(rows[0]).toEqual(row('Mira', 10, ['Mirabel']));
+    });
+});
+
+describe('names in another book the chat loads (E1 to E3 of entity-lore-names-across-languages.md)', () => {
+    const options = { writeAt: 10, rewriteEvery: 30 };
+    const ysolde = loreEntry('Harbor Atlas', 7, '[NPC] Ysolde', ['Ysolde Marr'], { isDecidedHere: true });
+    const loreEntries = [loreEntry('Harbor Atlas', 3, 'Harbor Watch', ['Tidewardens']), ysolde, loreEntry('Tide Tables', 2, 'Tidewardens')];
+    const linkedRecord = () => withNameInLorebook(emptyRecord(), 'Isolde', { bookName: 'Harbor Atlas', uid: 7, title: '[NPC] Ysolde' });
+
+    it('names the first entry, in book order, whose title or key holds an excluded name (E3)', () => {
+        const [excluded] = entityLoreStates([row('Corrie', 30, ['tidewardens'])], { record: emptyRecord(), ...options, chat: { loreEntries } });
+        expect(excluded).toMatchObject({ state: ENTITY_STATE.excluded, exclusion: EXCLUSION.lorebook, lorebookEntry: loreEntries[0] });
+        expect(entityLoreStates([row('Corrie', 30)], { record: emptyRecord(), ...options, chat: { characterNames: ['Corrie'], loreEntries } })[0])
+            .not.toHaveProperty('lorebookEntry');
+    });
+
+    it("records a link to an entry of another book, which reads as in that book while the chat holds the entry under its title, in any case (E2)", () => {
+        const record = linkedRecord();
+        expect(record.entries).toEqual({ Isolde: { state: 'in_lorebook', bookName: 'Harbor Atlas', uid: '7', title: '[NPC] Ysolde' } });
+        expect(readEntityLoreRecord(record).entries).toEqual(record.entries);
+        const [linked] = entityLoreStates([row('Isolde', 30)], { record, ...options, chat: { loreEntries } });
+        expect(linked).toMatchObject({ state: ENTITY_STATE.inLorebook, lorebookEntry: ysolde });
+        expect(entriesForName([linked], 'Isolde')).toEqual([]);
+        expect(dueCounts([linked])).toEqual({ newCount: 0, rewriteCount: 0 });
+        expect(heldLinks(record, loreEntries)).toEqual([{ name: 'Isolde', lorebookEntry: ysolde }]);
+        const otherCase = [{ ...ysolde, title: '[npc] YSOLDE' }];
+        expect(entityLoreStates([row('Isolde', 30)], { record, ...options, chat: { loreEntries: otherCase } })[0].state).toBe(ENTITY_STATE.inLorebook);
+    });
+
+    it('reads a link as no record once the chat no longer loads its book, or the book holds no entry at its uid under its title', () => {
+        const record = linkedRecord();
+        for (const held of [[], [{ ...ysolde, uid: '8' }], [{ ...ysolde, title: '[NPC] Ysolde the Elder' }], [{ ...ysolde, bookName: 'Tide Tables' }]]) {
+            expect(entityLoreStates([row('Isolde', 30), row('Bram', 3)], { record, ...options, chat: { loreEntries: held } }).map(each => each.state))
+                .toEqual([ENTITY_STATE.due, ENTITY_STATE.waiting]);
+            expect(heldLinks(record, held)).toEqual([]);
+        }
+    });
+
+    it("keeps a linked name apart from its entry's title once Allow again forgets it, and names the entry to take it off (D18)", () => {
+        const record = linkedRecord();
+        const allowed = withNameAllowedAgain(record, 'ISOLDE', []);
+        expect(allowed).toEqual({
+            record: { ...record, entries: {}, keptApart: [{ name: 'ISOLDE', from: '[NPC] Ysolde' }] }, keptApartFrom: '[NPC] Ysolde', matchedEntryUid: null,
+            lorebookEntry: { bookName: 'Harbor Atlas', uid: '7' },
+        });
+        expect(entityLoreStates([row('Isolde', 30)], { record: allowed.record, ...options, chat: { loreEntries } })[0])
+            .toMatchObject({ state: ENTITY_STATE.due, keptApartFrom: ['[NPC] Ysolde'] });
+    });
+
+    it('keeps a link when the record starts over for a missing book', () => {
+        const record = withWrittenEntry(linkedRecord(), 'Mira', { uid: 1, writtenAtEvents: 12, content: 'a' });
+        expect(withBookStartedOver(record).entries).toEqual({ Isolde: record.entries.Isolde });
+    });
+
+    it("shows the name check Entity-Lore's titles, then the other books', each once in any case, and names those of more than one entry (E1)", () => {
+        let record = withWrittenEntry(emptyRecord(), 'Mira', { uid: 1, writtenAtEvents: 12, content: 'a' });
+        record = withNameCheckAnswer(record, 'Corrie', { state: RECORD_STATE.sameAs, sameAs: 'Mira' });
+        const entries = [loreEntry('Harbor Atlas', 3, 'Harbor Watch'), loreEntry('Harbor Atlas', 4, ''), loreEntry('Tide Tables', 2, 'harbor watch'),
+            loreEntry('Tide Tables', 5, ' MIRA '), ysolde];
+        expect(nameCheckTitles(record, entries)).toEqual({ entryTitles: ['Mira', 'Harbor Watch', '[NPC] Ysolde'], sharedTitles: ['Mira', 'Harbor Watch'] });
+        expect(nameCheckTitles(emptyRecord(), [])).toEqual({ entryTitles: [], sharedTitles: [] });
     });
 });
 
@@ -402,12 +472,13 @@ describe("names merged or split on StoryArc's Entity tab, and a matched name all
         const allowed = withNameAllowedAgain(record, 'MARROW', [2]);
         expect(allowed).toEqual({
             record: { ...record, entries: { Tamsin: { ...record.entries.Tamsin, namesChangedBy: NAMES_CHANGED_BY.allowAgain } }, keptApart: [{ name: 'MARROW', from: 'Tamsin' }] },
-            keptApartFrom: 'Tamsin', matchedEntryUid: '2',
+            keptApartFrom: 'Tamsin', matchedEntryUid: '2', lorebookEntry: null,
         });
         const mergedAgain = withMergedEntry(allowed.record, { keptName: 'Tamsin', otherNames: ['Corin'] }, [2]);
         expect(recordOfName(mergedAgain.record, 'Tamsin').namesChangedBy).toBe(NAMES_CHANGED_BY.allowAgain);
         expect(withNameAllowedAgain(record, 'Marrow', [])).toEqual({
             record: { ...record, entries: { Tamsin: record.entries.Tamsin }, keptApart: [{ name: 'Marrow', from: 'tamsin' }] }, keptApartFrom: 'tamsin', matchedEntryUid: null,
+            lorebookEntry: null,
         });
         const matchedAgain = withNameCheckAnswer(allowed.record, 'Marrow', { state: RECORD_STATE.sameAs, sameAs: 'Tamsin' });
         expect(withNameAllowedAgain(matchedAgain, 'marrow', [2]).record.keptApart).toEqual([{ name: 'MARROW', from: 'Tamsin' }]);

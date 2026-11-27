@@ -5,17 +5,18 @@
  * Which named characters get a lorebook entry, and when one is written again
  * (InternalProject/Vectfox/plans/entity-lore.md §4.2, §4.4, §4.5, §5, §6): the
  * switch and the two counts, read from settings and kept in their ranges; what
- * else keeps it from running; the names a chat already has a place for; where
- * each counted character stands, which the Entity-Lore tab's rows and a run
- * both read, so the two never disagree; the entries a run writes, and the one a
- * row's button writes; an entry's keys; the record kept in the
- * collection's metadata, the characters the user locked in it, the names
- * Allow again kept apart, and what a merge of names on StoryArc's Entity tab,
- * a split, or Allow again makes of it; an event with one time, as an entry's
- * call reads it; the cut of a character's events into slices one call can
- * read; and what a run names:
- * its book, the titles it wrote, the names matched to an entry, Run now's
- * question and the run's outcome.
+ * else keeps it from running; the names a chat already has a place for, and
+ * the entry of another book that names each; where each counted character
+ * stands, which the Entity-Lore tab's rows and a run both read, so the two
+ * never disagree; the entries a run writes, and the one a row's button writes;
+ * an entry's keys; the record kept in the collection's metadata, the
+ * characters the user locked in it, the names Allow again kept apart, the
+ * names the name check linked to an entry of another book, and what a merge of
+ * names on StoryArc's Entity tab, a split, or Allow again makes of it; an event
+ * with one time, as an entry's call reads it; the cut of a character's events
+ * into slices one call can read; and what a run names: its book, the titles
+ * the name check is shown, the names matched to an entry, the links that hold,
+ * Run now's question and the run's outcome.
  *
  * Pure: no host or feature imports. What another feature knows, such as
  * whether the card's description holds a name or how many tokens a text is,
@@ -42,8 +43,12 @@ export const ENTRIES_PER_AUTOMATIC_RUN = 5;
 /** The most tokens of events one call reads; more go in slices, each read by a notes call (§4.4). */
 export const EVENT_SLICE_TOKENS = 30000;
 
-/** What the record says of a kept name (§6). */
-export const RECORD_STATE = Object.freeze({ written: 'written', notNamed: 'not_named', sameAs: 'same_as', deleted: 'deleted' });
+/**
+ * What the record says of a kept name (§6): an entry written for it; not a named character; another name of an entry
+ * Entity-Lore wrote, or of another candidate; deleted by the user; or another name of the character of an entry in
+ * another book the chat loads, which the name check linked it to (E2 of entity-lore-names-across-languages.md).
+ */
+export const RECORD_STATE = Object.freeze({ written: 'written', notNamed: 'not_named', sameAs: 'same_as', deleted: 'deleted', inLorebook: 'in_lorebook' });
 const RECORD_STATES = new Set(Object.values(RECORD_STATE));
 /**
  * How a written entry's character changed its names since the entry was written, which makes it due again (D17): a
@@ -70,14 +75,24 @@ export const ENTITY_STATE = Object.freeze({
     deletedByUser: 'deleted_by_user',
     notNamed: 'not_named',
     sameAs: 'same_as',
+    inLorebook: 'in_lorebook',
     excluded: 'excluded',
     locked: 'locked',
 });
+
+/**
+ * An entry of a book the chat loads that Entity-Lore did not write, as the exclusions, the name check and a link read
+ * it: its book, uid and title, the names it holds (its title and keys), whether LoreBase decides it in the chat, so Jev
+ * reads its LoreBase keys there, and whether SillyTavern always sends it.
+ * @typedef {{bookName: string, uid: string, title: string, names: string[], isDecidedHere: boolean, isConstant: boolean}} LoreEntry
+ */
 
 /** Whether two names are one, trimmed and in any case: how the record, the exclusions, the keys and the name check match names. */
 export const isSameName = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
 const isPlainObject = value => typeof value === 'object' && value !== null && !Array.isArray(value);
 const isNameText = value => typeof value === 'string' && Boolean(value.trim());
+/** A counted character's names: its kept name, then its other names. */
+const namesOf = row => [row.name, ...(row.otherNames ?? [])];
 
 function wholeNumberIn(value, { default: fallback, min, max }) {
     const number = Number.parseInt(value, 10);
@@ -262,6 +277,49 @@ export function withNameCheckAnswer(record, name, { state, sameAs = '' }) {
 }
 
 /**
+ * The record with the name check's link of a kept name to an entry in another book the chat loads (E2 of
+ * entity-lore-names-across-languages.md): another name of that entry's character, which gets no entry of its own, and
+ * which joins that entry's LoreBase keys. The entry is kept by its book, uid and title, by which the link holds
+ * (heldLinkOf).
+ *
+ * @param {object} record
+ * @param {string} name
+ * @param {{bookName: string, uid: string|number, title: string}} lorebookEntry
+ * @returns {object} a new record
+ */
+export function withNameInLorebook(record, name, { bookName, uid, title }) {
+    return withEntry(record, name, { state: RECORD_STATE.inLorebook, bookName, uid: String(uid), title });
+}
+
+/**
+ * The entry a link names while it holds (E2): the chat still loads its book, and the book holds an entry at its uid
+ * under the title it was linked by, in any case. A link whose entry is gone, renamed or another entry's now reads as no
+ * record, so the name is counted as if new and asked about again.
+ *
+ * @param {{bookName: string, uid: string, title: string}} link - A record entry in RECORD_STATE.inLorebook
+ * @param {LoreEntry[]} loreEntries
+ * @returns {LoreEntry|null}
+ */
+function heldLinkOf(link, loreEntries) {
+    return loreEntries.find(each => each.bookName === link.bookName && each.uid === String(link.uid) && isSameName(each.title, link.title)) ?? null;
+}
+
+/**
+ * The record's links that hold (E2), each kept name with the entry it is linked to: the names a run adds to those
+ * entries' LoreBase keys again, as a Regenerate keys rewrites every key.
+ *
+ * @param {{entries: Record<string, object>}} record
+ * @param {LoreEntry[]} loreEntries
+ * @returns {Array<{name: string, lorebookEntry: LoreEntry}>}
+ */
+export function heldLinks(record, loreEntries) {
+    return Object.entries(record.entries)
+        .filter(([, entry]) => entry.state === RECORD_STATE.inLorebook)
+        .map(([name, entry]) => ({ name, lorebookEntry: heldLinkOf(entry, loreEntries) }))
+        .filter(link => link.lorebookEntry);
+}
+
+/**
  * The record without a kept name's entry, in any case: Allow again forgets the name (withNameAllowedAgain), and a merge
  * moves its entry to the kept name (withMergedEntry).
  */
@@ -370,22 +428,33 @@ export function withSplitName(record, { keptName, splitName }, bookUids) {
  * The record after Allow again (§3, §6): it forgets a kept name, which is counted as if new, due at Write at and asked
  * about by the next name check. A name the name check matched to an entry (§4.3) no longer reads as that entry's: the
  * two are kept apart (D18), so the name check never matches them again, and the entry, written and held by the book
- * still, is due again and written afresh (D17), as its text holds the name's events.
+ * still, is due again and written afresh (D17), as its text holds the name's events. A name it linked to an entry in
+ * another book (E2) is kept apart from that entry's title, and its caller takes the name off that entry's LoreBase keys.
  *
  * @param {object} record
  * @param {string} name - The row's kept name
  * @param {Array<string|number>} bookUids - The uids of the entries the book holds now
- * @returns {{record: object, keptApartFrom: string|null, matchedEntryUid: string|null}} record: a new record;
- *   keptApartFrom: the title the name was matched to, now kept apart from it; matchedEntryUid: the uid of that title's
- *   entry, when it is marked to be written afresh
+ * @returns {{record: object, keptApartFrom: string|null, matchedEntryUid: string|null,
+ *   lorebookEntry: {bookName: string, uid: string}|null}} record: a new record; keptApartFrom: the title the name was
+ *   matched or linked to, now kept apart from it; matchedEntryUid: the uid of that title's entry, when it is marked to be
+ *   written afresh; lorebookEntry: the entry of another book the name was linked to
  */
 export function withNameAllowedAgain(record, name, bookUids) {
     const entry = recordOfName(record, name);
     const forgotten = withEntryForgotten(record, name);
-    if (entry?.state !== RECORD_STATE.sameAs || !entry.sameAs) return { record: forgotten, keptApartFrom: null, matchedEntryUid: null };
+    if (entry?.state === RECORD_STATE.inLorebook) {
+        return {
+            record: withKeptApart(forgotten, { name, from: entry.title }), keptApartFrom: entry.title, matchedEntryUid: null,
+            lorebookEntry: { bookName: entry.bookName, uid: entry.uid },
+        };
+    }
+    if (entry?.state !== RECORD_STATE.sameAs || !entry.sameAs) return { record: forgotten, keptApartFrom: null, matchedEntryUid: null, lorebookEntry: null };
     const changed = withEntryNamesChanged(forgotten, entry.sameAs, NAMES_CHANGED_BY.allowAgain, bookUids);
     const keptApartFrom = changed?.title ?? entry.sameAs;
-    return { record: withKeptApart(changed?.record ?? forgotten, { name, from: keptApartFrom }), keptApartFrom, matchedEntryUid: changed?.uid ?? null };
+    return {
+        record: withKeptApart(changed?.record ?? forgotten, { name, from: keptApartFrom }), keptApartFrom, matchedEntryUid: changed?.uid ?? null,
+        lorebookEntry: null,
+    };
 }
 
 /** The record with two names kept apart (D18), each pair once, in either order and any case. */
@@ -396,15 +465,15 @@ function withKeptApart(record, pair) {
 }
 
 /**
- * The names a counted character is kept apart from (D18): Allow again on a Same as row said the two are not one
- * character, so the name check never matches either to the other (§4.3). From each pair the row holds one side of, by
- * any of its names, the other side with every name of its character as StoryArc's merges make it; none from a pair
- * the row holds both sides of, as merging the two names counts them as one.
+ * The names a counted character is kept apart from (D18): Allow again on a Same as row, or on a row the name check
+ * linked to an entry of another book, said the two are not one character, so the name check never matches either to
+ * the other (§4.3). From each pair the row holds one side of, by any of its names, the other side with every name of
+ * its character as StoryArc's merges make it; none from a pair the row holds both sides of, as merging the two names
+ * counts them as one.
  *
  * @returns {string[]} each name once, in any case
  */
 function namesKeptApartFrom(record, row, rows) {
-    const namesOf = each => [each.name, ...(each.otherNames ?? [])];
     const holds = (each, name) => namesOf(each).some(other => isSameName(other, name));
     const others = record.keptApart.flatMap(({ name, from }) => (holds(row, name) === holds(row, from) ? [] : [holds(row, name) ? from : name]));
     const apart = [];
@@ -420,7 +489,8 @@ function namesKeptApartFrom(record, row, rows) {
 /**
  * The record starting over after its book went missing, as when the user deleted it (§6): it names no book, so the
  * next entry makes one, and its written entries are forgotten, so each is due again. What the user and the name check
- * decided about a name stays: deleted, not a named character, and another name of an entry.
+ * decided about a name stays: deleted, not a named character, another name of an entry, and a link to an entry of
+ * another book.
  *
  * @param {object} record
  * @returns {object} a new record
@@ -452,18 +522,31 @@ export function withBookName(record, bookName) {
  * @param {object} chat
  * @param {string[]} [chat.characterNames] - The chat's character, or a group chat's members
  * @param {string} [chat.personaName]
- * @param {string[]} [chat.loreNames] - The titles and keys of entries in the chat's books that Entity-Lore did not write
+ * @param {LoreEntry[]} [chat.loreEntries] - The entries of the chat's books that Entity-Lore did not write
  * @param {(name: string) => boolean} [chat.isInCardDescription] - Whether the card's description holds a name as a word
  * @returns {string|null} one of EXCLUSION, or null
  */
-export function exclusionOf(row, { characterNames = [], personaName = '', loreNames = [], isInCardDescription = () => false } = {}) {
-    const names = [row.name, ...(row.otherNames ?? [])];
+export function exclusionOf(row, { characterNames = [], personaName = '', loreEntries = [], isInCardDescription = () => false } = {}) {
+    const names = namesOf(row);
     const isAmong = list => list.some(other => String(other).trim() && names.some(name => isSameName(name, other)));
     if (isAmong(characterNames)) return EXCLUSION.chatCharacter;
     if (isAmong([personaName])) return EXCLUSION.persona;
-    if (isAmong(loreNames)) return EXCLUSION.lorebook;
+    if (loreEntryNaming(row, loreEntries)) return EXCLUSION.lorebook;
     if (names.some(name => isInCardDescription(name))) return EXCLUSION.cardDescription;
     return null;
+}
+
+/**
+ * The first entry of the chat's other books, in their order, whose title or a key is one of a counted character's
+ * names, in any case: the entry an "Already in a lorebook" row names (E3 of entity-lore-names-across-languages.md).
+ *
+ * @param {{name: string, otherNames?: string[]}} row
+ * @param {LoreEntry[]} loreEntries
+ * @returns {LoreEntry|null}
+ */
+function loreEntryNaming(row, loreEntries) {
+    const names = namesOf(row);
+    return loreEntries.find(entry => entry.names.some(other => String(other).trim() && names.some(name => isSameName(name, other)))) ?? null;
 }
 
 /**
@@ -477,6 +560,9 @@ export function exclusionOf(row, { characterNames = [], personaName = '', loreNa
  *   reaches the count it was written at plus Rewrite every (§5.1), and written otherwise.
  * - A locked character is never due, so no run writes or rewrites it; one deleted, not named, another name of an
  *   entry or excluded stays so.
+ * - A name the name check linked to an entry of another book reads as in that book while the link holds (E2,
+ *   heldLinkOf), `lorebookEntry` naming the entry; one whose entry the chat no longer holds so reads as no record. A
+ *   row excluded for a lorebook names the entry its name is in the same way (E3).
  * - A character Allow again kept apart from others carries their names (`keptApartFrom`, D18), which the name check
  *   reads (§4.3), whatever its state.
  *
@@ -488,10 +574,11 @@ export function exclusionOf(row, { characterNames = [], personaName = '', loreNa
  * @param {object} [options.chat] - What exclusionOf reads
  * @param {Array<{uid: string|number, content: string}>} [options.bookEntries] - The entries Entity-Lore's book holds now
  * @returns {object[]} each row with its `state`, and as it applies `writeAt`, `uid`, `writtenAtEvents`, `namesChangedBy`,
- *   `sameAs`, `exclusion` or `keptApartFrom`
+ *   `sameAs`, `exclusion`, `lorebookEntry` or `keptApartFrom`
  */
 export function entityLoreStates(rows, { record, writeAt, rewriteEvery, chat = {}, bookEntries = [] }) {
     const hashByUid = new Map(bookEntries.map(entry => [String(entry.uid), entryContentHash(entry.content)]));
+    const loreEntries = chat.loreEntries ?? [];
     return rows.map((counted) => {
         const keptApartFrom = namesKeptApartFrom(record, counted, rows);
         const row = keptApartFrom.length ? { ...counted, keptApartFrom } : counted;
@@ -499,6 +586,8 @@ export function entityLoreStates(rows, { record, writeAt, rewriteEvery, chat = {
         if (entry?.state === RECORD_STATE.deleted) return { ...row, state: ENTITY_STATE.deletedByUser };
         if (entry?.state === RECORD_STATE.notNamed) return { ...row, state: ENTITY_STATE.notNamed };
         if (entry?.state === RECORD_STATE.sameAs) return { ...row, state: ENTITY_STATE.sameAs, sameAs: entry.sameAs };
+        const linked = entry?.state === RECORD_STATE.inLorebook ? heldLinkOf(entry, loreEntries) : null;
+        if (linked) return { ...row, state: ENTITY_STATE.inLorebook, lorebookEntry: linked };
         const isLocked = isCharacterLocked(record, row);
         if (entry?.state === RECORD_STATE.written) {
             const written = { uid: entry.uid, writtenAtEvents: entry.writtenAtEvents };
@@ -510,6 +599,7 @@ export function entityLoreStates(rows, { record, writeAt, rewriteEvery, chat = {
             return { ...row, ...written, state: isDueAgain ? ENTITY_STATE.rewriteDue : ENTITY_STATE.written };
         }
         const exclusion = exclusionOf(row, chat);
+        if (exclusion === EXCLUSION.lorebook) return { ...row, state: ENTITY_STATE.excluded, exclusion, lorebookEntry: loreEntryNaming(row, loreEntries) };
         if (exclusion) return { ...row, state: ENTITY_STATE.excluded, exclusion };
         if (isLocked) return { ...row, state: ENTITY_STATE.locked };
         if (row.eventCount < writeAt) return { ...row, state: ENTITY_STATE.waiting, writeAt };
@@ -637,14 +727,36 @@ export function npcBookName(chatName) {
 }
 
 /**
- * The titles of the entries a record says Entity-Lore wrote, each a kept name: what the name check matches a same_as
- * against.
+ * The titles of the entries a record says Entity-Lore wrote, each a kept name: the first titles the name check is shown
+ * and matches a same_as against (nameCheckTitles).
  *
  * @param {{entries: Record<string, object>}} record
  * @returns {string[]}
  */
-export function writtenEntryTitles(record) {
+function writtenEntryTitles(record) {
     return Object.entries(record.entries).filter(([, entry]) => entry.state === RECORD_STATE.written).map(([name]) => name);
+}
+
+/**
+ * The titles the name check is shown (§4.3, E1 of entity-lore-names-across-languages.md): those of the entries
+ * Entity-Lore wrote, then those of the entries of every other book the chat loads, in their order, each once in any
+ * case, so a name the chat writes in another language than a book can be linked to its character's entry there; and
+ * those of them that title more than one entry, which a same_as links to none.
+ *
+ * @param {{entries: Record<string, object>}} record
+ * @param {LoreEntry[]} loreEntries
+ * @returns {{entryTitles: string[], sharedTitles: string[]}}
+ */
+export function nameCheckTitles(record, loreEntries) {
+    const byTitle = new Map();
+    for (const title of [...writtenEntryTitles(record), ...loreEntries.map(entry => entry.title)].map(each => String(each).trim())) {
+        if (!title) continue;
+        const known = byTitle.get(title.toLowerCase());
+        if (known) known.count += 1;
+        else byTitle.set(title.toLowerCase(), { title, count: 1 });
+    }
+    const titles = [...byTitle.values()];
+    return { entryTitles: titles.map(each => each.title), sharedTitles: titles.filter(each => each.count > 1).map(each => each.title) };
 }
 
 /**

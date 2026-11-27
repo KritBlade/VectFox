@@ -7,9 +7,11 @@
  * what keeps Entity-Lore from running, with the button to where it is fixed;
  * the line naming the chat's book; the last run's line; and the character
  * list, a page of rows, each with its event count, its state and the buttons
- * that state offers, the names Allow again kept it apart from, and why an
- * entry is due again when its names changed, on StoryArc's Entity tab or by
- * Allow again. Where Entity-Lore would write the character, and once it is
+ * that state offers, the names Allow again kept it apart from, why an entry is
+ * due again when its names changed, on StoryArc's Entity tab or by Allow
+ * again, and the entry of another book a row's name is in, by its own title or
+ * key or by the name check's link, with whether LoreBase reads a link's key in
+ * this chat. Where Entity-Lore would write the character, and once it is
  * locked, Lock is a toggle whose padlock shows which: open in the success
  * ink, or closed and pressed. A button carries data-entity-lore-action, and a
  * row's its character's name and entry uid. Pure: builds strings.
@@ -112,6 +114,7 @@ const STATE_PILLS = {
     [ENTITY_STATE.deletedByUser]: () => ({ text: 'Deleted by you', icon: 'fa-trash-can' }),
     [ENTITY_STATE.notNamed]: () => ({ text: 'Not a named character', icon: 'fa-user-slash' }),
     [ENTITY_STATE.sameAs]: row => ({ name: `Same as ${row.sameAs}`, icon: 'fa-link' }),
+    [ENTITY_STATE.inLorebook]: () => ({ text: EXCLUSION_TEXTS[EXCLUSION.lorebook], icon: 'fa-link' }),
     [ENTITY_STATE.excluded]: row => ({ text: EXCLUSION_TEXTS[row.exclusion], icon: 'fa-ban' }),
     [ENTITY_STATE.locked]: () => ({ text: 'Locked', icon: 'fa-lock' }),
 };
@@ -152,12 +155,35 @@ const STATE_ACTIONS = {
     [ENTITY_STATE.deletedByUser]: allowAgainButton,
     [ENTITY_STATE.notNamed]: allowAgainButton,
     [ENTITY_STATE.sameAs]: allowAgainButton,
+    [ENTITY_STATE.inLorebook]: allowAgainButton,
 };
+
+// The entry of another book a row's name is in (E3 of entity-lore-names-across-languages.md), by its title as the book
+// writes it, or by its uid, as LoreBase names an entry with none.
+const lorebookEntryLine = ({ bookName, title, uid }) => ({ parts: [{ text: 'In ' }, { name: bookName }, { text: ': ' }, { name: title || `entry ${uid}` }] });
+
+// What a link of the name check means, and, while LoreBase does not read its key in this chat, what it waits for (E2):
+// an entry SillyTavern always sends needs no key.
+function linkLines(row) {
+    const lines = [{ text: "The name check found this is another name of that entry's character, so LoreBase reads it as one of the entry's keys." }];
+    const { isDecidedHere, isConstant } = row.lorebookEntry;
+    if (!isDecidedHere && !isConstant) {
+        lines.push({
+            parts: [
+                { text: 'LoreBase reads ' }, { name: row.name },
+                { text: ' only while the entry is on and selected for this chat, in Choose entries on the Main tab.' },
+            ],
+        });
+    }
+    return lines;
+}
 
 function characterRow(row) {
     const sub = [
         row.otherNames.length ? { text: 'Also known as', name: row.otherNames.join(' · ') } : null,
         row.keptApartFrom?.length ? { text: 'Kept apart from', name: row.keptApartFrom.join(' · ') } : null,
+        row.lorebookEntry ? lorebookEntryLine(row.lorebookEntry) : null,
+        ...(row.state === ENTITY_STATE.inLorebook ? linkLines(row) : []),
         row.state === ENTITY_STATE.sameAs ? { text: "To count the two as one, merge their names on StoryArc's Entity tab." } : null,
         row.namesChangedBy ? { text: NAMES_CHANGED_HINTS[row.namesChangedBy] } : null,
     ].filter(Boolean);

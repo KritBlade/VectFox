@@ -2,12 +2,14 @@
  * The keys LoreBase's model writes for each entry turned on (plan D17 and §5.6 of InternalProject/Vectfox/plans/
  * executed/lorebook-semantic-overhaul-passage-index.md) are asked with T20's prompt word for word, for as many keys as T20 asked,
  * and read as T20 read them. The fixture holds made-up entries and the prompts segment_trials.py itself renders from
- * them; InternalProject/Vectfox/tools/lorebase-benchmark/export_trial_prompts.py writes it.
+ * them; InternalProject/Vectfox/tools/lorebase-benchmark/export_trial_prompts.py writes it. The keys the user types are
+ * read one per line, each once, within what Similharity stores; and a name Entity-Lore links is added to an entry's
+ * keys, or taken off them, in any case.
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
-    KEY_CALLS_AT_ONCE_DEFAULT, KEY_CALLS_AT_ONCE_MAX, editedKeys, keyCallsAtOnceOf, keyCount, keysMessages, readKeys,
+    KEY_CALLS_AT_ONCE_DEFAULT, KEY_CALLS_AT_ONCE_MAX, editedKeys, keyCallsAtOnceOf, keyCount, keysMessages, keysWithName, readKeys,
 } from '../src/features/lorebase/lorebase-keys-core.js';
 
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/lorebase-trial-prompts.json', import.meta.url), 'utf8'));
@@ -73,5 +75,19 @@ describe('the keys the user types', () => {
         expect(editedKeys(Array.from({ length: 201 }, (_, index) => `key ${index}`).join('\n'))).toEqual({ problem: 'An entry holds at most 200 keys, and these are 201.' });
         expect(editedKeys(`harbor\n${'b'.repeat(301)}`).problem).toBe(`A key holds at most 300 characters, and "${'b'.repeat(40)}…" holds 301.`);
         expect(editedKeys(Array.from({ length: 200 }, (_, index) => `key ${index}`).join('\n')).keys).toHaveLength(200);
+    });
+});
+
+describe('a name added to an entry\'s keys, or taken off them (E2 of InternalProject/Vectfox/plans/entity-lore-names-across-languages.md)', () => {
+    it('adds the name after the keys, trimmed, or takes it off in any case, the other keys kept in their order', () => {
+        expect(keysWithName(['lighthouse', 'keeper'], ' Ysolde ', true)).toEqual(['lighthouse', 'keeper', 'Ysolde']);
+        expect(keysWithName([], 'Ysolde', true)).toEqual(['Ysolde']);
+        expect(keysWithName(['lighthouse', ' ysolde', 'keeper', 'YSOLDE'], 'Ysolde', false)).toEqual(['lighthouse', 'keeper']);
+    });
+
+    it('changes nothing when the keys hold the name already, or hold it nowhere, as asked, or the name is nothing', () => {
+        expect(keysWithName(['lighthouse', 'ysolde'], 'Ysolde', true)).toBeNull();
+        expect(keysWithName(['lighthouse'], 'Ysolde', false)).toBeNull();
+        expect(keysWithName(['lighthouse'], '  ', true)).toBeNull();
     });
 });

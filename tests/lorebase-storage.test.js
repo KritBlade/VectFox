@@ -14,7 +14,9 @@
  * vectors deleted in every collection, its keys, then its record, every other book left as it was; refused while
  * LoreBase writes and off Qdrant, and its record kept when a delete fails. The entry editor's save (saveEntryWithVectors): the entry saved through
  * SillyTavern, then its vectors alone written when LoreBase decides it, LoreBase on or off; an entry it does not decide
- * saved alone; no vectors off Qdrant; nothing saved while LoreBase writes. Similharity's LoreBase routes are a fetch
+ * saved alone; no vectors off Qdrant; nothing saved while LoreBase writes. A name Entity-Lore links added to an entry's
+ * keys or taken off them (setNamesInLoreBaseKeys), an entry with no keys left as it is, never while LoreBase writes.
+ * Similharity's LoreBase routes are a fetch
  * stand-in holding the keys and titles in memory, as
  * lorebase-keys.test.js has them; the vectors are a stand-in for lorebase-vectors.js, which lorebase-vectors.test.js
  * holds, its points made by the real lorebase-vectors-core.js.
@@ -945,6 +947,44 @@ describe("the entry editor's save", () => {
         await expect(storage.saveEntryWithVectors(BOOK, '1', EDITED, QDRANT)).rejects.toThrow(STILL_WRITING);
         expect(saveLorebookEntry).not.toHaveBeenCalled();
         expect(writeBookVectors).not.toHaveBeenCalled();
+        answer(answerWith(['tidewardens']));
+        await writing;
+    });
+});
+
+describe("a name in an entry's keys, as Entity-Lore links it (setNamesInLoreBaseKeys)", () => {
+    it("adds a name to an entry's keys or takes it off, each book's keys read once first, its title beside them, and leaves an entry with none, or none at the uid", async () => {
+        await selectBooks();
+        stored[BOOK][1] = ['wardens'];
+        stored[BOOK][9] = ['gone'];
+        stored['Desert Atlas'] = { 5: ['dunes', 'Sandmother'] };
+        routeCalls.length = 0;
+        const outcomes = await storage.setNamesInLoreBaseKeys([
+            { bookName: BOOK, uid: 0, name: 'Ysolde', isHeld: true },
+            { bookName: BOOK, uid: '1', name: 'WARDENS', isHeld: true },
+            { bookName: BOOK, uid: 3, name: 'Ysolde', isHeld: true },
+            { bookName: BOOK, uid: 9, name: 'Ysolde', isHeld: true },
+            { bookName: 'Desert Atlas', uid: 5, name: 'sandmother', isHeld: false },
+            { bookName: BOOK, uid: 0, name: 'Orla', isHeld: true },
+        ]);
+        expect(outcomes).toEqual(['changed', 'unchanged', 'no_keys', 'no_entry', 'changed', 'changed']);
+        expect(stored[BOOK]).toEqual({ 0: ['old keys', 'Ysolde', 'Orla'], 1: ['wardens'], 9: ['gone'] });
+        expect(stored['Desert Atlas']).toEqual({ 5: ['dunes'] });
+        expect(storedTitles[BOOK][0]).toBe('Lighthouse');
+        expect(routeCalls.filter(call => call.url.endsWith('/read')).map(call => call.request.books)).toEqual([[BOOK, 'Desert Atlas']]);
+        expect(keysModule.keyStateOf(BOOK, '0')).toEqual({ status: 'ready', keys: ['old keys', 'Ysolde', 'Orla'] });
+        expect(host.ask).not.toHaveBeenCalled();
+    });
+
+    it('changes no key while LoreBase writes', async () => {
+        await selectBooks();
+        let answer;
+        host.ask = vi.fn(() => new Promise(resolve => { answer = resolve; }));
+        const writing = keysModule.writeKeys(BOOK, [entry(1, 'Tidewardens')], QDRANT);
+        await vi.waitFor(() => expect(host.ask).toHaveBeenCalled());
+
+        await expect(storage.setNamesInLoreBaseKeys([{ bookName: BOOK, uid: 0, name: 'Ysolde', isHeld: true }])).rejects.toThrow(STILL_WRITING);
+        expect(stored[BOOK][0]).toEqual(['old keys']);
         answer(answerWith(['tidewardens']));
         await writing;
     });

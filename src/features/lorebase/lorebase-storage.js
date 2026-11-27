@@ -12,7 +12,8 @@
  * (§3.3), and deletes one row. Remove from LoreBase, on the Database Browser's lorebook row and the WorldInfo page's
  * book row alike, reads what a book holds for its confirm (loreBookHoldings), then deletes all of it, its record last
  * (removeLoreBook). LoreBase's entry editor saves an entry through it and has its vectors written
- * (saveEntryWithVectors). One guard refuses a run, an import, a delete, a removal or an entry's save while LoreBase
+ * (saveEntryWithVectors), and Entity-Lore adds a name to an entry's keys or takes it off them (setNamesInLoreBaseKeys).
+ * One guard refuses a run, an import, a delete, a removal, an entry's save or a change of its keys while LoreBase
  * writes. A run that writes missing keys locks each book it wrote keys for to the chat it started in (§6.1 of
  * InternalProject/Vectfox/plans/executed/lorebook-multi-vector.md); a run of vectors alone, Regenerate keys and an import lock
  * nothing. The keys and vectors themselves are written, read and kept for the session by lorebase-keys.js and
@@ -30,8 +31,9 @@ import {
 } from './lorebase-books.js';
 import { keyRunLockPlace, lockKeyedBooks } from './lorebase-chat-books.js';
 import { keysFileOf, planKeysImport, planVectorsImport, vectorsFileOf } from './lorebase-files-core.js';
+import { keysWithName } from './lorebase-keys-core.js';
 import {
-    deleteAllKeys, deleteBookKeys, hasStoredKeys, isWritingKeys, keyStateOf, readBookKeys, readBookKeysWithTitles, stopKeyRun,
+    deleteAllKeys, deleteBookKeys, hasStoredKeys, isWritingKeys, keyStateOf, readBookKeys, readBookKeysWithTitles, saveEditedKeys, stopKeyRun,
     writeImportedKeys, writeKeys,
 } from './lorebase-keys.js';
 import { isEntryReady } from './lorebase-readiness.js';
@@ -156,6 +158,46 @@ export async function saveEntryWithVectors(bookName, uid, fields, settings) {
     const { failures } = await writeBookVectors(bookName, decidedEntries, [entry], settings);
     log.lifecycle(`LoreBase: saved entry ${uid} of lorebook "${bookName}" from its editor${failures.length ? '; its vectors failed' : ', and wrote its vectors'}`);
     return { isDecided: true, failure: failures[0] ?? null, vectorProblem: null };
+}
+
+/**
+ * Add names to the LoreBase keys of some entries, or take them off, in any case, each entry's other keys kept: as
+ * Entity-Lore links a chat's own name for a character to that character's entry in a book it did not write, or the user
+ * allows the name again (E2 of InternalProject/Vectfox/plans/entity-lore-names-across-languages.md). An entry LoreBase
+ * holds no keys for is left as it is: keys stored for it would read as written, so its own would never be written
+ * (writeMissing writes those of the entries with none), and a name joins them once they are. The keys are read from
+ * Similharity first, each book once, as a Regenerate keys may have rewritten them. No model call. Refused while LoreBase
+ * writes.
+ * @param {Array<{bookName: string, uid: string|number, name: string, isHeld: boolean}>} changes - isHeld: whether the
+ *   entry's keys hold the name once done
+ * @returns {Promise<Array<'changed'|'unchanged'|'no_keys'|'no_entry'>>} Each change's outcome, in their order: unchanged
+ *   when the keys held the name already, or held it nowhere, as asked; no_entry when the book holds no entry at the uid
+ * @throws {Error} While LoreBase writes, or when SillyTavern cannot load a book or Similharity cannot read or store the keys
+ */
+export async function setNamesInLoreBaseKeys(changes) {
+    refuseWhileWriting();
+    const stored = await readBookKeys([...new Set(changes.map(change => change.bookName))]);
+    const entriesOf = new Map();
+    const outcomes = [];
+    for (const { bookName, uid, name, isHeld } of changes) {
+        const keys = stored[bookName][String(uid)];
+        const changed = keys ? keysWithName(keys, name, isHeld) : null;
+        if (!changed) {
+            outcomes.push(keys ? 'unchanged' : 'no_keys');
+            continue;
+        }
+        if (!entriesOf.has(bookName)) entriesOf.set(bookName, await loadBookEntries(bookName));
+        const entry = entriesOf.get(bookName).find(each => uidOf(each) === String(uid));
+        if (!entry) {
+            outcomes.push('no_entry');
+            continue;
+        }
+        await saveEditedKeys(bookName, entry, changed);
+        // A later change of the same entry builds on this one.
+        stored[bookName][String(uid)] = changed;
+        outcomes.push('changed');
+    }
+    return outcomes;
 }
 
 /**

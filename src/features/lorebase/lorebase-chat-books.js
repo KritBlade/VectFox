@@ -22,7 +22,7 @@ import {
 import {
     decidedCountOf, ensureLoreSelection, getLoreBook, loreSelectionsOf, newLoreSelection, selectionInUse, setLoreSelectionLock,
 } from './lorebase-books.js';
-import { activeBookNames } from './lorebase-reply-core.js';
+import { activeBookNames, decidedEntries } from './lorebase-reply-core.js';
 import { isSelectionLockedTo, unionOfSelections } from './lorebase-selections-core.js';
 
 // The places a World Info scan loads the open chat's books from, in their order: SillyTavern's own, then the books added
@@ -202,6 +202,17 @@ export function whereFor(bookName) {
  */
 export function selectionInUseHere(bookName) {
     return selectionInUse(bookName, whereFor(bookName));
+}
+
+/**
+ * The uids of a book's entries LoreBase decides in the open chat (decidedEntries, by the selection in use here): those
+ * Jev may pick for this chat's replies, reading their titles and keys. None for a book with no selection in use here.
+ * @param {string} bookName
+ * @param {{entries?: object}|null} book - The book as loadWorldInfo gives it
+ * @returns {Set<string>}
+ */
+export function decidedUidsHere(bookName, book) {
+    return new Set(decidedEntries(book, selectionInUseHere(bookName)).map(entry => String(entry.uid)));
 }
 
 /**

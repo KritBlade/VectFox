@@ -7,8 +7,9 @@
  *     the names Allow again kept it apart from, and says what each answer means, names in the list that are one
  *     character answered as one, two kept apart never same_as each other,
  *   - its answers are read by the candidate's own name in any case, each once, a same_as only when it names an entry's
- *     title or another candidate the same answer calls named, one naming a name the candidate is kept apart from as
- *     named, and a candidate with no answer read is left out,
+ *     title or another candidate the same answer calls named, or else the one title it equals bare of its tags and
+ *     note, never a title of more than one entry, one naming a name the candidate is kept apart from as named, and a
+ *     candidate with no answer read is left out,
  *   - the entry is asked for as a profile, not a summary, in five sections under their headings, its past as now known
  *     and its key events one turning point a line, never merged, from the events or the notes on them, in the story's
  *     language, and a rewrite also reads the entry as it stands, keeping its ties and picking its key events again,
@@ -135,6 +136,51 @@ describe('the name check (§4.3)', () => {
 
     it('reads an answer that is no list as no answers', () => {
         expect(readNameCheck(undefined, check)).toEqual({ answers: [], unreadItemCount: 0 });
+    });
+
+    it('reads a same_as naming no title as written for the one title it equals bare, its leading tags and trailing note taken off (E1)', () => {
+        const tagged = { candidates, entryTitles: ['[NPC] Ysolde', '【NPC】 Orrin (the ferryman)', 'Captain Brannoc'] };
+        const { answers, unreadItemCount } = readNameCheck([
+            { name: 'Hollis', answer: 'same_as', same_as: 'YSOLDE' },
+            { name: 'the ferryman', answer: 'same_as', same_as: '[Ferry] Orrin （old）' },
+            { name: 'Tamsin Vale', answer: 'same_as', same_as: '[NPC] Ysolde' },
+        ], tagged);
+        expect(answers).toEqual([
+            { name: 'the ferryman', answer: NAME_CHECK_ANSWER.sameAs, sameAs: '【NPC】 Orrin (the ferryman)' },
+            { name: 'Tamsin Vale', answer: NAME_CHECK_ANSWER.sameAs, sameAs: '[NPC] Ysolde' },
+            { name: 'Hollis', answer: NAME_CHECK_ANSWER.sameAs, sameAs: '[NPC] Ysolde' },
+        ]);
+        expect(unreadItemCount).toBe(0);
+    });
+
+    it('leaves a same_as unread when two titles are bare alike, or the title is nothing bare, and reads a name it holds as that candidate first', () => {
+        const tagged = { candidates, entryTitles: ['[NPC] Ysolde', '[Tavern] Ysolde', '[DLC][NPC][Brannoc]', '[NPC] Tamsin'] };
+        const { answers, unreadItemCount } = readNameCheck([
+            { name: 'Hollis', answer: 'same_as', same_as: 'Ysolde' },
+            { name: 'the ferryman', answer: 'same_as', same_as: 'Brannoc' },
+            { name: 'Tamsin Vale', answer: 'same_as', same_as: 'tamsin' },
+            { name: 'Tamsin', answer: 'named' },
+        ], tagged);
+        expect(answers).toEqual([
+            { name: 'Tamsin', answer: NAME_CHECK_ANSWER.named },
+            { name: 'Tamsin Vale', answer: NAME_CHECK_ANSWER.sameAs, sameAs: 'Tamsin' },
+        ]);
+        expect(unreadItemCount).toBe(2);
+    });
+
+    it('links no same_as to a title of more than one entry, which stays unread, unless the candidate is kept apart from it', () => {
+        const shared = {
+            candidates: [candidates[3], { ...candidates[1], keptApartFrom: ['Harbor Watch'] }],
+            entryTitles: ['Captain Brannoc', 'Harbor Watch'], sharedTitles: ['harbor watch'],
+        };
+        const { answers, unreadItemCount } = readNameCheck([
+            { name: 'Hollis', answer: 'same_as', same_as: 'Harbor Watch' },
+            { name: 'the ferryman', answer: 'same_as', same_as: 'HARBOR WATCH' },
+        ], shared);
+        expect(answers).toEqual([{ name: 'the ferryman', answer: NAME_CHECK_ANSWER.named, keptApartFrom: 'Harbor Watch' }]);
+        expect(unreadItemCount).toBe(1);
+        expect(readNameCheck([{ name: 'Hollis', answer: 'same_as', same_as: 'Captain Brannoc' }], shared).answers)
+            .toEqual([{ name: 'Hollis', answer: NAME_CHECK_ANSWER.sameAs, sameAs: 'Captain Brannoc' }]);
     });
 });
 

@@ -132,3 +132,19 @@ export function editedKeys(text) {
     }
     return { keys };
 }
+
+/**
+ * An entry's stored keys with a name added after them, or taken off them, compared trimmed and in any case, the other
+ * keys kept in their order: what Entity-Lore's link of a chat's name to an entry stores (setNamesInLoreBaseKeys in
+ * lorebase-storage.js). Null when the keys already hold the name, or hold it nowhere, as asked.
+ * @param {string[]} keys - The entry's keys as stored
+ * @param {string} name
+ * @param {boolean} isHeld - Whether the keys hold the name once changed
+ * @returns {string[]|null}
+ */
+export function keysWithName(keys, name, isHeld) {
+    const wanted = String(name).trim();
+    const isName = key => String(key).trim().toLowerCase() === wanted.toLowerCase();
+    if (!wanted || keys.some(isName) === isHeld) return null;
+    return isHeld ? [...keys, wanted] : keys.filter(key => !isName(key));
+}

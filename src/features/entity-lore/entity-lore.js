@@ -24,9 +24,15 @@
  * A run reads the chat's stored events and the record in the collection's
  * metadata, starts the record over when its book is gone (D13) and marks
  * deleted each entry the user deleted, then asks the name check about every
- * name due, and writes the entries due, new before rewrites, most events
+ * name due, shown the titles of its own entries and of every other book the
+ * chat loads, and writes the entries due, new before rewrites, most events
  * first, 3 at a time, on the progress panel, each from every event naming the
- * character, with one time each. The first entry creates the
+ * character, with one time each. A name the check links to an entry of
+ * another book gets no entry: the record keeps the link, and the name joins
+ * that entry's LoreBase keys at the run's end, again at every run while the
+ * link holds, as a Regenerate keys rewrites them; Allow again takes it off
+ * (E2 of InternalProject/Vectfox/plans/entity-lore-names-across-languages.md).
+ * The first entry creates the
  * chat's book and adds it to the chat (D1, D11), only while that chat is open;
  * each new entry joins the selection in use there, and LoreBase writes the
  * book's keys and vectors after the run, on its own panel, or at the next run
@@ -54,17 +60,17 @@ import {
 } from '../eventbase/index.js';
 import { parseJsonArrayFromLlm } from '../llm-provider/index.js';
 import {
-    ADD_TO_CHAT, BOTH_KINDS, THINKING_TOKEN_ALLOWANCE, addLoreBookToChat, askTextOnLoreBase, chatBookNames, chatCharacters, ensureLoreSelection,
-    estimatedTokens, isLoreBaseSwitchedOn, isLoreBaseWriting, loreBaseInactiveReason, regenerateKeysOfEntries, resolveLoreBaseLlmConfig,
-    saveEntryWithVectors, selectedUidsOf, selectionInUse, setLoreBookSelection, setLoreSelectionLock, writeMissing,
+    ADD_TO_CHAT, BOTH_KINDS, THINKING_TOKEN_ALLOWANCE, addLoreBookToChat, askTextOnLoreBase, chatBookNames, chatCharacters, decidedUidsHere,
+    ensureLoreSelection, estimatedTokens, isLoreBaseSwitchedOn, isLoreBaseWriting, loreBaseInactiveReason, regenerateKeysOfEntries,
+    resolveLoreBaseLlmConfig, saveEntryWithVectors, selectedUidsOf, selectionInUse, setLoreBookSelection, setLoreSelectionLock,
+    setNamesInLoreBaseKeys, writeMissing,
 } from '../lorebase/index.js';
 import {
     ENTITY_LORE_SETTING, ENTITY_STATE, ENTRIES_PER_AUTOMATIC_RUN, RECORD_STATE, dueCounts, entityLoreBlocker as blockerOf, entityLoreStates,
-    entriesForName, entriesForRun, entryContentHash, entryKeysOf, isEntityLoreOn, isSameName, isWrittenAfreshAfter, namesMatchedTo, npcBookName,
-    readEntityLoreRecord, recordOfName, rewriteEveryEventsOf, runNowQuestion, runOutcomeText, sliceEventLines, splitQuestion, withBookName,
-    withBookStartedOver,
-    withCharacterLocked, withMergedEntry, withMissingEntriesDeleted, withNameAllowedAgain, withNameCheckAnswer, withOneEventTime, withSplitName,
-    withWrittenEntry, writeAtEventsOf, writtenEntryTitles,
+    entriesForName, entriesForRun, entryContentHash, entryKeysOf, heldLinks, isEntityLoreOn, isSameName, isWrittenAfreshAfter, nameCheckTitles,
+    namesMatchedTo, npcBookName, readEntityLoreRecord, recordOfName, rewriteEveryEventsOf, runNowQuestion, runOutcomeText, sliceEventLines,
+    splitQuestion, withBookName, withBookStartedOver, withCharacterLocked, withMergedEntry, withMissingEntriesDeleted, withNameAllowedAgain,
+    withNameCheckAnswer, withNameInLorebook, withOneEventTime, withSplitName, withWrittenEntry, writeAtEventsOf,
 } from './entity-lore-core.js';
 import {
     NAME_CHECK_ANSWER, entryMessages, nameCheckMessages, notesMessages, readEntryAnswer, readNameCheck, readNotesAnswer,
@@ -212,7 +218,9 @@ async function changeChatRecord(change) {
  * Allow again (§3, §6): the open chat's record forgets a kept name, so it is counted as if new, due at Write at and
  * asked about by the next name check. A name the name check matched to an entry (Same as) also comes off that entry's
  * keys at once, in any case, with no model call, and the entry is written afresh at the next run, without that name's
- * events (D17); the two are kept apart, so the name check never matches them again (D18). Refused while a run writes.
+ * events (D17); the two are kept apart, so the name check never matches them again (D18). A name it linked to an entry
+ * of another book comes off that entry's LoreBase keys at once, and is kept apart from its title (E2). Refused while a
+ * run writes, and, for a link, while LoreBase writes.
  * @param {string} name - The row's kept name
  * @returns {Promise<{problem: string|null}>}
  */
@@ -220,16 +228,21 @@ export function allowEntityLoreAgain(name) {
     return changeChatRecord(collectionKey => allowAgainIn(collectionKey, name));
 }
 
-/** Allow again's change: the entry the name was matched to keyed without it, then the record. What fails is logged and said. */
+/**
+ * Allow again's change: the entry the name was matched to keyed without it, or the entry of another book it was linked
+ * to without it in LoreBase's keys, then the record. What fails is logged and said.
+ */
 async function allowAgainIn(collectionKey, name) {
     try {
         const book = await recordWithBookEntries(collectionKey);
         const allowed = withNameAllowedAgain(book?.record ?? storedRecordOf(collectionKey), name, book?.bookEntries.map(entry => entry.uid) ?? []);
         if (allowed.matchedEntryUid) await saveKeyedWithout(book, allowed.matchedEntryUid, name);
+        if (allowed.lorebookEntry) await setNamesInLoreBaseKeys([{ ...allowed.lorebookEntry, name, isHeld: false }]);
         setCollectionMeta(collectionKey, { entityLore: allowed.record });
         if (allowed.keptApartFrom) {
             log.lifecycle(`${LOG} ${name}: allowed again and kept apart from ${allowed.keptApartFrom}`
-                + `${allowed.matchedEntryUid ? ', whose entry is keyed without it and written afresh at the next run' : ''}`);
+                + `${allowed.matchedEntryUid ? ', whose entry is keyed without it and written afresh at the next run' : ''}`
+                + `${allowed.lorebookEntry ? `, whose entry in "${allowed.lorebookEntry.bookName}" is keyed without it in LoreBase` : ''}`);
         }
         return { problem: null };
     } catch (error) {
@@ -481,18 +494,21 @@ function statesOf(settings, { rows, record, exclusions, bookEntries }) {
 }
 
 /**
- * What excludes a name in the open chat (§4.2): its characters, the persona, the titles and keys of the entries of every
- * book it loads but Entity-Lore's own, and its characters' card descriptions. A book that cannot be read is logged and
- * excludes nothing.
+ * What excludes a name in the open chat (§4.2): its characters, the persona, the entries of every book it loads but
+ * Entity-Lore's own, by their titles and keys, and its characters' card descriptions. Those entries are also the titles
+ * the name check is shown and the entries a link names (E1, E2). A book that cannot be read is logged and excludes
+ * nothing.
  * @param {string} ownBookName - Entity-Lore's book, '' while it has none
  * @returns {Promise<object>} What exclusionOf reads
  */
 async function chatExclusions(ownBookName) {
     const characters = chatCharacters();
-    const loreNames = [];
+    const loreEntries = [];
     for (const bookName of chatBookNames().filter(name => name !== ownBookName)) {
         try {
-            for (const entry of Object.values((await loadWorldInfo(bookName))?.entries ?? {})) loreNames.push(entry.comment, ...(entry.key ?? []));
+            const book = await loadWorldInfo(bookName);
+            const decidedUids = decidedUidsHere(bookName, book);
+            for (const entry of Object.values(book?.entries ?? {})) loreEntries.push(loreEntryOf(bookName, entry, decidedUids));
         } catch (error) {
             log.warn(`${LOG} Lorebook "${bookName}" could not be read, so its names exclude no one this run:`, error);
         }
@@ -500,8 +516,29 @@ async function chatExclusions(ownBookName) {
     return {
         characterNames: characters.map(character => character.name),
         personaName: String(getContext().name1 ?? ''),
-        loreNames: loreNames.filter(name => typeof name === 'string' && name.trim()),
+        loreEntries,
         isInCardDescription: name => characters.some(character => holdsName(character.description, name)),
+    };
+}
+
+const isText = value => typeof value === 'string' && Boolean(value.trim());
+
+/**
+ * An entry of a book Entity-Lore did not write, as the exclusions, the name check and a link read it (LoreEntry in
+ * entity-lore-core.js).
+ * @param {string} bookName
+ * @param {object} entry - As loadWorldInfo gives it
+ * @param {Set<string>} decidedUids - From decidedUidsHere
+ * @returns {import('./entity-lore-core.js').LoreEntry}
+ */
+function loreEntryOf(bookName, entry, decidedUids) {
+    return {
+        bookName,
+        uid: String(entry.uid),
+        title: isText(entry.comment) ? entry.comment.trim() : '',
+        names: [entry.comment, ...(entry.key ?? [])].filter(isText),
+        isDecidedHere: decidedUids.has(String(entry.uid)),
+        isConstant: entry.constant === true,
     };
 }
 
@@ -531,6 +568,7 @@ async function writeDueEntries(settings, run, scope) {
     const due = scope.dueToCheck(chat.states);
     const outcome = planned.length ? await writeOnPanel(job, { planned, due, scope }) : null;
     await writeLoreBaseKeysAndVectors(job);
+    await keyLinkedEntries(heldLinks(job.record, job.chat.exclusions.loreEntries));
     return outcome;
 }
 
@@ -578,32 +616,77 @@ async function writeOnPanel(job, { planned, due, scope }) {
 }
 
 /**
- * The name check on every name due (§4.3), each with the names Allow again kept it apart from (D18): each answer read
- * goes in the record, a same_as naming an entry already written adds the name to that entry's keys, and a name with no
- * answer read stays due. False when the check failed, so no new entry is written this run.
+ * The name check on every name due (§4.3), each with the names Allow again kept it apart from (D18), shown the titles
+ * of Entity-Lore's entries and of every other book the chat loads (E1): each answer read goes in the record, a same_as
+ * naming an entry already written adds the name to that entry's keys, one naming an entry of another book links the
+ * name to it (E2), and a name with no answer read stays due. False when the check failed, so no new entry is written
+ * this run.
  * @returns {Promise<boolean>}
  */
 async function checkNames(job, due) {
     const candidates = due.map(row => ({
         name: row.name, eventCount: row.eventCount, eventLine: eventLinesOf(job, [row.name])[0] ?? '', keptApartFrom: row.keptApartFrom ?? [],
     }));
-    const check = { candidates, entryTitles: writtenEntryTitles(job.record) };
+    const check = { candidates, ...nameCheckTitles(job.record, job.chat.exclusions.loreEntries) };
     try {
         const items = parseJsonArrayFromLlm(await job.ask(nameCheckMessages(check), NAME_CHECK_REQUEST), { label: CONTEXT_LABEL, identKeys: ['name'] });
         const { answers, unreadItemCount } = readNameCheck(items, check);
         if (unreadItemCount) log.warn(`${LOG} The name check: ${counted(unreadItemCount, 'answer', 'answers')} could not be read; those names stay due`);
+        const booksOfLinks = new Map();
         for (const answer of answers.filter(each => each.answer !== NAME_CHECK_ANSWER.named)) {
+            const lorebookEntry = answer.answer === NAME_CHECK_ANSWER.sameAs ? lorebookEntryTitled(job, answer.sameAs) : null;
+            if (lorebookEntry) {
+                job.record = withNameInLorebook(job.record, answer.name, lorebookEntry);
+                booksOfLinks.set(answer.name, lorebookEntry.bookName);
+                continue;
+            }
             job.record = withNameCheckAnswer(job.record, answer.name, { state: answer.answer, sameAs: answer.sameAs });
             if (answer.answer === NAME_CHECK_ANSWER.sameAs) await keyWrittenEntry(job, answer.sameAs, answer.name);
         }
         saveRecord(job);
         const answerText = each => `${each.name} ${each.answer}${each.sameAs ? ` ${each.sameAs}` : ''}`
+            + `${booksOfLinks.has(each.name) ? ` in "${booksOfLinks.get(each.name)}"` : ''}`
             + `${each.keptApartFrom ? ` (answered same_as ${each.keptApartFrom}, which it is kept apart from)` : ''}`;
         log.lifecycle(`${LOG} The name check: ${answers.map(answerText).join(', ')}`);
         return true;
     } catch (error) {
         failCall(job, 'The name check', error);
         return false;
+    }
+}
+
+/**
+ * The entry of another book the chat loads that a same_as title names (E2), or null when it names one of Entity-Lore's
+ * own entries or another candidate. readNameCheck reads no same_as naming a title of more than one entry, Entity-Lore's
+ * own counted (nameCheckTitles), so a title one of its entries holds is no other book's.
+ * @returns {import('./entity-lore-core.js').LoreEntry|null}
+ */
+function lorebookEntryTitled(job, title) {
+    return job.chat.exclusions.loreEntries.find(entry => isSameName(entry.title, title)) ?? null;
+}
+
+const linkText = ({ name, lorebookEntry }) => `${name} (${lorebookEntry.title} in "${lorebookEntry.bookName}")`;
+
+/**
+ * Add each linked name to the LoreBase keys of the entry of another book it is linked to (E2), as the chat writes it,
+ * at the end of every run, as a Regenerate keys rewrites them. An entry LoreBase has no keys for yet gets the name at a
+ * run after LoreBase writes them, once the entry is selected. While LoreBase writes, the names wait for the next run.
+ * Never throws: what fails is logged, and the next run tries again.
+ * @param {Array<{name: string, lorebookEntry: import('./entity-lore-core.js').LoreEntry}>} links - From heldLinks
+ */
+async function keyLinkedEntries(links) {
+    if (!links.length) return;
+    if (isLoreBaseWriting()) {
+        log.lifecycle(`${LOG} LoreBase is writing, so ${counted(links.length, 'linked name joins', 'linked names join')} LoreBase's keys at the next run`);
+        return;
+    }
+    try {
+        const outcomes = await setNamesInLoreBaseKeys(links.map(({ name, lorebookEntry }) => ({ bookName: lorebookEntry.bookName, uid: lorebookEntry.uid, name, isHeld: true })));
+        const withOutcome = outcome => links.filter((_, index) => outcomes[index] === outcome).map(linkText).join(', ');
+        if (outcomes.includes('changed')) log.lifecycle(`${LOG} Linked names added to their entries' LoreBase keys: ${withOutcome('changed')}`);
+        if (outcomes.includes('no_keys')) log.verbose(`${LOG} Linked names whose entries have no LoreBase keys yet, which they join once LoreBase writes them: ${withOutcome('no_keys')}`);
+    } catch (error) {
+        log.warn(`${LOG} The linked names could not be added to their entries' LoreBase keys; the next run tries again:`, error);
     }
 }
 

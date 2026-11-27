@@ -33,6 +33,8 @@
 // and the start-up deletion of the old vectorized lorebook collections
 // LoreBase replaced, whose locks move to their books, with a notice naming the books. Each armed scan keeps the picks
 // its blocks carry, so the reply lore list (features/reply-lore) tells LoreBase's picks from SillyTavern's own entries.
+// Entity-Lore adds a chat's name for a character to the keys of that character's entry in a book it did not write, and
+// takes it off them (setNamesInLoreBaseKeys), and reads which entries LoreBase decides in the open chat (decidedUidsHere).
 //
 // Re-exports only. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
 export {
@@ -40,7 +42,8 @@ export {
     setLoreSelectionLock,
 } from './lorebase-books.js';
 export {
-    ADD_TO_CHAT, addLoreBookToChat, booksToAdd, chatBookLocks, chatBookNames, chatCharacters, newLoreSelectionHere, useLoreSelectionHere,
+    ADD_TO_CHAT, addLoreBookToChat, booksToAdd, chatBookLocks, chatBookNames, chatCharacters, decidedUidsHere, newLoreSelectionHere,
+    useLoreSelectionHere,
 } from './lorebase-chat-books.js';
 export { loreBasePicksCarriedBy } from './lorebase-delivery.js';
 export { editLoreBookEntry } from './lorebase-entry-editor.js';
@@ -62,7 +65,8 @@ export {
 export { deleteLoreSelectionAfterConfirm, removeLoreBookAfterConfirm } from './lorebase-removal.js';
 export {
     deleteStored, deleteStoredRow, exportStored, isLoreBaseWriting, loreBaseImportRow, loreBaseStorageRows, onWritingProgress, onWritingRunChange,
-    planImport, regenerateKeysOfEntries, removableLoreBookNames, saveEntryWithVectors, storedCountsOfBooks, writeImport, writeMissing,
+    planImport, regenerateKeysOfEntries, removableLoreBookNames, saveEntryWithVectors, setNamesInLoreBaseKeys, storedCountsOfBooks, writeImport,
+    writeMissing,
 } from './lorebase-storage.js';
 export { currentEmbeddingModel, tenantChunkSource } from './lorebase-vectors.js';
 export { BOTH_KINDS, KEYS, VECTORS, kindsLacking } from './lorebase-storage-core.js';
