@@ -36,7 +36,10 @@
  *     entry's LoreBase keys at the run's end and again at each run, never while LoreBase writes or before the entry has
  *     keys; a link whose book the chat no longer loads reads as due; a title two books share links nothing; Allow again
  *     takes the name off those keys and keeps the two apart, or says why it failed (E1 to E3 of
- *     InternalProject/Vectfox/plans/entity-lore-names-across-languages.md).
+ *     InternalProject/Vectfox/plans/entity-lore-names-across-languages.md),
+ *   - the names the first ask answers named are asked about again, alone, shown the other books' author keys, and take
+ *     that answer, an unread one keeping named; no second ask when no name is named or no key is shown; a failed second
+ *     ask fails the whole check, so nothing is written and every name is asked about again at the next run (E5).
  *
  * Names are made up and match no story.
  */
@@ -942,6 +945,90 @@ describe('names in another book the chat loads (E1 to E3 of entity-lore-names-ac
         expect(await allowEntityLoreAgain('Isolde')).toEqual({ problem: `Allow again failed: ${STILL_WRITING}` });
         expect(record()).toEqual(entityLore);
         expect(host.loreBaseKeys['Harbor Atlas'][1]).toEqual(['Ysolde', 'harbor witch', 'Isolde']);
+    });
+});
+
+describe("the name check's second ask, shown the other books' keys (E5 of entity-lore-names-across-languages.md)", () => {
+    const ORLA = { uid: 2, comment: '[NPC] Orla Vance', key: ['Orla', 'Wren'], content: 'A harbor pilot.' };
+    const isKeyedCheck = messages => isCheck(messages) && messages[1].content.includes('Keyed by:');
+    const checksAsked = () => host.ask.mock.calls.filter(([messages]) => isCheck(messages)).map(([messages]) => messages[1].content);
+    const namesIn = prompt => [...prompt.matchAll(/^\d+\. (.+?): /gmu)].map(match => match[1]);
+    // The first ask answers as `firstAnswers` says, the second, shown the keys, as `secondAnswers` says; every other name named.
+    const answeringTwice = (firstAnswers, secondAnswers) => vi.fn(async messages => answering(isKeyedCheck(messages) ? secondAnswers : firstAnswers)(messages));
+    const NOT_NAMED = { answer: 'not_named' };
+    const ORLA_LINK = { state: 'in_lorebook', bookName: 'Harbor Atlas', uid: '2', title: '[NPC] Orla Vance' };
+
+    beforeEach(() => {
+        host.books['Harbor Atlas'].entries[2] = structuredClone(ORLA);
+        host.loreBaseKeys = { 'Harbor Atlas': { 2: ['Orla', 'harbor pilot'] } };
+        host.events = [...eventsNaming('Ren', 12), ...eventsNaming('Tamsin', 11), ...eventsNaming('the ferryman', 10)];
+    });
+
+    it('asks again about the names the first ask answers named, alone and shown the keys, and links one it says is another name of an entry', async () => {
+        host.ask = answeringTwice({ 'the ferryman': NOT_NAMED }, { Ren: { answer: 'same_as', same_as: '[NPC] Orla Vance' } });
+        await runAfterEventBase();
+
+        const [firstAsk, secondAsk] = checksAsked();
+        expect(namesIn(firstAsk)).toEqual(expect.arrayContaining(['Ren', 'Tamsin', 'the ferryman']));
+        expect(firstAsk).not.toContain('Keyed by:');
+        expect(namesIn(secondAsk).sort()).toEqual(['Ren', 'Tamsin']);
+        expect(secondAsk).toContain('- [NPC] Orla Vance\n  Keyed by: Wren\n');
+        expect(progressTracker.updateCurrentItem).toHaveBeenCalledWith("Checking 2 names against the keys of the chat's lorebooks");
+        expect(record().entries.Ren).toEqual(ORLA_LINK);
+        expect(record().entries['the ferryman']).toMatchObject({ state: 'not_named' });
+        expect(createLorebookEntry.mock.calls.map(([, fields]) => fields.comment)).toEqual(['Tamsin']);
+        expect(host.loreBaseKeys['Harbor Atlas'][2]).toEqual(['Orla', 'harbor pilot', 'Ren']);
+        expect(log.lifecycle).toHaveBeenCalledWith(expect.stringContaining('Ren same_as [NPC] Orla Vance in "Harbor Atlas" (second ask)'));
+    });
+
+    it('asks no second time when the first ask answers no name named, or no other book has a key to show', async () => {
+        host.ask = answering({ Ren: NOT_NAMED, Tamsin: NOT_NAMED, 'the ferryman': NOT_NAMED });
+        await runAfterEventBase();
+        expect(checksAsked()).toHaveLength(1);
+
+        host.collectionMeta = {};
+        host.books['Harbor Atlas'].entries[2].key = ['Orla', 'orla vance'];
+        host.ask = answering();
+        await runAfterEventBase();
+        expect(checksAsked()).toHaveLength(1);
+        expect(record().entries.Ren).toMatchObject({ state: 'written' });
+    });
+
+    it('fails the whole check when the second ask fails: no new entry, the record as it was, every name asked about again at the next run', async () => {
+        const model = answeringTwice({ 'the ferryman': NOT_NAMED }, {});
+        host.ask = vi.fn(async (messages) => {
+            if (isKeyedCheck(messages)) throw new Error('The provider is down.');
+            return model(messages);
+        });
+        await runAfterEventBase();
+        expect(createLorebookEntry).not.toHaveBeenCalled();
+        expect(record()?.entries ?? {}).toEqual({});
+        expect(progressTracker.addError).toHaveBeenCalledWith("The name check's second ask: The provider is down.");
+        expect(log.warn).toHaveBeenCalledWith("[VectFox-EntityLore] The name check's second ask:", expect.objectContaining({ message: 'The provider is down.' }));
+
+        host.ask = answeringTwice({ 'the ferryman': NOT_NAMED }, { Ren: { answer: 'same_as', same_as: '[NPC] Orla Vance' } });
+        await runAfterEventBase();
+        expect(namesIn(checksAsked()[0])).toEqual(expect.arrayContaining(['Ren', 'Tamsin', 'the ferryman']));
+        expect(record().entries.Ren).toEqual(ORLA_LINK);
+    });
+
+    it('asks no second time once Stop is pressed during the first ask, and writes nothing', async () => {
+        const model = answeringTwice({ 'the ferryman': NOT_NAMED }, {});
+        host.ask = vi.fn(async (messages) => {
+            if (isCheck(messages)) progressTracker.setCancelHandler.mock.calls.at(-1)[0]();
+            return model(messages);
+        });
+        await runAfterEventBase();
+        expect(checksAsked()).toHaveLength(1);
+        expect(createLorebookEntry).not.toHaveBeenCalled();
+        expect(record().entries['the ferryman']).toMatchObject({ state: 'not_named' });
+    });
+
+    it('keeps the first answer of a name the second ask leaves unread, so it is written as a named one', async () => {
+        host.ask = answeringTwice({ 'the ferryman': NOT_NAMED }, { Ren: { answer: 'same_as', same_as: 'Nobody Known' } });
+        await runAfterEventBase();
+        expect(log.warn).toHaveBeenCalledWith("[VectFox-EntityLore] The name check's second ask: 1 answer could not be read; those names stay due");
+        expect(createLorebookEntry.mock.calls.map(([, fields]) => fields.comment).sort()).toEqual(['Ren', 'Tamsin']);
     });
 });
 

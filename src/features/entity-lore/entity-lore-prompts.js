@@ -9,8 +9,9 @@
  *   name whether it is a named character, not one, or another name of a
  *   character that has an entry, Entity-Lore's or another book's, or is another
  *   candidate of the same check, never of one Allow again kept it apart from;
- *   a title is read as written, or bare of the tags and note a model leaves
- *   off;
+ *   and a second for the names the first calls named, shown the other books'
+ *   author keys under their titles; a title is read as written, or bare of the
+ *   tags and note a model leaves off;
  * - the entry: one call per character, written new or again (a rewrite reads
  *   the entry as it stands), from the character's events or from the notes on
  *   them: a profile of who they are, not a summary of the story, in five
@@ -24,7 +25,7 @@
  * ============================================================================
  */
 
-import { RECORD_STATE, isSameName } from './entity-lore-core.js';
+import { RECORD_STATE, bareTitle, isSameName } from './entity-lore-core.js';
 
 /** The name check's answers (§4.3). not_named and same_as are the record's own states, which withNameCheckAnswer takes. */
 export const NAME_CHECK_ANSWER = Object.freeze({ named: 'named', notNamed: RECORD_STATE.notNamed, sameAs: RECORD_STATE.sameAs });
@@ -63,22 +64,32 @@ const TIME_RULE = 'Give a time as an event\'s "when" gives it. Never write an ev
 
 // ---------------------------------------------------------------------------- The name check (§4.3)
 
+// The second ask's title lines and rule (E5 of entity-lore-names-across-languages.md), as its trial N5 asked them.
+const KEYED_TITLES_HEADING = 'Entries already written for this story, by title, each with the other names and words its entry is keyed by:';
+const KEYED_ROLE_RULE = ' A job, a title or a role is not_named even when an entry is keyed by it.';
+
 /**
  * The name check's messages: the titles of the entries written for the story, Entity-Lore's and those of every other
  * book the chat loads (nameCheckTitles), then each candidate with how many events name it and one of those events, and
  * under it the names Allow again kept it apart from (D18), then what each answer means. Names in the list that are one
  * character are answered as one: named for the name with the most events, same_as it for the others, so only that name
- * gets an entry. Two names kept apart are never same_as each other.
+ * gets an entry. Two names kept apart are never same_as each other. With `keysByTitle`, the second ask (E5): each title
+ * with the author keys under it on a "Keyed by:" line, the heading saying so, and the not_named rule followed by one
+ * sentence: a job, a title or a role a key holds is not_named still.
  *
  * @param {{candidates: Array<{name: string, eventCount: number, eventLine: string, keptApartFrom?: string[]}>,
- *   entryTitles: string[]}} check - candidates in the run's order, each with one event naming it as its line reads;
- *   entryTitles may be empty
+ *   entryTitles: string[], keysByTitle?: Map<string, string[]>}} check - candidates in the run's order, each with one
+ *   event naming it as its line reads; entryTitles may be empty; keysByTitle only for the second ask, by the title as
+ *   entryTitles spells it
  * @returns {Array<{role: string, content: string}>}
  */
-export function nameCheckMessages({ candidates, entryTitles }) {
-    const titles = entryTitles.length
-        ? `Entries already written for this story, by title:\n${entryTitles.map(title => `- ${title}`).join('\n')}`
-        : 'Entries already written for this story: none.';
+export function nameCheckMessages({ candidates, entryTitles, keysByTitle }) {
+    const titleLine = (title) => {
+        const keys = keysByTitle?.get(title) ?? [];
+        return keys.length ? `- ${title}\n  Keyed by: ${keys.join(', ')}` : `- ${title}`;
+    };
+    const heading = keysByTitle ? KEYED_TITLES_HEADING : 'Entries already written for this story, by title:';
+    const titles = entryTitles.length ? `${heading}\n${entryTitles.map(titleLine).join('\n')}` : 'Entries already written for this story: none.';
     const apartLine = keptApartFrom => (keptApartFrom.length ? `\n   Not the same character as ${keptApartFrom.join(', ')}.` : '');
     const names = candidates.map(({ name, eventCount, eventLine, keptApartFrom = [] }, index) => `${index + 1}. ${name}: ${eventCount} `
         + `${eventCount === 1 ? 'event' : 'events'}. One of them: ${oneLine(eventLine)}${apartLine(keptApartFrom)}`).join('\n');
@@ -91,7 +102,7 @@ export function nameCheckMessages({ candidates, entryTitles }) {
         'For each name, answer whether it is the proper name of one individual character:',
         '- named: a personal name, a family name with a title (Lord Ashford, Captain Reyes, Mrs. Hale), or a nickname used as a name.',
         '- not_named: a job, a title with no name in it, a role or a description (a waitress, the bus driver, the boss, the captain, '
-            + 'the old man, the protagonist), a group (the guards, the villagers), or a pronoun.',
+            + 'the old man, the protagonist), a group (the guards, the villagers), or a pronoun.' + (keysByTitle ? KEYED_ROLE_RULE : ''),
         '- same_as: another name of a character who already has an entry, or of a character another name in this list names. '
             + 'Give that entry\'s title, or that name, exactly as written above. When names in this list are one character, '
             + 'answer named for the one with the most events, and same_as with that name for each of the others.'
@@ -104,14 +115,7 @@ export function nameCheckMessages({ candidates, entryTitles }) {
 
 const textOf = value => (typeof value === 'string' ? value.trim() : '');
 
-// A title bare (E1 of entity-lore-names-across-languages.md): its leading bracketed tags and a trailing note in
-// parentheses taken off, in any case, as a book's titles carry tags and notes a model leaves off: "Orla" for
-// "[👤] Orla". LoreBase's entryTitle takes off one category prefix only, so "[DLC][角色][Orla]" keeps "[角色][Orla]".
-const LEADING_TAGS = /^(?:\s*(?:\[[^\]]*\]|【[^】]*】))+/u;
-const TRAILING_NOTE = /[(（][^()（）]*[)）]\s*$/u;
-const bareTitle = title => String(title).replace(LEADING_TAGS, '').replace(TRAILING_NOTE, '').trim().toLowerCase();
-
-/** The one title a same_as names once both are bare; none when no title is, or two titles are bare alike. */
+/** The one title a same_as names once both are bare (bareTitle); none when no title is, or two titles are bare alike. */
 function titleNamedBare(entryTitles, sameAs) {
     const bare = bareTitle(sameAs);
     const named = bare ? entryTitles.filter(title => bareTitle(title) === bare) : [];
@@ -125,7 +129,7 @@ function titleNamedBare(entryTitles, sameAs) {
  * written in the list; and when it names neither, for the one title it equals once both are bare (titleNamedBare). A
  * same_as naming a name the candidate is kept apart from (D18) reads as named, as the user said the two are not one
  * character, `keptApartFrom` naming it; one naming a title of more than one entry links none, and is not read. A
- * candidate with no answer read stays due for the next run.
+ * candidate with no answer read stays due, as a named one does.
  *
  * @param {unknown[]} items - The answer's records, as parseJsonArrayFromLlm reads them with `name` marking a record
  * @param {{candidates: Array<{name: string, keptApartFrom?: string[]}>, entryTitles: string[], sharedTitles?: string[]}}

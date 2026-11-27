@@ -537,6 +537,7 @@ function loreEntryOf(bookName, entry, decidedUids) {
         uid: String(entry.uid),
         title: isText(entry.comment) ? entry.comment.trim() : '',
         names: [entry.comment, ...(entry.key ?? [])].filter(isText),
+        keys: (entry.key ?? []).filter(isText),
         isDecidedHere: decidedUids.has(String(entry.uid)),
         isConstant: entry.constant === true,
     };
@@ -617,21 +618,32 @@ async function writeOnPanel(job, { planned, due, scope }) {
 
 /**
  * The name check on every name due (§4.3), each with the names Allow again kept it apart from (D18), shown the titles
- * of Entity-Lore's entries and of every other book the chat loads (E1): each answer read goes in the record, a same_as
- * naming an entry already written adds the name to that entry's keys, one naming an entry of another book links the
- * name to it (E2), and a name with no answer read stays due. False when the check failed, so no new entry is written
- * this run.
+ * of Entity-Lore's entries and of every other book the chat loads (E1). When it answers names named and another book's
+ * entries have author keys, a second ask about those names alone is shown the keys under the titles (E5 of
+ * entity-lore-names-across-languages.md), unless Stop was pressed meanwhile, and each name it reads takes its answer. Then each answer read goes in the
+ * record: a same_as naming an entry already written adds the name to that entry's keys, one naming an entry of another
+ * book links the name to it (E2), and a name with no answer read stays due. False when either ask failed, the record as
+ * it was, so no new entry is written this run and every name is asked about again at the next.
  * @returns {Promise<boolean>}
  */
 async function checkNames(job, due) {
     const candidates = due.map(row => ({
         name: row.name, eventCount: row.eventCount, eventLine: eventLinesOf(job, [row.name])[0] ?? '', keptApartFrom: row.keptApartFrom ?? [],
     }));
-    const check = { candidates, ...nameCheckTitles(job.record, job.chat.exclusions.loreEntries) };
+    const { keysByTitle, ...titles } = nameCheckTitles(job.record, job.chat.exclusions.loreEntries);
+    const check = { candidates, ...titles };
+    let step = 'The name check';
     try {
-        const items = parseJsonArrayFromLlm(await job.ask(nameCheckMessages(check), NAME_CHECK_REQUEST), { label: CONTEXT_LABEL, identKeys: ['name'] });
-        const { answers, unreadItemCount } = readNameCheck(items, check);
-        if (unreadItemCount) log.warn(`${LOG} The name check: ${counted(unreadItemCount, 'answer', 'answers')} could not be read; those names stay due`);
+        let answers = await askNameCheck(job, check, step);
+        const keyedAnswers = new Set();
+        const named = candidates.filter(candidate => answers.some(each => each.name === candidate.name && each.answer === NAME_CHECK_ANSWER.named));
+        if (named.length && keysByTitle.size && !job.run.isStopped) {
+            step = "The name check's second ask";
+            progressTracker.updateCurrentItem(`Checking ${counted(named.length, 'name', 'names')} against the keys of the chat's lorebooks`);
+            const secondAnswers = await askNameCheck(job, { ...check, candidates: named, keysByTitle }, step);
+            for (const answer of secondAnswers) keyedAnswers.add(answer.name);
+            answers = answers.map(answer => secondAnswers.find(each => each.name === answer.name) ?? answer);
+        }
         const booksOfLinks = new Map();
         for (const answer of answers.filter(each => each.answer !== NAME_CHECK_ANSWER.named)) {
             const lorebookEntry = answer.answer === NAME_CHECK_ANSWER.sameAs ? lorebookEntryTitled(job, answer.sameAs) : null;
@@ -646,13 +658,29 @@ async function checkNames(job, due) {
         saveRecord(job);
         const answerText = each => `${each.name} ${each.answer}${each.sameAs ? ` ${each.sameAs}` : ''}`
             + `${booksOfLinks.has(each.name) ? ` in "${booksOfLinks.get(each.name)}"` : ''}`
-            + `${each.keptApartFrom ? ` (answered same_as ${each.keptApartFrom}, which it is kept apart from)` : ''}`;
+            + `${each.keptApartFrom ? ` (answered same_as ${each.keptApartFrom}, which it is kept apart from)` : ''}`
+            + `${keyedAnswers.has(each.name) ? ' (second ask)' : ''}`;
         log.lifecycle(`${LOG} The name check: ${answers.map(answerText).join(', ')}`);
         return true;
     } catch (error) {
-        failCall(job, 'The name check', error);
+        failCall(job, step, error);
         return false;
     }
+}
+
+/**
+ * One ask of the name check (§4.3), its answers read by readNameCheck; how many items it could not read is told, as
+ * those names stay due. Throws when the model's call fails, or when its reply holds no JSON to read (parseJsonArrayFromLlm).
+ * @param {object} job
+ * @param {object} check - What nameCheckMessages asks and readNameCheck reads against
+ * @param {string} step - Which ask, for the log
+ * @returns {Promise<Array<{name: string, answer: string, sameAs?: string, keptApartFrom?: string}>>}
+ */
+async function askNameCheck(job, check, step) {
+    const items = parseJsonArrayFromLlm(await job.ask(nameCheckMessages(check), NAME_CHECK_REQUEST), { label: CONTEXT_LABEL, identKeys: ['name'] });
+    const { answers, unreadItemCount } = readNameCheck(items, check);
+    if (unreadItemCount) log.warn(`${LOG} ${step}: ${counted(unreadItemCount, 'answer', 'answers')} could not be read; those names stay due`);
+    return answers;
 }
 
 /**

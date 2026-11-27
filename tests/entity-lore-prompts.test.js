@@ -5,7 +5,8 @@
  * Guards that:
  *   - the name check lists the entries already written and each candidate with its count and one event, and under it
  *     the names Allow again kept it apart from, and says what each answer means, names in the list that are one
- *     character answered as one, two kept apart never same_as each other,
+ *     character answered as one, two kept apart never same_as each other; its second ask shows each title's keys on a
+ *     line under it, the heading saying so, and keeps a job, a title or a role an entry is keyed by not_named,
  *   - its answers are read by the candidate's own name in any case, each once, a same_as only when it names an entry's
  *     title or another candidate the same answer calls named, or else the one title it equals bare of its tags and
  *     note, never a title of more than one entry, one naming a name the candidate is kept apart from as named, and a
@@ -51,6 +52,18 @@ describe('the name check (§4.3)', () => {
 
     it('says when no entry is written yet', () => {
         expect(userText(nameCheckMessages({ candidates, entryTitles: [] }))).toMatch(/^Entries already written for this story: none\.\n/u);
+    });
+
+    it("shows the second ask each title's keys on a line under it, says so in the heading, and keeps a keyed job, title or role not_named (E5)", () => {
+        const keysByTitle = new Map([['[NPC] Orla Vance', ['Wren', 'The Gray Gull']]]);
+        const prompt = userText(nameCheckMessages({ candidates, entryTitles: ['Captain Brannoc', '[NPC] Orla Vance', 'Gull Rock'], keysByTitle }));
+        expect(prompt).toContain('Entries already written for this story, by title, each with the other names and words its entry is keyed by:\n'
+            + '- Captain Brannoc\n- [NPC] Orla Vance\n  Keyed by: Wren, The Gray Gull\n- Gull Rock\n\n');
+        expect(prompt).toContain('a group (the guards, the villagers), or a pronoun. A job, a title or a role is not_named even when an entry is keyed by it.\n');
+
+        const firstAsk = userText(nameCheckMessages(check));
+        expect(firstAsk).not.toContain('Keyed by');
+        expect(firstAsk).toContain('a group (the guards, the villagers), or a pronoun.\n');
     });
 
     it("reads each candidate's answer by its own name in any case, in the candidates' order, and leaves out one with no answer", () => {

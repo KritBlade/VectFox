@@ -21,7 +21,8 @@
  *     under its title, and as no record once it does not; the links that hold are listed for their keys; Allow again
  *     on one keeps the name apart from that title and names the entry to take it off; a missing book keeps them,
  *   - the name check is shown Entity-Lore's titles, then the other books', each once in any case, the titles of more
- *     than one entry named,
+ *     than one entry named; its second ask, each other book's title with at most 8 of its author keys, in order, each
+ *     once, none a form of the title or of a key shown before it, the keys of entries sharing a title merged,
  *   - each character's state follows the record first, then the exclusions and Write at, and a rewrite falls due at
  *     the count it was written at plus Rewrite every, or at once when its names changed, on StoryArc's Entity tab or by
  *     Allow again,
@@ -55,7 +56,7 @@ const row = (name, eventCount, otherNames = []) => ({ name, otherNames, eventCou
 const emptyRecord = () => readEntityLoreRecord(undefined);
 // An entry of another book the chat loads, as chatExclusions in entity-lore.js reads it.
 const loreEntry = (bookName, uid, title, keys = [], standing = {}) => ({
-    bookName, uid: String(uid), title, names: [title, ...keys].filter(Boolean), isDecidedHere: false, isConstant: false, ...standing,
+    bookName, uid: String(uid), title, names: [title, ...keys].filter(Boolean), keys: [...keys], isDecidedHere: false, isConstant: false, ...standing,
 });
 
 describe('the settings', () => {
@@ -311,8 +312,31 @@ describe('names in another book the chat loads (E1 to E3 of entity-lore-names-ac
         record = withNameCheckAnswer(record, 'Corrie', { state: RECORD_STATE.sameAs, sameAs: 'Mira' });
         const entries = [loreEntry('Harbor Atlas', 3, 'Harbor Watch'), loreEntry('Harbor Atlas', 4, ''), loreEntry('Tide Tables', 2, 'harbor watch'),
             loreEntry('Tide Tables', 5, ' MIRA '), ysolde];
-        expect(nameCheckTitles(record, entries)).toEqual({ entryTitles: ['Mira', 'Harbor Watch', '[NPC] Ysolde'], sharedTitles: ['Mira', 'Harbor Watch'] });
-        expect(nameCheckTitles(emptyRecord(), [])).toEqual({ entryTitles: [], sharedTitles: [] });
+        expect(nameCheckTitles(record, entries)).toEqual({
+            entryTitles: ['Mira', 'Harbor Watch', '[NPC] Ysolde'], sharedTitles: ['Mira', 'Harbor Watch'], keysByTitle: new Map(),
+        });
+        expect(nameCheckTitles(emptyRecord(), [])).toEqual({ entryTitles: [], sharedTitles: [], keysByTitle: new Map() });
+    });
+
+    it("gives the second ask each other book's title with at most 8 of its author keys, in order, each once, none a form of the title or of a key before it (E5)", () => {
+        const orla = loreEntry('Harbor Atlas', 8, '[NPC] Orla Vance (harbor)', [
+            'Orla', 'orla vance', 'Lady Orla', 'Wren', 'WREN', 'Silent Wren', 'The Gray Gull', 'オルラ', 'Lantern Keeper', 'Gull', 'Tide Witch',
+            'Saltmarsh Heir', 'Ninth Bell', 'Tenth Bell', 'Eleventh Bell',
+        ]);
+        const { keysByTitle } = nameCheckTitles(emptyRecord(), [orla, loreEntry('Harbor Atlas', 9, 'Bo Lin', ['Bo the Fair', 'Lin Hollow'])]);
+        expect(keysByTitle).toEqual(new Map([
+            ['[NPC] Orla Vance (harbor)', ['Wren', 'The Gray Gull', 'オルラ', 'Lantern Keeper', 'Tide Witch', 'Saltmarsh Heir', 'Ninth Bell', 'Tenth Bell']],
+            // A title's word shorter than 3 letters, as "Bo", leaves a key holding it shown.
+            ['Bo Lin', ['Bo the Fair']],
+        ]));
+    });
+
+    it("merges the keys of the entries one title names, and shows none under Entity-Lore's own titles (E5)", () => {
+        const record = withWrittenEntry(emptyRecord(), 'Tamsin', { uid: 1, writtenAtEvents: 12, content: 'a' });
+        const entries = [loreEntry('Harbor Atlas', 9, 'Gull Rock', ['Rookery']), loreEntry('Tide Tables', 3, 'gull rock', ['Nesting Ledge', 'rookery'])];
+        expect(nameCheckTitles(record, entries)).toEqual({
+            entryTitles: ['Tamsin', 'Gull Rock'], sharedTitles: ['Gull Rock'], keysByTitle: new Map([['Gull Rock', ['Rookery', 'Nesting Ledge']]]),
+        });
     });
 });
 
@@ -514,8 +538,9 @@ describe('sliceEventLines', () => {
 describe("Run now's question (§4.1)", () => {
     const linesText = lines => lines.map(line => (line.parts ?? [line]).map(part => part.text ?? part.name).join(''));
     const CHECK_LINE = "First, one request to LoreBase's model checks which names are named characters: a job or a title gets no entry, and "
-        + "another name of a character joins that character's entry. Each entry then takes one more request, a few for a very long story, "
-        + 'and LoreBase writes their keys and vectors.';
+        + "another name of a character joins that character's entry. A second request looks for the named ones among the keys of the "
+        + "chat's other lorebooks, when they have keys. Each entry then takes one more request, a few for a very long story, and LoreBase "
+        + 'writes their keys and vectors.';
 
     it('says in plain words what it writes, into which lorebook, and the requests it makes, each count and the book a value', () => {
         const lines = runNowQuestion({ newCount: 25, rewriteCount: 0, bookName: 'VectFox NPCs - Harbor', isBookMade: true });

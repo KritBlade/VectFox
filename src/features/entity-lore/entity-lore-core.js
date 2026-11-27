@@ -15,8 +15,9 @@
  * names on StoryArc's Entity tab, a split, or Allow again makes of it; an event
  * with one time, as an entry's call reads it; the cut of a character's events
  * into slices one call can read; and what a run names: its book, the titles
- * the name check is shown, the names matched to an entry, the links that hold,
- * Run now's question and the run's outcome.
+ * the name check is shown and the author keys its second ask shows under them,
+ * the names matched to an entry, the links that hold, Run now's question and
+ * the run's outcome.
  *
  * Pure: no host or feature imports. What another feature knows, such as
  * whether the card's description holds a name or how many tokens a text is,
@@ -82,9 +83,10 @@ export const ENTITY_STATE = Object.freeze({
 
 /**
  * An entry of a book the chat loads that Entity-Lore did not write, as the exclusions, the name check and a link read
- * it: its book, uid and title, the names it holds (its title and keys), whether LoreBase decides it in the chat, so Jev
- * reads its LoreBase keys there, and whether SillyTavern always sends it.
- * @typedef {{bookName: string, uid: string, title: string, names: string[], isDecidedHere: boolean, isConstant: boolean}} LoreEntry
+ * it: its book, uid and title, the names it holds (its title and keys), its author's keys alone, which the name check's
+ * second ask shows, whether LoreBase decides it in the chat, so Jev reads its LoreBase keys there, and whether
+ * SillyTavern always sends it.
+ * @typedef {{bookName: string, uid: string, title: string, names: string[], keys: string[], isDecidedHere: boolean, isConstant: boolean}} LoreEntry
  */
 
 /** Whether two names are one, trimmed and in any case: how the record, the exclusions, the keys and the name check match names. */
@@ -737,26 +739,76 @@ function writtenEntryTitles(record) {
     return Object.entries(record.entries).filter(([, entry]) => entry.state === RECORD_STATE.written).map(([name]) => name);
 }
 
+// A title bare (E1 of entity-lore-names-across-languages.md): its leading bracketed tags and a trailing note in
+// parentheses taken off, in any case, as a book's titles carry tags and notes a model leaves off: "Orla" for
+// "[👤] Orla". LoreBase's entryTitle takes off one category prefix only, so "[DLC][角色][Orla]" keeps "[角色][Orla]".
+const LEADING_TAGS = /^(?:\s*(?:\[[^\]]*\]|【[^】]*】))+/u;
+const TRAILING_NOTE = /[(（][^()（）]*[)）]\s*$/u;
+export const bareTitle = title => String(title).replace(LEADING_TAGS, '').replace(TRAILING_NOTE, '').trim().toLowerCase();
+
+// The name check's second ask (E5 of entity-lore-names-across-languages.md) shows under a title at most this many of
+// its entries' author keys; a word of a bare title this long or longer makes a key holding it a form of the title.
+const KEYS_SHOWN_PER_TITLE = 8;
+const SHORTEST_TITLE_WORD = 3;
+
+/**
+ * The author keys the name check's second ask shows under a title (E5): in the author's order, each once in any case,
+ * at most KEYS_SHOWN_PER_TITLE, and none that is a form of the title, inside its bare title or holding a word of it, or
+ * a form of a key shown before it, inside that key or holding it. So "Wren" shows under "[NPC] Orla Vance", and "Orla"
+ * and "Lady Orla" do not.
+ *
+ * @param {string} title
+ * @param {string[]} keys - The author's keys of every entry the title names, in book order
+ * @returns {string[]}
+ */
+function keysShownUnderTitle(title, keys) {
+    const bare = bareTitle(title);
+    const titleWords = bare.split(/\s+/u).filter(word => word.length >= SHORTEST_TITLE_WORD);
+    const shown = [];
+    for (const key of keys.map(each => String(each).trim()).filter(Boolean)) {
+        if (shown.length === KEYS_SHOWN_PER_TITLE) break;
+        const folded = key.toLowerCase();
+        const isTitleForm = bare.includes(folded) || titleWords.some(word => folded.includes(word));
+        const isShownForm = shown.some(each => each.toLowerCase().includes(folded) || folded.includes(each.toLowerCase()));
+        if (!isTitleForm && !isShownForm) shown.push(key);
+    }
+    return shown;
+}
+
 /**
  * The titles the name check is shown (§4.3, E1 of entity-lore-names-across-languages.md): those of the entries
  * Entity-Lore wrote, then those of the entries of every other book the chat loads, in their order, each once in any
- * case, so a name the chat writes in another language than a book can be linked to its character's entry there; and
- * those of them that title more than one entry, which a same_as links to none.
+ * case, so a name the chat writes in another language than a book can be linked to its character's entry there; those
+ * of them that title more than one entry, which a same_as links to none; and the author keys the second ask shows under
+ * each title of another book's entries that has any (keysShownUnderTitle, E5), the keys of every entry it titles merged.
  *
  * @param {{entries: Record<string, object>}} record
  * @param {LoreEntry[]} loreEntries
- * @returns {{entryTitles: string[], sharedTitles: string[]}}
+ * @returns {{entryTitles: string[], sharedTitles: string[], keysByTitle: Map<string, string[]>}} keysByTitle by the
+ *   title as entryTitles spells it
  */
 export function nameCheckTitles(record, loreEntries) {
     const byTitle = new Map();
-    for (const title of [...writtenEntryTitles(record), ...loreEntries.map(entry => entry.title)].map(each => String(each).trim())) {
-        if (!title) continue;
-        const known = byTitle.get(title.toLowerCase());
-        if (known) known.count += 1;
-        else byTitle.set(title.toLowerCase(), { title, count: 1 });
-    }
+    const add = (title, keys) => {
+        const shown = String(title).trim();
+        if (!shown) return;
+        const known = byTitle.get(shown.toLowerCase());
+        if (known) {
+            known.count += 1;
+            known.keys.push(...keys);
+        } else {
+            byTitle.set(shown.toLowerCase(), { title: shown, count: 1, keys: [...keys] });
+        }
+    };
+    for (const title of writtenEntryTitles(record)) add(title, []);
+    for (const entry of loreEntries) add(entry.title, entry.keys);
     const titles = [...byTitle.values()];
-    return { entryTitles: titles.map(each => each.title), sharedTitles: titles.filter(each => each.count > 1).map(each => each.title) };
+    const keysByTitle = new Map();
+    for (const { title, keys } of titles) {
+        const shownKeys = keysShownUnderTitle(title, keys);
+        if (shownKeys.length) keysByTitle.set(title, shownKeys);
+    }
+    return { entryTitles: titles.map(each => each.title), sharedTitles: titles.filter(each => each.count > 1).map(each => each.title), keysByTitle };
 }
 
 /**
@@ -815,8 +867,9 @@ export function runNowQuestion({ newCount, rewriteCount, bookName, isBookMade })
         },
         {
             text: "First, one request to LoreBase's model checks which names are named characters: a job or a title gets no entry, "
-                + "and another name of a character joins that character's entry. Each entry then takes one more request, a few for a "
-                + 'very long story, and LoreBase writes their keys and vectors.',
+                + "and another name of a character joins that character's entry. A second request looks for the named ones among the "
+                + "keys of the chat's other lorebooks, when they have keys. Each entry then takes one more request, a few for a very "
+                + 'long story, and LoreBase writes their keys and vectors.',
         },
         ...(rewriteCount ? [{ text: "A rewrite writes an existing entry again from the character's whole story so far, one request each." }] : []),
     ];
