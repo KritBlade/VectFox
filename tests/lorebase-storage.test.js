@@ -786,7 +786,7 @@ describe('removing a book from LoreBase', () => {
         extension_settings.vectfox.lorebase_books = {
             [BOOK]: oneSelectionRecord({
                 selectedUids: ['0', '1', '2'], pinnedSections: ['Rules'], lockedToChatIds: ['Harbor Night'],
-                lockedToCharacterAvatars: ['keeper-orrin.png'], seenUids: ['0', '1', '2', '3'],
+                lockedToCharacterAvatars: ['keeper-orrin.png'], seenEntries: { seenUpTo: 3, unseenBelow: [] },
             }),
             'Desert Atlas': oneSelectionRecord({ selectedUids: ['5'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: ['keeper-orrin.png'] }),
         };

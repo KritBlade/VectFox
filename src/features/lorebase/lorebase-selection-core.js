@@ -114,14 +114,14 @@ export function isEngineLike(row) {
 /**
  * The screen's rows for a book, in the book's own order.
  * @param {{entries?: object}|null} book - As loadWorldInfo returns it
- * @param {{selectedUids: string[], seenUids?: string[]}|null} shown - The selection shown's entries, and the entries the
- *   book's record saw it hold when the screen last opened it
+ * @param {{selectedUids: string[], seenEntries?: SeenEntries}|null} shown - The selection shown's entries, and the
+ *   entries the book's record saw it hold when the screen last opened it (seenEntriesOf)
  * @returns {SelectionRow[]}
  */
 export function selectionRows(book, shown) {
     const selected = new Set(shown?.selectedUids ?? []);
     // A book never opened on the screen has no record of what was there, so nothing in it counts as new.
-    const seen = Array.isArray(shown?.seenUids) ? new Set(shown.seenUids) : null;
+    const isSeen = seenCheckOf(shown?.seenEntries);
     return Object.values(book?.entries ?? {}).map(entry => {
         const uid = String(entry.uid);
         const content = String(entry.content ?? '');
@@ -138,7 +138,7 @@ export function selectionRows(book, shown) {
             badges: badgesOf(entry, { content, tokens, keys }),
             undecidableReason: undecidableReasonOf(entry),
             isDisabled: Boolean(entry.disable),
-            isNew: seen !== null && !seen.has(uid),
+            isNew: isSeen !== null && !isSeen(uid),
             isSelected: selected.has(uid),
             searchText: [title, entry.comment || '', ...keys, ...secondaryKeys, content].join('\n').toLowerCase(),
         };
@@ -346,12 +346,59 @@ export function liveSelection(book, selection) {
 }
 
 /**
- * The uids a book holds now, which the record keeps when the screen opens it, so later entries show as new.
- * @param {{entries?: object}|null} book
- * @returns {string[]}
+ * @typedef {object} SeenEntries - The entries a book held when the selection screen last opened it, in short
+ * @property {number} seenUpTo - The highest uid, -1 for a book that held none
+ * @property {string[]} unseenBelow - The uids below seenUpTo the book did not hold, each run of them as "first-last"
+ *   and a single one as itself
+ * @property {string[]} [seenOtherUids] - Any uid that is not a whole number, kept as it is; only when there is one
  */
-export function seenUidsOf(book) {
-    return Object.values(book?.entries ?? {}).map(entry => String(entry.uid));
+
+/** Whether a uid is a whole number written plainly, as SillyTavern numbers a book's entries. */
+const isWholeNumberUid = uid => /^(0|[1-9]\d*)$/.test(uid) && Number.isSafeInteger(Number(uid));
+
+/**
+ * The entries a book holds now, as its record keeps them when the screen opens it, so an entry added later shows as
+ * new. SillyTavern gives a new entry the lowest uid free (getFreeWorldEntryUid), so the uids it held are every one up
+ * to the highest but the gaps: a book nothing was deleted from keeps one number. An entry deleted and another added in
+ * its uid before the next opening reads as seen, as with any record of uids alone.
+ * @param {{entries?: object}|null} book
+ * @returns {SeenEntries}
+ */
+export function seenEntriesOf(book) {
+    const uids = [...new Set(Object.values(book?.entries ?? {}).map(entry => String(entry.uid)))];
+    const numbers = uids.filter(isWholeNumberUid).map(Number).sort((first, second) => first - second);
+    const otherUids = uids.filter(uid => !isWholeNumberUid(uid));
+    const unseenBelow = [];
+    let nextUid = 0;
+    for (const number of numbers) {
+        if (number > nextUid) unseenBelow.push(number - 1 === nextUid ? String(nextUid) : `${nextUid}-${number - 1}`);
+        nextUid = number + 1;
+    }
+    return {
+        seenUpTo: numbers.length ? numbers[numbers.length - 1] : -1,
+        unseenBelow,
+        ...(otherUids.length ? { seenOtherUids: otherUids } : {}),
+    };
+}
+
+/**
+ * Whether the book held an entry, by its uid, when the record last saw it (seenEntriesOf); null for a book the screen
+ * never opened, whose record has no seen entries.
+ * @param {SeenEntries|null|undefined} seen
+ * @returns {((uid: string) => boolean)|null}
+ */
+function seenCheckOf(seen) {
+    if (typeof seen?.seenUpTo !== 'number') return null;
+    const gaps = (Array.isArray(seen.unseenBelow) ? seen.unseenBelow : []).map(run => {
+        const [first, last = first] = String(run).split('-').map(Number);
+        return { first, last };
+    });
+    const otherUids = new Set(Array.isArray(seen.seenOtherUids) ? seen.seenOtherUids : []);
+    return uid => {
+        if (!isWholeNumberUid(uid)) return otherUids.has(uid);
+        const number = Number(uid);
+        return number <= seen.seenUpTo && !gaps.some(({ first, last }) => number >= first && number <= last);
+    };
 }
 
 /**

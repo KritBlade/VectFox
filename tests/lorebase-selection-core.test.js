@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     BADGES, READINESS_CHOICES, bookChoices, categoryList, entryReadiness, filterRows, invertTicks, isEngineLike, liveSelection,
-    pinnableSections, selectionAfterBulk, selectionAfterCategory, selectionFooter, selectionRows, seenUidsOf, tickAllMatching, tickRange,
+    pinnableSections, selectionAfterBulk, selectionAfterCategory, selectionFooter, selectionRows, seenEntriesOf, tickAllMatching, tickRange,
 } from '../src/features/lorebase/lorebase-selection-core.js';
 import { estimatedTokens } from '../src/features/lorebase/lorebase-splitter.js';
 
@@ -74,10 +74,47 @@ describe("the screen's rows", () => {
     });
 
     it('marks the entries added since the book was last opened, and none on a first opening', () => {
-        expect(rowsOf({ selectedUids: [], seenUids: ['0', '1', '2', '3', '4', '5', '6', '7', '8'] }).filter(row => row.isNew).map(row => row.uid)).toEqual(['9']);
+        expect(rowsOf({ selectedUids: [], seenEntries: { seenUpTo: 8, unseenBelow: [] } }).filter(row => row.isNew).map(row => row.uid)).toEqual(['9']);
         expect(rowsOf({ selectedUids: [] }).some(row => row.isNew)).toBe(false);
         expect(selectionRows(BOOK, null).some(row => row.isNew)).toBe(false);
-        expect(seenUidsOf(BOOK)).toEqual(['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']);
+        expect(seenEntriesOf(BOOK)).toEqual({ seenUpTo: 9, unseenBelow: [] });
+    });
+
+    it('keeps the entries seen as the highest uid and the gaps below it, a run of them as first-last', () => {
+        const bookOf = uids => ({ entries: Object.fromEntries(uids.map(uid => [uid, { uid, comment: '', key: [], content: '' }])) });
+        expect(seenEntriesOf(bookOf([0, 1, 2, 5, 9, 10]))).toEqual({ seenUpTo: 10, unseenBelow: ['3-4', '6-8'] });
+        expect(seenEntriesOf(bookOf([2, 4]))).toEqual({ seenUpTo: 4, unseenBelow: ['0-1', '3'] });
+        expect(seenEntriesOf(bookOf([]))).toEqual({ seenUpTo: -1, unseenBelow: [] });
+        expect(seenEntriesOf(null)).toEqual({ seenUpTo: -1, unseenBelow: [] });
+        // A uid that is not a whole number written plainly is kept as it is.
+        expect(seenEntriesOf(bookOf([0, 'harbor', '07', 1]))).toEqual({ seenUpTo: 1, unseenBelow: [], seenOtherUids: ['harbor', '07'] });
+    });
+
+    it('marks as new exactly the entries a list of every uid seen would, for books of any shape', () => {
+        // The short form against the plain set of uids it stands for, over books with gaps, runs and uids of no number.
+        const bookOf = uids => ({ entries: Object.fromEntries(uids.map(uid => [uid, { uid, comment: '', key: [], content: '' }])) });
+        let state = 7;
+        const nextRandom = () => { state = (state * 1103515245 + 12345) % 2147483648; return state / 2147483648; };
+        const randomUids = () => {
+            const uids = [];
+            for (let uid = 0; uid < 40; uid += 1) if (nextRandom() < 0.6) uids.push(uid);
+            if (nextRandom() < 0.3) uids.push('harbor');
+            return uids;
+        };
+        for (let round = 0; round < 200; round += 1) {
+            const before = randomUids();
+            const now = bookOf(randomUids());
+            const seen = new Set(before.map(String));
+            const isNewByList = selectionRows(now, null).map(row => !seen.has(row.uid));
+            const isNewByShortForm = selectionRows(now, { selectedUids: [], seenEntries: seenEntriesOf(bookOf(before)) }).map(row => row.isNew);
+            expect(isNewByShortForm).toEqual(isNewByList);
+        }
+    });
+
+    it('reads a uid deleted and given again to a new entry before the next opening as seen, as a list of uids would', () => {
+        const bookOf = uids => ({ entries: Object.fromEntries(uids.map(uid => [uid, { uid, comment: '', key: [], content: '' }])) });
+        const seenEntries = seenEntriesOf(bookOf([0, 1, 2]));
+        expect(selectionRows(bookOf([0, 1, 2, 3]), { selectedUids: [], seenEntries }).map(row => row.isNew)).toEqual([false, false, false, true]);
     });
 });
 
@@ -129,7 +166,7 @@ describe('the filters', () => {
         expect(uids(filterRows(rows, { minimumTokens: 1000 }))).toEqual(['0']);
         expect(uids(filterRows(rows, { badge: BADGES.templateCode }))).toEqual(['9']);
         expect(uids(filterRows(rows, { badge: BADGES.keyless }))).toEqual(['3']);
-        const withNew = selectionRows(BOOK, { selectedUids: [], seenUids: ['0', '1'] });
+        const withNew = selectionRows(BOOK, { selectedUids: [], seenEntries: { seenUpTo: 1, unseenBelow: [] } });
         expect(uids(filterRows(withNew, { isNewOnly: true, category: '[Harbor]' }))).toEqual(['5', '6', '9']);
     });
 

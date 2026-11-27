@@ -157,14 +157,14 @@ beforeEach(() => {
 });
 
 describe('opening the screen', () => {
-    it("opens on the chat's book, listed first, with every entry off, and keeps the uids it holds", async () => {
+    it("opens on the chat's book, listed first, with every entry off, and keeps the entries it holds", async () => {
         await openScreen();
         expect([...$id('vectfox_lorebase_book').options].map(option => option.value)).toEqual(['Harbor Atlas', 'Voyage Log', 'Zeta Notes']);
         expect($id('vectfox_lorebase_book').options[0].textContent).toBe('Harbor Atlas (this chat)');
         expect(rowUids()).toEqual(['0', '1', '2', '3', '4']);
         expect(document.querySelectorAll('[data-lorebase-action="toggle-entry"][aria-pressed="true"]')).toHaveLength(0);
         expect([...document.querySelectorAll('[data-lorebase-entry]')].some(element => element.textContent.includes('New'))).toBe(false);
-        expect(record().seenUids).toEqual(['0', '1', '2', '3', '4']);
+        expect(record().seenEntries).toEqual({ seenUpTo: 4, unseenBelow: [] });
         expect($id('vectfox_lorebase_summary').textContent).toBe("LoreBase decides no entry in this selection: where it is in use, SillyTavern's keys decide them all.");
     });
 
@@ -178,7 +178,7 @@ describe('opening the screen', () => {
     });
 
     it('marks an entry added since the last opening as new, and drops deleted entries from the selection', async () => {
-        host.settings.vectfox.lorebase_books = { 'Harbor Atlas': oneSelectionRecord({ selectedUids: ['1', '9'], seenUids: ['0', '1', '2', '3'] }) };
+        host.settings.vectfox.lorebase_books = { 'Harbor Atlas': oneSelectionRecord({ selectedUids: ['1', '9'], seenEntries: { seenUpTo: 3, unseenBelow: [] } }) };
         await openScreen();
         const newRows = [...document.querySelectorAll('[data-lorebase-entry]')].filter(element => element.textContent.includes('New'));
         expect(newRows.map(element => element.dataset.lorebaseEntry)).toEqual(['4']);
@@ -698,7 +698,7 @@ describe('locks, pins and books', () => {
         change($id('vectfox_lorebase_book'), 'Voyage Log');
         await vi.waitFor(() => expect(rowUids()).toEqual(['7']));
         expect(document.querySelector('[data-lorebase-ticked-count]').textContent).toBe('0 ticked');
-        expect(record('Voyage Log').seenUids).toEqual(['7']);
+        expect(record('Voyage Log').seenEntries).toEqual({ seenUpTo: 7, unseenBelow: ['0-6'] });
     });
 });
 

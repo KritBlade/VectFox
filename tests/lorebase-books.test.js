@@ -160,9 +160,13 @@ describe('the book record', () => {
 
     it('keeps the entries the book held when the selection screen opened it, missing until the first opening', () => {
         firstOf(BOOK);
-        expect(getLoreBook(BOOK)).not.toHaveProperty('seenUids');
-        setLoreBookSeenEntries(BOOK, [0, '1', 1]);
-        expect(getLoreBook(BOOK).seenUids).toEqual(['0', '1']);
+        expect(getLoreBook(BOOK)).not.toHaveProperty('seenEntries');
+        const seenEntries = { seenUpTo: 9, unseenBelow: ['3-4'] };
+        setLoreBookSeenEntries(BOOK, seenEntries);
+        expect(getLoreBook(BOOK).seenEntries).toEqual({ seenUpTo: 9, unseenBelow: ['3-4'] });
+        // Its own copy: changing what was handed in changes nothing kept.
+        seenEntries.unseenBelow.push('7');
+        expect(getLoreBook(BOOK).seenEntries.unseenBelow).toEqual(['3-4']);
         expect(saveSettingsDebounced).toHaveBeenCalledTimes(2);
     });
 

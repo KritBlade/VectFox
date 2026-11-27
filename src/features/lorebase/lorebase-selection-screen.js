@@ -49,7 +49,7 @@ import { isLoreBaseBackend, isLoreBaseSwitchedOn, turnLoreBaseOff } from './lore
 import { onVectorStateChange, pruneBookVectors, readBookVectors, vectorStateOf } from './lorebase-vectors.js';
 import {
     bookChoices, canToggleRow, categoryList, entryReadiness, entrySectionNames, filterRows, invertTicks, isDecidedRow, liveSelection,
-    pinnableSections, selectionAfterBulk, selectionAfterCategory, selectionFooter, selectionRows, seenUidsOf, tickAllMatching, tickRange,
+    pinnableSections, selectionAfterBulk, selectionAfterCategory, selectionFooter, selectionRows, seenEntriesOf, tickAllMatching, tickRange,
     BADGES,
 } from './lorebase-selection-core.js';
 import {
@@ -474,8 +474,8 @@ async function showBook(root, session, bookName, selectionId = null) {
     }
     await countOtherBooksTakingPart(session, bookName);
     if (session.bookName !== bookName) return;
-    // The record as it stood says which entries are new; then it keeps the uids the book holds now.
-    const seenUids = getLoreBook(bookName)?.seenUids;
+    // The record as it stood says which entries are new; then it keeps the entries the book holds now.
+    const seenEntries = getLoreBook(bookName)?.seenEntries;
     for (const selection of loreSelectionsOf(bookName)) {
         const live = liveSelection(book, selection);
         if (live.length === selection.selectedUids.length) continue;
@@ -486,14 +486,14 @@ async function showBook(root, session, bookName, selectionId = null) {
     session.selectionId = selection.id;
     session.book = book;
     session.entryByUid = new Map(Object.values(book.entries ?? {}).map(entry => [String(entry.uid), entry]));
-    session.rows = selectionRows(book, { selectedUids: selection.selectedUids, seenUids });
+    session.rows = selectionRows(book, { selectedUids: selection.selectedUids, seenEntries });
     const sectionNames = new Map();
     session.sectionNamesOf = entry => {
         const key = `${entry.uid}\u0000${entry.content ?? ''}`;
         if (!sectionNames.has(key)) sectionNames.set(key, entrySectionNames(entry));
         return sectionNames.get(key);
     };
-    setLoreBookSeenEntries(bookName, seenUidsOf(book));
+    setLoreBookSeenEntries(bookName, seenEntriesOf(book));
     renderLocks(root, session);
     renderCategories(root, session);
     renderEntries(root, session);
