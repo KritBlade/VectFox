@@ -908,6 +908,32 @@ describe('names in another book the chat loads (E1 to E3 of entity-lore-names-ac
         expect(record().entries.Isolde).toMatchObject({ state: 'written', uid: '0' });
     });
 
+    it('leaves to the name check a name a title holds only bare, so the check links it, as the exclusion reads titles as written (E4)', async () => {
+        host.books['Harbor Atlas'].entries[5] = { uid: 5, comment: '[NPC] Orla Vance', key: ['Wren'], content: 'A harbor pilot.' };
+        host.loreBaseKeys['Harbor Atlas'][5] = ['Wren', 'harbor pilot'];
+        host.events = eventsNaming('Orla Vance', 12);
+        expect((await readEntityLoreCharacters()).states).toMatchObject([{ name: 'Orla Vance', state: 'due' }]);
+
+        host.ask = answering({ 'Orla Vance': { answer: 'same_as', same_as: '[NPC] Orla Vance' } });
+        await runAfterEventBase();
+        expect(checkedNames()).toEqual(['Orla Vance']);
+        expect(record().entries['Orla Vance']).toEqual({ state: 'in_lorebook', bookName: 'Harbor Atlas', uid: '5', title: '[NPC] Orla Vance' });
+        expect(createLorebookEntry).not.toHaveBeenCalled();
+        expect(host.loreBaseKeys['Harbor Atlas'][5]).toEqual(['Wren', 'harbor pilot', 'Orla Vance']);
+    });
+
+    it('links a name the check answers same_as its own name to the entry whose title is that name bare, writing it no second entry (E6)', async () => {
+        host.books['Harbor Atlas'].entries[5] = { uid: 5, comment: '[NPC] Orla Vance', key: ['Wren'], content: 'A harbor pilot.' };
+        host.loreBaseKeys['Harbor Atlas'][5] = ['Wren', 'harbor pilot'];
+        host.events = eventsNaming('Orla Vance', 12);
+        host.ask = answering({ 'Orla Vance': { answer: 'same_as', same_as: 'Orla Vance' } });
+        await runAfterEventBase();
+        expect(record().entries['Orla Vance']).toEqual({ state: 'in_lorebook', bookName: 'Harbor Atlas', uid: '5', title: '[NPC] Orla Vance' });
+        expect(createLorebookEntry).not.toHaveBeenCalled();
+        expect(log.warn).not.toHaveBeenCalledWith(expect.stringContaining('could not be read'));
+        expect(host.loreBaseKeys['Harbor Atlas'][5]).toEqual(['Wren', 'harbor pilot', 'Orla Vance']);
+    });
+
     it('links nothing to a title two books share: the answer is not read, and the name is written as its own entry', async () => {
         host.worldNames.push('Tide Tables');
         host.chatBooks.push('Tide Tables');

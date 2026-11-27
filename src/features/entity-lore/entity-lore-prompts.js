@@ -126,8 +126,9 @@ function titleNamedBare(entryTitles, sameAs) {
  * The name check's answers, in the candidates' order. An item is read when it names a candidate, in any case, not
  * answered before, with one of the three answers; a same_as when it names an entry's title, or another candidate the
  * same answer calls named, so same_as never chains or points at itself, and names that title or that candidate as
- * written in the list; and when it names neither, for the one title it equals once both are bare (titleNamedBare). A
- * same_as naming a name the candidate is kept apart from (D18) reads as named, as the user said the two are not one
+ * written in the list; and when it names no title as written and no other candidate, for the one title it equals once
+ * both are bare (titleNamedBare), so a same_as writing the candidate's own name reads as the title that name is bare.
+ * A same_as naming a name the candidate is kept apart from (D18) reads as named, as the user said the two are not one
  * character, `keptApartFrom` naming it; one naming a title of more than one entry links none, and is not read. A
  * candidate with no answer read stays due, as a named one does.
  *
@@ -139,6 +140,7 @@ function titleNamedBare(entryTitles, sameAs) {
  */
 export function readNameCheck(items, { candidates, entryTitles, sharedTitles = [] }) {
     const candidateOf = name => candidates.find(candidate => isSameName(candidate.name, name));
+    const otherCandidateOf = (candidate, name) => candidates.find(each => each !== candidate && isSameName(each.name, name));
     const read = new Map();
     let unreadItemCount = 0;
     for (const item of Array.isArray(items) ? items : []) {
@@ -160,9 +162,9 @@ export function readNameCheck(items, { candidates, entryTitles, sharedTitles = [
             continue;
         }
         const exactTitle = entryTitles.find(each => isSameName(each, found.sameAs));
-        const other = exactTitle === undefined ? candidateOf(found.sameAs) : undefined;
+        const other = exactTitle === undefined ? otherCandidateOf(candidate, found.sameAs) : undefined;
         const title = exactTitle ?? (other ? undefined : titleNamedBare(entryTitles, found.sameAs));
-        const sameAs = title ?? (other && other !== candidate && isNamed(other) ? other.name : '');
+        const sameAs = title ?? (other && isNamed(other) ? other.name : '');
         const isKeptApart = (candidate.keptApartFrom ?? []).some(name => isSameName(name, sameAs));
         const isShared = title !== undefined && sharedTitles.some(shared => isSameName(shared, title));
         if (!sameAs) unreadItemCount += 1;

@@ -95,6 +95,12 @@ const isPlainObject = value => typeof value === 'object' && value !== null && !A
 const isNameText = value => typeof value === 'string' && Boolean(value.trim());
 /** A counted character's names: its kept name, then its other names. */
 const namesOf = row => [row.name, ...(row.otherNames ?? [])];
+// A title bare (E1 of entity-lore-names-across-languages.md): its leading bracketed tags and a trailing note in
+// parentheses taken off, in any case, as a book's titles carry tags and notes a model leaves off: "Orla" for
+// "[👤] Orla". LoreBase's entryTitle takes off one category prefix only, so "[DLC][角色][Orla]" keeps "[角色][Orla]".
+const LEADING_TAGS = /^(?:\s*(?:\[[^\]]*\]|【[^】]*】))+/u;
+const TRAILING_NOTE = /[(（][^()（）]*[)）]\s*$/u;
+export const bareTitle = title => String(title).replace(LEADING_TAGS, '').replace(TRAILING_NOTE, '').trim().toLowerCase();
 
 function wholeNumberIn(value, { default: fallback, min, max }) {
     const number = Number.parseInt(value, 10);
@@ -533,22 +539,46 @@ export function exclusionOf(row, { characterNames = [], personaName = '', loreEn
     const isAmong = list => list.some(other => String(other).trim() && names.some(name => isSameName(name, other)));
     if (isAmong(characterNames)) return EXCLUSION.chatCharacter;
     if (isAmong([personaName])) return EXCLUSION.persona;
-    if (loreEntryNaming(row, loreEntries)) return EXCLUSION.lorebook;
+    if (entryHoldingName(row, loreEntries)) return EXCLUSION.lorebook;
     if (names.some(name => isInCardDescription(name))) return EXCLUSION.cardDescription;
     return null;
 }
 
 /**
- * The first entry of the chat's other books, in their order, whose title or a key is one of a counted character's
- * names, in any case: the entry an "Already in a lorebook" row names (E3 of entity-lore-names-across-languages.md).
+ * The first entry of the chat's other books, in their order, whose title as written or a key is one of a counted
+ * character's names, in any case: what leaves the character out as already in a lorebook (exclusionOf). A title only
+ * bare never does, so such a name goes to the name check, which links it (E1, E2 of
+ * entity-lore-names-across-languages.md).
  *
  * @param {{name: string, otherNames?: string[]}} row
  * @param {LoreEntry[]} loreEntries
  * @returns {LoreEntry|null}
  */
-function loreEntryNaming(row, loreEntries) {
+function entryHoldingName(row, loreEntries) {
     const names = namesOf(row);
     return loreEntries.find(entry => entry.names.some(other => String(other).trim() && names.some(name => isSameName(name, other)))) ?? null;
+}
+
+/**
+ * Which entry an "Already in a lorebook" row names (E3, E4 of entity-lore-names-across-languages.md): the first, in the
+ * books' order, whose title bare (bareTitle) is one of the character's names, so "Orla Vance" names "[NPC] Orla Vance"
+ * before an entry that lists her among its keys; else the first that leaves the character out (entryHoldingName). It
+ * only names: what leaves a character out stays entryHoldingName's. Each title is made bare once per list of entries.
+ *
+ * @param {LoreEntry[]} loreEntries
+ * @returns {(row: {name: string, otherNames?: string[]}) => LoreEntry|null}
+ */
+function loreEntryNamer(loreEntries) {
+    const firstByBareTitle = new Map();
+    loreEntries.forEach((entry, order) => {
+        const bare = entry.title ? bareTitle(entry.title) : '';
+        if (bare && !firstByBareTitle.has(bare)) firstByBareTitle.set(bare, { entry, order });
+    });
+    return (row) => {
+        const titled = namesOf(row).map(name => firstByBareTitle.get(String(name).trim().toLowerCase())).filter(Boolean);
+        if (!titled.length) return entryHoldingName(row, loreEntries);
+        return titled.reduce((first, each) => (each.order < first.order ? each : first)).entry;
+    };
 }
 
 /**
@@ -581,6 +611,7 @@ function loreEntryNaming(row, loreEntries) {
 export function entityLoreStates(rows, { record, writeAt, rewriteEvery, chat = {}, bookEntries = [] }) {
     const hashByUid = new Map(bookEntries.map(entry => [String(entry.uid), entryContentHash(entry.content)]));
     const loreEntries = chat.loreEntries ?? [];
+    const lorebookEntryNaming = loreEntryNamer(loreEntries);
     return rows.map((counted) => {
         const keptApartFrom = namesKeptApartFrom(record, counted, rows);
         const row = keptApartFrom.length ? { ...counted, keptApartFrom } : counted;
@@ -601,7 +632,7 @@ export function entityLoreStates(rows, { record, writeAt, rewriteEvery, chat = {
             return { ...row, ...written, state: isDueAgain ? ENTITY_STATE.rewriteDue : ENTITY_STATE.written };
         }
         const exclusion = exclusionOf(row, chat);
-        if (exclusion === EXCLUSION.lorebook) return { ...row, state: ENTITY_STATE.excluded, exclusion, lorebookEntry: loreEntryNaming(row, loreEntries) };
+        if (exclusion === EXCLUSION.lorebook) return { ...row, state: ENTITY_STATE.excluded, exclusion, lorebookEntry: lorebookEntryNaming(row) };
         if (exclusion) return { ...row, state: ENTITY_STATE.excluded, exclusion };
         if (isLocked) return { ...row, state: ENTITY_STATE.locked };
         if (row.eventCount < writeAt) return { ...row, state: ENTITY_STATE.waiting, writeAt };
@@ -738,13 +769,6 @@ export function npcBookName(chatName) {
 function writtenEntryTitles(record) {
     return Object.entries(record.entries).filter(([, entry]) => entry.state === RECORD_STATE.written).map(([name]) => name);
 }
-
-// A title bare (E1 of entity-lore-names-across-languages.md): its leading bracketed tags and a trailing note in
-// parentheses taken off, in any case, as a book's titles carry tags and notes a model leaves off: "Orla" for
-// "[👤] Orla". LoreBase's entryTitle takes off one category prefix only, so "[DLC][角色][Orla]" keeps "[角色][Orla]".
-const LEADING_TAGS = /^(?:\s*(?:\[[^\]]*\]|【[^】]*】))+/u;
-const TRAILING_NOTE = /[(（][^()（）]*[)）]\s*$/u;
-export const bareTitle = title => String(title).replace(LEADING_TAGS, '').replace(TRAILING_NOTE, '').trim().toLowerCase();
 
 // The name check's second ask (E5 of entity-lore-names-across-languages.md) shows under a title at most this many of
 // its entries' author keys; a word of a bare title this long or longer makes a key holding it a form of the title.

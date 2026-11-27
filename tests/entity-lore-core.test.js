@@ -16,7 +16,8 @@
  *     but none once the two are merged,
  *   - an entry's hash ignores line endings and the ends of its text, so SillyTavern's own save is not the user's edit,
  *   - a character is excluded by any of its names, in any case: the chat's character, the persona, another lorebook's
- *     entry, or the card's description; a row excluded for a lorebook names the first entry its name is in,
+ *     entry, or the card's description; a row excluded for a lorebook names the entry whose title, bare, is its name,
+ *     else the first entry its name is in, while only an entry's title as written or a key leaves the name out,
  *   - a name the name check linked to an entry of another book reads as in that book while the chat holds the entry
  *     under its title, and as no record once it does not; the links that hold are listed for their keys; Allow again
  *     on one keeps the name apart from that title and names the entry to take it off; a missing book keeps them,
@@ -262,11 +263,34 @@ describe('names in another book the chat loads (E1 to E3 of entity-lore-names-ac
     const loreEntries = [loreEntry('Harbor Atlas', 3, 'Harbor Watch', ['Tidewardens']), ysolde, loreEntry('Tide Tables', 2, 'Tidewardens')];
     const linkedRecord = () => withNameInLorebook(emptyRecord(), 'Isolde', { bookName: 'Harbor Atlas', uid: 7, title: '[NPC] Ysolde' });
 
-    it('names the first entry, in book order, whose title or key holds an excluded name (E3)', () => {
-        const [excluded] = entityLoreStates([row('Corrie', 30, ['tidewardens'])], { record: emptyRecord(), ...options, chat: { loreEntries } });
+    it('names the first entry, in book order, whose title or key holds an excluded name, when no title is that name bare (E3)', () => {
+        const charts = loreEntry('Tide Tables', 4, 'Harbor Charts', ['Tidewardens']);
+        const [excluded] = entityLoreStates([row('Corrie', 30, ['tidewardens'])], { record: emptyRecord(), ...options, chat: { loreEntries: [loreEntries[0], ysolde, charts] } });
         expect(excluded).toMatchObject({ state: ENTITY_STATE.excluded, exclusion: EXCLUSION.lorebook, lorebookEntry: loreEntries[0] });
         expect(entityLoreStates([row('Corrie', 30)], { record: emptyRecord(), ...options, chat: { characterNames: ['Corrie'], loreEntries } })[0])
             .not.toHaveProperty('lorebookEntry');
+    });
+
+    it('names first the entry whose title, bare of its tags and note, is one of the names, before an entry whose key holds it (E4)', () => {
+        const [titled] = entityLoreStates([row('Corrie', 30, ['tidewardens'])], { record: emptyRecord(), ...options, chat: { loreEntries } });
+        expect(titled).toMatchObject({ state: ENTITY_STATE.excluded, exclusion: EXCLUSION.lorebook, lorebookEntry: loreEntries[2] });
+
+        const hillFolk = loreEntry('Harbor Atlas', 4, '[Race] Hill Folk', ['Orla Vance', 'Bram']);
+        const orla = loreEntry('Harbor Atlas', 8, '[NPC] Orla Vance (pilot)', ['Wren']);
+        const bram = loreEntry('Tide Tables', 9, '【NPC】Bram', []);
+        const rows = [row('Orla Vance', 30), row('Wren', 30, ['Bram']), row('Bram', 31, ['Orla Vance'])];
+        const states = entityLoreStates(rows, { record: emptyRecord(), ...options, chat: { loreEntries: [hillFolk, orla, bram] } });
+        // A title bare of its tag and its note; one of a row's other names; of two titles, the first in book order.
+        expect(states.map(each => each.lorebookEntry)).toEqual([orla, bram, orla]);
+    });
+
+    it('leaves out a character only for an entry whose title as written or a key holds its name: one a title holds only bare goes to the name check (E4)', () => {
+        const orla = loreEntry('Harbor Atlas', 8, '[NPC] Orla Vance (pilot)', ['Wren']);
+        expect(exclusionOf(row('Orla Vance', 30), { loreEntries: [orla] })).toBeNull();
+        expect(entityLoreStates([row('Orla Vance', 30)], { record: emptyRecord(), ...options, chat: { loreEntries: [orla] } })[0])
+            .toMatchObject({ state: ENTITY_STATE.due });
+        expect(exclusionOf(row('Wren', 30), { loreEntries: [orla] })).toBe(EXCLUSION.lorebook);
+        expect(exclusionOf(row('[npc] orla vance (pilot)', 30), { loreEntries: [orla] })).toBe(EXCLUSION.lorebook);
     });
 
     it("records a link to an entry of another book, which reads as in that book while the chat holds the entry under its title, in any case (E2)", () => {

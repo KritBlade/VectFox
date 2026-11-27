@@ -8,9 +8,9 @@
  *     character answered as one, two kept apart never same_as each other; its second ask shows each title's keys on a
  *     line under it, the heading saying so, and keeps a job, a title or a role an entry is keyed by not_named,
  *   - its answers are read by the candidate's own name in any case, each once, a same_as only when it names an entry's
- *     title or another candidate the same answer calls named, or else the one title it equals bare of its tags and
- *     note, never a title of more than one entry, one naming a name the candidate is kept apart from as named, and a
- *     candidate with no answer read is left out,
+ *     title or another candidate the same answer calls named, or else, the candidate's own name too, the one title it
+ *     equals bare of its tags and note, never a title of more than one entry, one naming a name the candidate is kept
+ *     apart from as named, and a candidate with no answer read is left out,
  *   - the entry is asked for as a profile, not a summary, in five sections under their headings, its past as now known
  *     and its key events one turning point a line, never merged, from the events or the notes on them, in the story's
  *     language, and a rewrite also reads the entry as it stands, keeping its ties and picking its key events again,
@@ -109,7 +109,7 @@ describe('the name check (§4.3)', () => {
         expect(unreadItemCount).toBe(0);
     });
 
-    it('leaves out a same_as naming itself, nothing asked, a candidate not called named, or one that is itself a same_as', () => {
+    it('leaves out a same_as naming itself when no title is that name bare, nothing asked, a candidate not called named, or one that is itself a same_as', () => {
         const { answers, unreadItemCount } = readNameCheck([
             { name: 'Tamsin', answer: 'same_as', same_as: 'Tamsin' },
             { name: 'Hollis', answer: 'same_as', same_as: 'Orla' },
@@ -179,6 +179,27 @@ describe('the name check (§4.3)', () => {
             { name: 'Tamsin Vale', answer: NAME_CHECK_ANSWER.sameAs, sameAs: 'Tamsin' },
         ]);
         expect(unreadItemCount).toBe(2);
+    });
+
+    it("reads a same_as writing the candidate's own name for the one title that name is bare, as it names no other candidate (E6)", () => {
+        const orla = { name: 'Orla Vance', eventCount: 12, eventLine: 'Day 5 | Orla Vance pilots the ferry in' };
+        const tagged = { candidates: [...candidates, orla], entryTitles: ['Captain Brannoc', '[NPC] Orla Vance', '【NPC】 Hollis (the mapmaker)'] };
+        const { answers, unreadItemCount } = readNameCheck([
+            { name: 'Orla Vance', answer: 'same_as', same_as: 'orla vance' },
+            { name: 'Hollis', answer: 'same_as', same_as: 'Hollis' },
+            { name: 'Tamsin', answer: 'same_as', same_as: 'Tamsin' },
+        ], tagged);
+        expect(answers).toEqual([
+            { name: 'Hollis', answer: NAME_CHECK_ANSWER.sameAs, sameAs: '【NPC】 Hollis (the mapmaker)' },
+            { name: 'Orla Vance', answer: NAME_CHECK_ANSWER.sameAs, sameAs: '[NPC] Orla Vance' },
+        ]);
+        expect(unreadItemCount).toBe(1);
+
+        const ownName = [{ name: 'Orla Vance', answer: 'same_as', same_as: 'Orla Vance' }];
+        const apart = { ...tagged, candidates: [{ ...orla, keptApartFrom: ['[NPC] Orla Vance'] }] };
+        expect(readNameCheck(ownName, apart).answers).toEqual([{ name: 'Orla Vance', answer: NAME_CHECK_ANSWER.named, keptApartFrom: '[NPC] Orla Vance' }]);
+        const bareAlike = { candidates: [orla], entryTitles: ['[NPC] Orla Vance', '[Ship] Orla Vance'] };
+        expect(readNameCheck(ownName, bareAlike)).toEqual({ answers: [], unreadItemCount: 1 });
     });
 
     it('links no same_as to a title of more than one entry, which stays unread, unless the candidate is kept apart from it', () => {
