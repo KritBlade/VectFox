@@ -140,10 +140,10 @@ describe('chatBookLocks', () => {
     it('counts and locks the selection in use here, the chat lock before the character lock, and every selection with none', async () => {
         host.books['Harbor Atlas'] = bookWith(0, 1, 2);
         const harbor = recordOf({ selected: ['0'], characters: ['keeper-orrin.png'] });
-        harbor.selections.push({ id: 'second', name: 'Second', selectedUids: ['1', '2'], pinnedSections: [], lockedToChatIds: ['chat-harbor'], lockedToCharacterAvatars: [] });
+        harbor.selections.push({ id: 'second', name: 'Second', selectedEntries: ['1-2'], pinnedSections: [], lockedToChatIds: ['chat-harbor'], lockedToCharacterAvatars: [] });
         const tide = recordOf({ selected: ['2'] });
         host.books['Tide Tables'] = bookWith(2, 3);
-        tide.selections.push({ id: 'second', name: 'Second', selectedUids: ['3'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] });
+        tide.selections.push({ id: 'second', name: 'Second', selectedEntries: ['3'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] });
         host.settings.vectfox.lorebase_books = { 'Harbor Atlas': harbor, 'Tide Tables': tide };
 
         const both = [...ONE_SELECTION, { id: 'second', name: 'Second' }];
@@ -222,7 +222,7 @@ describe('the lock a key run makes', () => {
 
     it('leaves a book with more than one selection as the user set it', () => {
         const harbor = recordOf({ selected: ['0'] });
-        harbor.selections.push({ id: 'second', name: 'Second', selectedUids: ['1'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] });
+        harbor.selections.push({ id: 'second', name: 'Second', selectedEntries: ['1'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] });
         host.settings.vectfox.lorebase_books = { 'Harbor Atlas': harbor };
         expect(lockKeyedBooks(keyRunLockPlace(), ['Harbor Atlas'])).toBeNull();
         expect(harbor.selections.map(selection => selection.lockedToChatIds)).toEqual([[], []]);
@@ -319,7 +319,7 @@ describe("the WorldInfo page's switcher", () => {
 
     beforeEach(() => {
         const harbor = recordOf({ selected: ['0', '1'], chats: ['chat-harbor'] });
-        harbor.selections.push({ id: 'second', name: 'Second', selectedUids: ['1'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] });
+        harbor.selections.push({ id: 'second', name: 'Second', selectedEntries: ['1'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] });
         host.settings.vectfox.lorebase_books = { 'Harbor Atlas': harbor };
     });
 
@@ -332,19 +332,19 @@ describe("the WorldInfo page's switcher", () => {
 
     it('makes a new selection from the one in use, or the one named, and puts it in use in this chat', () => {
         const copy = newLoreSelectionHere('Harbor Atlas');
-        expect(copy).toMatchObject({ name: 'Harbor Atlas 2', selectedUids: ['0', '1'], lockedToChatIds: ['chat-harbor'] });
+        expect(copy).toMatchObject({ name: 'Harbor Atlas 2', selectedEntries: ['0-1'], lockedToChatIds: ['chat-harbor'] });
         expect(selectionsOf('Harbor Atlas')[0].lockedToChatIds).toEqual([]);
-        expect(newLoreSelectionHere('Harbor Atlas', 'second')).toMatchObject({ name: 'Harbor Atlas 3', selectedUids: ['1'], lockedToChatIds: ['chat-harbor'] });
+        expect(newLoreSelectionHere('Harbor Atlas', 'second')).toMatchObject({ name: 'Harbor Atlas 3', selectedEntries: ['1'], lockedToChatIds: ['chat-harbor'] });
     });
 
     it('makes a new selection locked nowhere with no chat open', () => {
         host.chatId = undefined;
-        expect(newLoreSelectionHere('Harbor Atlas')).toMatchObject({ name: 'Harbor Atlas 2', selectedUids: ['0', '1'], lockedToChatIds: [] });
+        expect(newLoreSelectionHere('Harbor Atlas')).toMatchObject({ name: 'Harbor Atlas 2', selectedEntries: ['0-1'], lockedToChatIds: [] });
     });
 
     // A book whose record its trash deleted, or never opened, has none to copy: its first is made, as Choose entries makes it.
     it("makes a book's first selection, named after it with nothing selected, and puts it in use in this chat, when it has none", () => {
-        expect(newLoreSelectionHere('Keeper Notes')).toMatchObject({ name: 'Keeper Notes', selectedUids: [], lockedToChatIds: ['chat-harbor'] });
+        expect(newLoreSelectionHere('Keeper Notes')).toMatchObject({ name: 'Keeper Notes', selectedEntries: [], lockedToChatIds: ['chat-harbor'] });
         expect(selectionsOf('Keeper Notes')).toHaveLength(1);
     });
 });
@@ -401,7 +401,7 @@ describe('Add a lorebook', () => {
         expect(addCharacterLorebook).toHaveBeenCalledWith('keeper-orrin.png', 'Voyage Log');
         expect(saveChatMetadataField).not.toHaveBeenCalled();
         expect(books()['Voyage Log'].selections).toHaveLength(1);
-        expect(firstOf('Voyage Log')).toMatchObject({ name: 'Voyage Log', selectedUids: [], lockedToChatIds: [], lockedToCharacterAvatars: ['keeper-orrin.png'] });
+        expect(firstOf('Voyage Log')).toMatchObject({ name: 'Voyage Log', selectedEntries: [], lockedToChatIds: [], lockedToCharacterAvatars: ['keeper-orrin.png'] });
         expect(booksToAdd().bookNames).toEqual([]);
     });
 

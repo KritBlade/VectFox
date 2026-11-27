@@ -139,7 +139,7 @@ function lorebookBlock(picks) {
  * the block goes in whole (§5.7). A delivery whose entry the scan does not hold, or no longer decides, is not sent.
  * @param {{[list: string]: object[]}} loaded - WORLDINFO_ENTRIES_LOADED's data; its entries are changed in place
  * @param {object} lore
- * @param {(bookName: string) => Set<string>|null} lore.selectedUidsOf - A book's selected uids where it takes part in
+ * @param {(bookName: string) => Set<string>|null} lore.takingPartUidsOf - A book's selected uids where it takes part in
  *   this scan (D11), or null where LoreBase decides none of its entries
  * @param {Map<string, {isWhole: boolean, text: string, title: string, hasFrame: boolean, jevChance?: number|null}>|null}
  *   lore.deliveries - From scanDeliveries, for this scan's reply, or null for a scan that is not one
@@ -148,11 +148,11 @@ function lorebookBlock(picks) {
  *   WORLDINFO_FORCE_ACTIVATE; how many picks they carry; and each block's picks, most needed first, by the scan key of
  *   the entry that carries it, for the reply lore list
  */
-export function armScan(loaded, { selectedUidsOf, deliveries }) {
+export function armScan(loaded, { takingPartUidsOf, deliveries }) {
     const sent = new Map();
     for (const list of SCAN_LISTS) {
         for (const entry of loaded[list] ?? []) {
-            const selectedUids = selectedUidsOf(entry.world);
+            const selectedUids = takingPartUidsOf(entry.world);
             if (!selectedUids || !isDecidedEntry(entry, selectedUids)) continue;
             const key = scanKey(entry.world, entry.uid);
             const delivery = deliveries?.get(key);

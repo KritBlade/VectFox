@@ -195,7 +195,7 @@ describe('where LoreBase leaves the scan alone', () => {
         const loaded = await scan();
         expect(keysOf(loaded)).toEqual([['lighthouse'], ['tidewarden'], ['bell'], ['lamp']]);
         expect(forcedActivations()).toEqual([]);
-        expect(host.settings.vectfox.lorebase_books['Harbor Atlas'].selections[0].selectedUids).toEqual(['0', '1']);
+        expect(host.settings.vectfox.lorebase_books['Harbor Atlas'].selections[0].selectedEntries).toEqual(['0-1']);
     });
 
     it("leaves every key and forces nothing while Vector Storage's World Info search is on, as LoreBase sits out", async () => {
@@ -216,9 +216,9 @@ describe('where LoreBase leaves the scan alone', () => {
     it("blanks the keys of a book's selection in use here alone, the chat's lock before the character's, and leaves a book with none in use to its keys", async () => {
         const { 'Harbor Atlas': harbor, 'Keeper Notes': keeper } = host.settings.vectfox.lorebase_books;
         Object.assign(harbor.selections[0], { lockedToChatIds: [], lockedToCharacterAvatars: ['keeper-orrin.png'] });
-        harbor.selections.push({ id: 'night', name: 'Night watch', selectedUids: ['1'], pinnedSections: [], lockedToChatIds: ['chat-harbor'], lockedToCharacterAvatars: [] });
+        harbor.selections.push({ id: 'night', name: 'Night watch', selectedEntries: ['1'], pinnedSections: [], lockedToChatIds: ['chat-harbor'], lockedToCharacterAvatars: [] });
         keeper.selections[0].lockedToCharacterAvatars = [];
-        keeper.selections.push({ id: 'elsewhere', name: 'Elsewhere', selectedUids: ['7'], pinnedSections: [], lockedToChatIds: ['chat-other'], lockedToCharacterAvatars: [] });
+        keeper.selections.push({ id: 'elsewhere', name: 'Elsewhere', selectedEntries: ['7'], pinnedSections: [], lockedToChatIds: ['chat-other'], lockedToCharacterAvatars: [] });
         const loaded = await scan();
         expect(keysOf(loaded)).toEqual([['lighthouse'], [], ['bell'], ['lamp']]);
     });

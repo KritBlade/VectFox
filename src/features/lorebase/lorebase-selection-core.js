@@ -9,7 +9,9 @@
 import { contentsLine } from './lorebase-pick-core.js';
 import { decidedEntries, undecidableReasonOf } from './lorebase-reply-core.js';
 import { hasTemplateCode } from './lorebase-review-core.js';
+import { selectedUidsOf } from './lorebase-selections-core.js';
 import { INTRO_SECTION, entryCategory, entryTitle, estimatedTokens, splitEntry } from './lorebase-splitter.js';
+import { runsHoldUid } from './lorebase-uid-runs-core.js';
 
 /** The badges a row can carry, in the order the screen lists them. */
 export const BADGES = Object.freeze({
@@ -114,14 +116,14 @@ export function isEngineLike(row) {
 /**
  * The screen's rows for a book, in the book's own order.
  * @param {{entries?: object}|null} book - As loadWorldInfo returns it
- * @param {{selectedUids: string[], seenEntries?: SeenEntries}|null} shown - The selection shown's entries, and the
- *   entries the book's record saw it hold when the screen last opened it (seenEntriesOf)
+ * @param {{selectedUids: string[], seenEntries?: string[]}|null} shown - The uids of the selection shown's entries,
+ *   and the entries the book's record saw it hold when the screen last opened it, as uid runs
  * @returns {SelectionRow[]}
  */
 export function selectionRows(book, shown) {
     const selected = new Set(shown?.selectedUids ?? []);
     // A book never opened on the screen has no record of what was there, so nothing in it counts as new.
-    const isSeen = seenCheckOf(shown?.seenEntries);
+    const seenEntries = Array.isArray(shown?.seenEntries) ? shown.seenEntries : null;
     return Object.values(book?.entries ?? {}).map(entry => {
         const uid = String(entry.uid);
         const content = String(entry.content ?? '');
@@ -138,7 +140,7 @@ export function selectionRows(book, shown) {
             badges: badgesOf(entry, { content, tokens, keys }),
             undecidableReason: undecidableReasonOf(entry),
             isDisabled: Boolean(entry.disable),
-            isNew: isSeen !== null && !isSeen(uid),
+            isNew: seenEntries !== null && !runsHoldUid(seenEntries, uid),
             isSelected: selected.has(uid),
             searchText: [title, entry.comment || '', ...keys, ...secondaryKeys, content].join('\n').toLowerCase(),
         };
@@ -337,68 +339,23 @@ export function selectionAfterCategory(selectedUids, rows, category, isOn) {
 /**
  * A selection's entries without the uids of those the book no longer holds.
  * @param {{entries?: object}|null} book
- * @param {{selectedUids: string[]}|null} selection
+ * @param {{selectedEntries: string[]}|null} selection
  * @returns {string[]}
  */
 export function liveSelection(book, selection) {
     const held = new Set(Object.values(book?.entries ?? {}).map(entry => String(entry.uid)));
-    return (selection?.selectedUids ?? []).filter(uid => held.has(uid));
+    return selectedUidsOf(selection).filter(uid => held.has(uid));
 }
 
 /**
- * @typedef {object} SeenEntries - The entries a book held when the selection screen last opened it, in short
- * @property {number} seenUpTo - The highest uid, -1 for a book that held none
- * @property {string[]} unseenBelow - The uids below seenUpTo the book did not hold, each run of them as "first-last"
- *   and a single one as itself
- * @property {string[]} [seenOtherUids] - Any uid that is not a whole number, kept as it is; only when there is one
- */
-
-/** Whether a uid is a whole number written plainly, as SillyTavern numbers a book's entries. */
-const isWholeNumberUid = uid => /^(0|[1-9]\d*)$/.test(uid) && Number.isSafeInteger(Number(uid));
-
-/**
- * The entries a book holds now, as its record keeps them when the screen opens it, so an entry added later shows as
- * new. SillyTavern gives a new entry the lowest uid free (getFreeWorldEntryUid), so the uids it held are every one up
- * to the highest but the gaps: a book nothing was deleted from keeps one number. An entry deleted and another added in
- * its uid before the next opening reads as seen, as with any record of uids alone.
+ * The entries a book holds now, as uid runs (uidRunsOf), as its record keeps them when the screen opens it, so an
+ * entry added later shows as new. An entry deleted and another added in its uid before the next opening reads as
+ * seen, as with any record of uids alone.
  * @param {{entries?: object}|null} book
- * @returns {SeenEntries}
+ * @returns {string[]} The book's entry uids
  */
 export function seenEntriesOf(book) {
-    const uids = [...new Set(Object.values(book?.entries ?? {}).map(entry => String(entry.uid)))];
-    const numbers = uids.filter(isWholeNumberUid).map(Number).sort((first, second) => first - second);
-    const otherUids = uids.filter(uid => !isWholeNumberUid(uid));
-    const unseenBelow = [];
-    let nextUid = 0;
-    for (const number of numbers) {
-        if (number > nextUid) unseenBelow.push(number - 1 === nextUid ? String(nextUid) : `${nextUid}-${number - 1}`);
-        nextUid = number + 1;
-    }
-    return {
-        seenUpTo: numbers.length ? numbers[numbers.length - 1] : -1,
-        unseenBelow,
-        ...(otherUids.length ? { seenOtherUids: otherUids } : {}),
-    };
-}
-
-/**
- * Whether the book held an entry, by its uid, when the record last saw it (seenEntriesOf); null for a book the screen
- * never opened, whose record has no seen entries.
- * @param {SeenEntries|null|undefined} seen
- * @returns {((uid: string) => boolean)|null}
- */
-function seenCheckOf(seen) {
-    if (typeof seen?.seenUpTo !== 'number') return null;
-    const gaps = (Array.isArray(seen.unseenBelow) ? seen.unseenBelow : []).map(run => {
-        const [first, last = first] = String(run).split('-').map(Number);
-        return { first, last };
-    });
-    const otherUids = new Set(Array.isArray(seen.seenOtherUids) ? seen.seenOtherUids : []);
-    return uid => {
-        if (!isWholeNumberUid(uid)) return otherUids.has(uid);
-        const number = Number(uid);
-        return number <= seen.seenUpTo && !gaps.some(({ first, last }) => number >= first && number <= last);
-    };
+    return Object.values(book?.entries ?? {}).map(entry => String(entry.uid));
 }
 
 /**
@@ -406,7 +363,7 @@ function seenCheckOf(seen) {
  * which the pick reads from this book while the selection is in use; and about how many tokens their lines, each a
  * title and its keys, add to the table of contents of every pick.
  * @param {{entries?: object}|null} book
- * @param {{selectedUids: string[]}|null} selection
+ * @param {{selectedEntries: string[]}|null} selection
  * @param {{keysOf?: (uid: string) => string[], isReady?: (entry: object) => boolean}} [readers] - keysOf: an entry's keys,
  *   none when not written; isReady: whether it is ready (isEntryReady in lorebase-readiness.js), none by default
  * @returns {{decidedCount: number, entryCount: number, titleTokens: number}}
@@ -432,7 +389,7 @@ export function entrySectionNames(entry) {
  * The section names a selection can pin (D10): those in the entries the pick reads while it is in use, each with how
  * many of them hold it, most held first, and any name already pinned.
  * @param {{entries?: object}|null} book
- * @param {{selectedUids: string[], pinnedSections?: string[]}|null} selection
+ * @param {{selectedEntries: string[], pinnedSections?: string[]}|null} selection
  * @param {(entry: object) => string[]} [sectionNamesOf] - entrySectionNames, or a copy that remembers each entry's
  * @returns {Array<{name: string, entryCount: number, isPinned: boolean}>}
  */

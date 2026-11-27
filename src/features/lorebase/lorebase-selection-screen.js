@@ -44,7 +44,7 @@ import { isEntryReady } from './lorebase-readiness.js';
 import { regenerateKeysOfEntries, selectedEntriesNotReady, storedCountsOfBooks } from './lorebase-storage.js';
 import { missingSummaryOf } from './lorebase-storage-core.js';
 import { entryTitle } from './lorebase-splitter.js';
-import { isSelectionLockedTo, unionOfSelections } from './lorebase-selections-core.js';
+import { isSelectionLockedTo, selectedUidsOf, unionOfSelections } from './lorebase-selections-core.js';
 import { isLoreBaseBackend, isLoreBaseSwitchedOn, turnLoreBaseOff } from './lorebase-switch.js';
 import { onVectorStateChange, pruneBookVectors, readBookVectors, vectorStateOf } from './lorebase-vectors.js';
 import {
@@ -64,7 +64,8 @@ const SEARCH_DELAY_MS = 200;
 
 const byId = (root, id) => root.querySelector(`#${id}`);
 const entryElementOf = (root, uid) => [...root.querySelectorAll('[data-lorebase-entry]')].find(element => element.dataset.lorebaseEntry === uid);
-const selectedUidsOf = session => session.rows.filter(row => row.isSelected).map(row => row.uid);
+/** The uids of the rows the screen shows selected. */
+const selectedRowUidsOf = session => session.rows.filter(row => row.isSelected).map(row => row.uid);
 // The selection the screen shows, of the book shown.
 const shownSelectionOf = session => getLoreSelection(session.bookName, session.selectionId);
 // The selection a book opens on with none named: the one in use here, else the book's first, made when it has none.
@@ -143,7 +144,7 @@ function renderCounts(root, session) {
     const tickedCount = session.ticked.size;
     root.querySelector('[data-lorebase-ticked-count]').textContent = `${tickedCount} ticked`;
     for (const name of ['turn-on', 'turn-off', 'regenerate-keys']) root.querySelector(`[data-lorebase-action="${name}"]`).disabled = tickedCount === 0;
-    root.querySelector('[data-lorebase-selected-count]').textContent = `${selectedUidsOf(session).length} selected`;
+    root.querySelector('[data-lorebase-selected-count]').textContent = `${selectedRowUidsOf(session).length} selected`;
 }
 
 function renderEntries(root, session) {
@@ -297,7 +298,7 @@ function toggleEntry(root, session, uid) {
     const row = session.rows.find(candidate => candidate.uid === uid);
     if (!row || !canToggleRow(row)) return;
     row.isSelected = !row.isSelected;
-    saveBookSelection(session, session.bookName, selectedUidsOf(session));
+    saveBookSelection(session, session.bookName, selectedRowUidsOf(session));
     const element = entryElementOf(root, uid);
     if (element) {
         element.outerHTML = rowMarkup(session, row);
@@ -478,7 +479,7 @@ async function showBook(root, session, bookName, selectionId = null) {
     const seenEntries = getLoreBook(bookName)?.seenEntries;
     for (const selection of loreSelectionsOf(bookName)) {
         const live = liveSelection(book, selection);
-        if (live.length === selection.selectedUids.length) continue;
+        if (live.length === selectedUidsOf(selection).length) continue;
         setLoreBookSelection(bookName, selection.id, live);
         session.booksWithChangedSelection.add(bookName);
     }
@@ -486,7 +487,7 @@ async function showBook(root, session, bookName, selectionId = null) {
     session.selectionId = selection.id;
     session.book = book;
     session.entryByUid = new Map(Object.values(book.entries ?? {}).map(entry => [String(entry.uid), entry]));
-    session.rows = selectionRows(book, { selectedUids: selection.selectedUids, seenEntries });
+    session.rows = selectionRows(book, { selectedUids: selectedUidsOf(selection), seenEntries });
     const sectionNames = new Map();
     session.sectionNamesOf = entry => {
         const key = `${entry.uid}\u0000${entry.content ?? ''}`;
@@ -504,7 +505,7 @@ async function showBook(root, session, bookName, selectionId = null) {
 function showSelection(root, session, selectionId) {
     const selection = getLoreSelection(session.bookName, selectionId);
     session.selectionId = selection.id;
-    const selected = new Set(selection.selectedUids);
+    const selected = new Set(selectedUidsOf(selection));
     for (const row of session.rows) row.isSelected = selected.has(row.uid);
     renderLocks(root, session);
     renderCategories(root, session);
@@ -555,7 +556,7 @@ function onAction(root, session, element, event) {
     } else if (name === 'toggle-category') {
         const category = element.dataset.lorebaseCategory;
         const state = categoryList(session.rows).find(item => item.category === category)?.state;
-        saveSelection(root, session, selectionAfterCategory(selectedUidsOf(session), session.rows, category, state !== 'on'));
+        saveSelection(root, session, selectionAfterCategory(selectedRowUidsOf(session), session.rows, category, state !== 'on'));
     } else if (name === 'toggle-entry') {
         toggleEntry(root, session, element.dataset.lorebaseUid);
     } else if (name === 'show-entry') {
@@ -568,7 +569,7 @@ function onAction(root, session, element, event) {
         else session.ticked = new Set();
         renderEntries(root, session);
     } else if (name === 'turn-on' || name === 'turn-off') {
-        saveSelection(root, session, selectionAfterBulk(selectedUidsOf(session), session.rows, session.ticked, name === 'turn-on'));
+        saveSelection(root, session, selectionAfterBulk(selectedRowUidsOf(session), session.rows, session.ticked, name === 'turn-on'));
     } else if (name === 'regenerate-keys') {
         regenerateTickedKeys(session);
     } else if (name === 'show-more') {

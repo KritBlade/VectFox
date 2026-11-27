@@ -95,6 +95,7 @@ const { notifyInvalidModel } = await import('../src/shared/model-config-notifier
 const { openLoreBaseSelection } = await import('../src/features/lorebase/lorebase-selection-screen.js');
 const { summaryText } = await import('../src/features/lorebase/lorebase-selection-markup.js');
 const { oneSelectionRecord } = await import('./lorebase-book-record.js');
+const { selectedUidsOf } = await import('../src/features/lorebase/lorebase-selections-core.js');
 
 const HARBOR = {
     entries: {
@@ -164,7 +165,7 @@ describe('opening the screen', () => {
         expect(rowUids()).toEqual(['0', '1', '2', '3', '4']);
         expect(document.querySelectorAll('[data-lorebase-action="toggle-entry"][aria-pressed="true"]')).toHaveLength(0);
         expect([...document.querySelectorAll('[data-lorebase-entry]')].some(element => element.textContent.includes('New'))).toBe(false);
-        expect(record().seenEntries).toEqual({ seenUpTo: 4, unseenBelow: [] });
+        expect(record().seenEntries).toEqual(['0-4']);
         expect($id('vectfox_lorebase_summary').textContent).toBe("LoreBase decides no entry in this selection: where it is in use, SillyTavern's keys decide them all.");
     });
 
@@ -178,11 +179,11 @@ describe('opening the screen', () => {
     });
 
     it('marks an entry added since the last opening as new, and drops deleted entries from the selection', async () => {
-        host.settings.vectfox.lorebase_books = { 'Harbor Atlas': oneSelectionRecord({ selectedUids: ['1', '9'], seenEntries: { seenUpTo: 3, unseenBelow: [] } }) };
+        host.settings.vectfox.lorebase_books = { 'Harbor Atlas': oneSelectionRecord({ selectedUids: ['1', '9'], seenEntries: ['0-3'] }) };
         await openScreen();
         const newRows = [...document.querySelectorAll('[data-lorebase-entry]')].filter(element => element.textContent.includes('New'));
         expect(newRows.map(element => element.dataset.lorebaseEntry)).toEqual(['4']);
-        expect(selection().selectedUids).toEqual(['1']);
+        expect(selectedUidsOf(selection())).toEqual(['1']);
     });
 });
 
@@ -193,7 +194,7 @@ describe('keys (D17)', () => {
     it('writes no keys for an entry turned on, and its row follows where its keys stand', async () => {
         await openScreen();
         entryToggle('1').click();
-        expect(selection().selectedUids).toEqual(['1']);
+        expect(selectedUidsOf(selection())).toEqual(['1']);
         expect([host.regenerateKeysOfEntries.mock.calls, host.writeMissing.mock.calls]).toEqual([[], []]);
         expect(rowText('1')).toContain('No keys yet');
         expect($id('vectfox_lorebase_summary').textContent).toMatch(/Closing this screen asks to write the missing ones\.$/);
@@ -214,7 +215,7 @@ describe('keys (D17)', () => {
         actionButton('toggle-category', '[data-lorebase-category="[Harbor]"]').click();
         tickBox('4').click();
         actionButton('turn-on').click();
-        expect(selection().selectedUids).toEqual(['0', '1', '4']);
+        expect(selectedUidsOf(selection())).toEqual(['0', '1', '4']);
         expect([host.regenerateKeysOfEntries.mock.calls, host.writeMissing.mock.calls]).toEqual([[], []]);
     });
 
@@ -368,11 +369,11 @@ describe('keys (D17)', () => {
         await openScreen();
         entryToggle('1').click();
         actionButton('toggle-category', '[data-lorebase-category="[Harbor]"]').click();
-        expect(selection().selectedUids).toEqual(['1', '0']);
+        expect(selectedUidsOf(selection())).toEqual(['0', '1']);
         host.settings.vectfox.lorebase_enabled = false;
         tickBox('4').click();
         actionButton('turn-on').click();
-        expect([...selection().selectedUids].sort()).toEqual(['0', '1', '4']);
+        expect(selectedUidsOf(selection())).toEqual(['0', '1', '4']);
         expect(host.noticePopup).not.toHaveBeenCalled();
     });
 
@@ -527,7 +528,7 @@ describe('choosing entries', () => {
     it("saves a row's toggle at once and counts what the pick reads, and never turns on an entry SillyTavern keeps", async () => {
         await openScreen();
         entryToggle('1').click();
-        expect(selection().selectedUids).toEqual(['1']);
+        expect(selectedUidsOf(selection())).toEqual(['1']);
         expect(entryToggle('1').getAttribute('aria-pressed')).toBe('true');
         expect(document.querySelector('[data-lorebase-selected-count]').textContent).toBe('1 selected');
         expect($id('vectfox_lorebase_summary').textContent).toMatch(
@@ -542,10 +543,10 @@ describe('choosing entries', () => {
     it('turns a whole category on but its engine entry, reads it in words, and turns it off again', async () => {
         await openScreen();
         actionButton('toggle-category', '[data-lorebase-category="[Harbor]"]').click();
-        expect(selection().selectedUids.sort()).toEqual(['0', '1']);
+        expect(selectedUidsOf(selection())).toEqual(['0', '1']);
         expect($id('vectfox_lorebase_categories').textContent).toContain('All on');
         actionButton('toggle-category', '[data-lorebase-category="[Harbor]"]').click();
-        expect(selection().selectedUids).toEqual([]);
+        expect(selectedUidsOf(selection())).toEqual([]);
         expect($id('vectfox_lorebase_categories').textContent).not.toContain('All on');
     });
 
@@ -559,10 +560,10 @@ describe('choosing entries', () => {
         shiftClick(tickBox('2'));
         expect(['0', '1', '2', '3', '4'].filter(uid => tickBox(uid).checked)).toEqual(['0', '1', '2']);
         actionButton('turn-on').click();
-        expect(selection().selectedUids.sort()).toEqual(['0', '1', '2']);
+        expect(selectedUidsOf(selection())).toEqual(['0', '1', '2']);
         tickBox('0').click();
         actionButton('turn-off').click();
-        expect(selection().selectedUids).toEqual(['0']);
+        expect(selectedUidsOf(selection())).toEqual(['0']);
     });
 
     it('filters the rows by text and category, and tick all matching ticks only the rows the filters let through', async () => {
@@ -698,7 +699,7 @@ describe('locks, pins and books', () => {
         change($id('vectfox_lorebase_book'), 'Voyage Log');
         await vi.waitFor(() => expect(rowUids()).toEqual(['7']));
         expect(document.querySelector('[data-lorebase-ticked-count]').textContent).toBe('0 ticked');
-        expect(record('Voyage Log').seenEntries).toEqual({ seenUpTo: 7, unseenBelow: ['0-6'] });
+        expect(record('Voyage Log').seenEntries).toEqual(['7']);
     });
 });
 
@@ -707,7 +708,7 @@ describe("a book's selections (§3.7 of vectfox-multi-collection-per-chat.md)", 
     const turnedOn = () => [...document.querySelectorAll('[data-lorebase-action="toggle-entry"][aria-pressed="true"]')].map(button => button.dataset.lorebaseUid);
     const withTwoSelections = () => {
         const harbor = oneSelectionRecord({ selectedUids: ['0'], lockedToChatIds: ['chat-harbor'] });
-        harbor.selections.push({ id: 'second', name: 'Night watch', selectedUids: ['1', '4'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] });
+        harbor.selections.push({ id: 'second', name: 'Night watch', selectedEntries: ['1', '4'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] });
         host.settings.vectfox.lorebase_books = { 'Harbor Atlas': harbor };
     };
     const renameTo = name => async (lines, form) => {
@@ -727,7 +728,7 @@ describe("a book's selections (§3.7 of vectfox-multi-collection-per-chat.md)", 
         expect($id('vectfox_lorebase_lock_chat').checked).toBe(false);
         // An entry turned on changes the selection shown alone.
         entryToggle('2').click();
-        expect(record().selections.map(each => each.selectedUids)).toEqual([['0'], ['1', '2', '4']]);
+        expect(record().selections.map(selectedUidsOf)).toEqual([['0'], ['1', '2', '4']]);
         expect(record().selections[0].lockedToChatIds).toEqual(['chat-harbor']);
     });
 
@@ -738,16 +739,16 @@ describe("a book's selections (§3.7 of vectfox-multi-collection-per-chat.md)", 
 
         document.body.innerHTML = '';
         await openScreen({ bookName: 'Voyage Log' });
-        expect(record('Voyage Log').selections).toEqual([expect.objectContaining({ name: 'Voyage Log', selectedUids: [] })]);
+        expect(record('Voyage Log').selections).toEqual([expect.objectContaining({ name: 'Voyage Log', selectedEntries: [] })]);
         expect([...selectionList().options].map(option => option.textContent)).toEqual(['Voyage Log']);
         expect(actionButton('delete-selection').disabled).toBe(true);
     });
 
     it('drops deleted entries from every selection of the book as it opens', async () => {
         withTwoSelections();
-        record().selections[1].selectedUids.push('9');
+        record().selections[1].selectedEntries.push('9');
         await openScreen();
-        expect(record().selections.map(each => each.selectedUids)).toEqual([['0'], ['1', '4']]);
+        expect(record().selections.map(selectedUidsOf)).toEqual([['0'], ['1', '4']]);
     });
 
     it('makes a new selection from the one shown with New selection, puts it in use here and shows it', async () => {
@@ -756,7 +757,7 @@ describe("a book's selections (§3.7 of vectfox-multi-collection-per-chat.md)", 
         change(selectionList(), 'second');
         actionButton('new-selection').click();
         const made = record().selections[2];
-        expect(made).toMatchObject({ name: 'Harbor Atlas 2', selectedUids: ['1', '4'], lockedToChatIds: ['chat-harbor'] });
+        expect(made).toMatchObject({ name: 'Harbor Atlas 2', selectedEntries: ['1', '4'], lockedToChatIds: ['chat-harbor'] });
         expect(record().selections[0].lockedToChatIds).toEqual([]);
         expect(selectionList().value).toBe(made.id);
         expect(selectionList().selectedOptions[0].textContent).toBe('Harbor Atlas 2 (in use here)');

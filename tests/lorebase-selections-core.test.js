@@ -6,8 +6,9 @@
  */
 import { describe, expect, it } from 'vitest';
 import { emptySelection, isSelectionLockedTo, selectionInUseOf, unionOfSelections } from '../src/features/lorebase/lorebase-selections-core.js';
+import { uidRunsOf } from '../src/features/lorebase/lorebase-uid-runs-core.js';
 
-const selectionOf = (id, locks = {}, selectedUids = []) => ({ ...emptySelection(id, `Selection ${id}`), selectedUids, ...locks });
+const selectionOf = (id, locks = {}, selectedUids = []) => ({ ...emptySelection(id, `Selection ${id}`), selectedEntries: uidRunsOf(selectedUids), ...locks });
 
 describe('the selection a chat uses', () => {
     const record = {
@@ -35,7 +36,7 @@ describe('the selection a chat uses', () => {
 describe('unionOfSelections', () => {
     it("holds every entry any of the book's selections holds, each once, and none for a book with no record", () => {
         const record = { selections: [selectionOf('a', {}, ['1', '2']), selectionOf('b', {}, ['2', '3'])] };
-        expect(unionOfSelections(record)).toEqual({ selectedUids: ['1', '2', '3'] });
-        expect(unionOfSelections(null)).toEqual({ selectedUids: [] });
+        expect(unionOfSelections(record)).toEqual({ selectedEntries: ['1-3'] });
+        expect(unionOfSelections(null)).toEqual({ selectedEntries: [] });
     });
 });

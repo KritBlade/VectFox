@@ -10,6 +10,7 @@ import {
     pinnableSections, selectionAfterBulk, selectionAfterCategory, selectionFooter, selectionRows, seenEntriesOf, tickAllMatching, tickRange,
 } from '../src/features/lorebase/lorebase-selection-core.js';
 import { estimatedTokens } from '../src/features/lorebase/lorebase-splitter.js';
+import { uidRunsOf } from '../src/features/lorebase/lorebase-uid-runs-core.js';
 
 const LONG_TEXT = 'The lighthouse keepers count the ships that pass the north cliff. '.repeat(90);
 const BOOK = {
@@ -74,20 +75,10 @@ describe("the screen's rows", () => {
     });
 
     it('marks the entries added since the book was last opened, and none on a first opening', () => {
-        expect(rowsOf({ selectedUids: [], seenEntries: { seenUpTo: 8, unseenBelow: [] } }).filter(row => row.isNew).map(row => row.uid)).toEqual(['9']);
+        expect(rowsOf({ selectedUids: [], seenEntries: ['0-8'] }).filter(row => row.isNew).map(row => row.uid)).toEqual(['9']);
         expect(rowsOf({ selectedUids: [] }).some(row => row.isNew)).toBe(false);
         expect(selectionRows(BOOK, null).some(row => row.isNew)).toBe(false);
-        expect(seenEntriesOf(BOOK)).toEqual({ seenUpTo: 9, unseenBelow: [] });
-    });
-
-    it('keeps the entries seen as the highest uid and the gaps below it, a run of them as first-last', () => {
-        const bookOf = uids => ({ entries: Object.fromEntries(uids.map(uid => [uid, { uid, comment: '', key: [], content: '' }])) });
-        expect(seenEntriesOf(bookOf([0, 1, 2, 5, 9, 10]))).toEqual({ seenUpTo: 10, unseenBelow: ['3-4', '6-8'] });
-        expect(seenEntriesOf(bookOf([2, 4]))).toEqual({ seenUpTo: 4, unseenBelow: ['0-1', '3'] });
-        expect(seenEntriesOf(bookOf([]))).toEqual({ seenUpTo: -1, unseenBelow: [] });
-        expect(seenEntriesOf(null)).toEqual({ seenUpTo: -1, unseenBelow: [] });
-        // A uid that is not a whole number written plainly is kept as it is.
-        expect(seenEntriesOf(bookOf([0, 'harbor', '07', 1]))).toEqual({ seenUpTo: 1, unseenBelow: [], seenOtherUids: ['harbor', '07'] });
+        expect(seenEntriesOf(BOOK)).toEqual(['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']);
     });
 
     it('marks as new exactly the entries a list of every uid seen would, for books of any shape', () => {
@@ -106,14 +97,14 @@ describe("the screen's rows", () => {
             const now = bookOf(randomUids());
             const seen = new Set(before.map(String));
             const isNewByList = selectionRows(now, null).map(row => !seen.has(row.uid));
-            const isNewByShortForm = selectionRows(now, { selectedUids: [], seenEntries: seenEntriesOf(bookOf(before)) }).map(row => row.isNew);
+            const isNewByShortForm = selectionRows(now, { selectedUids: [], seenEntries: uidRunsOf(seenEntriesOf(bookOf(before))) }).map(row => row.isNew);
             expect(isNewByShortForm).toEqual(isNewByList);
         }
     });
 
     it('reads a uid deleted and given again to a new entry before the next opening as seen, as a list of uids would', () => {
         const bookOf = uids => ({ entries: Object.fromEntries(uids.map(uid => [uid, { uid, comment: '', key: [], content: '' }])) });
-        const seenEntries = seenEntriesOf(bookOf([0, 1, 2]));
+        const seenEntries = uidRunsOf(seenEntriesOf(bookOf([0, 1, 2])));
         expect(selectionRows(bookOf([0, 1, 2, 3]), { selectedUids: [], seenEntries }).map(row => row.isNew)).toEqual([false, false, false, true]);
     });
 });
@@ -166,7 +157,7 @@ describe('the filters', () => {
         expect(uids(filterRows(rows, { minimumTokens: 1000 }))).toEqual(['0']);
         expect(uids(filterRows(rows, { badge: BADGES.templateCode }))).toEqual(['9']);
         expect(uids(filterRows(rows, { badge: BADGES.keyless }))).toEqual(['3']);
-        const withNew = selectionRows(BOOK, { selectedUids: [], seenEntries: { seenUpTo: 1, unseenBelow: [] } });
+        const withNew = selectionRows(BOOK, { selectedUids: [], seenEntries: ['0-1'] });
         expect(uids(filterRows(withNew, { isNewOnly: true, category: '[Harbor]' }))).toEqual(['5', '6', '9']);
     });
 
@@ -243,19 +234,19 @@ describe('the ticks the bulk bar acts on', () => {
 
 describe('what the screen keeps and shows about the selection', () => {
     it("drops the uids of entries the book no longer holds", () => {
-        expect(liveSelection(BOOK, { selectedUids: ['1', '42', '9'] })).toEqual(['1', '9']);
-        expect(liveSelection(null, { selectedUids: ['1'] })).toEqual([]);
+        expect(liveSelection(BOOK, { selectedEntries: ['1', '9', '42'] })).toEqual(['1', '9']);
+        expect(liveSelection(null, { selectedEntries: ['1'] })).toEqual([]);
     });
 
     it('counts the entries LoreBase decides, the ready ones the pick reads, and the tokens their lines add to its table of contents', () => {
-        const record = { selectedUids: ['1', '3', '5', '8'] };
+        const record = { selectedEntries: ['1', '3', '5', '8'] };
         const isReady = () => true;
         expect(selectionFooter(BOOK, record, { isReady }))
             .toEqual({ decidedCount: 2, entryCount: 2, titleTokens: estimatedTokens('1. Tidewardens') + estimatedTokens('2. Fog Season') });
         expect(selectionFooter(BOOK, record, { isReady: entry => entry.uid === 3 }))
             .toEqual({ decidedCount: 2, entryCount: 1, titleTokens: estimatedTokens('1. Fog Season') });
         expect(selectionFooter(BOOK, record)).toEqual({ decidedCount: 2, entryCount: 0, titleTokens: 0 });
-        expect(selectionFooter(BOOK, { selectedUids: [] }, { isReady })).toEqual({ decidedCount: 0, entryCount: 0, titleTokens: 0 });
+        expect(selectionFooter(BOOK, { selectedEntries: [] }, { isReady })).toEqual({ decidedCount: 0, entryCount: 0, titleTokens: 0 });
     });
 
     it('offers the section names of the entries the pick reads, most held first, and keeps a pinned name', () => {
@@ -264,7 +255,7 @@ describe('what the screen keeps and shows about the selection', () => {
             1: { uid: 1, comment: 'Orrin', content: '[Speech]\nSlow and kind.\n[History]\nKept the lamp for years.' },
             2: { uid: 2, comment: 'Mara', content: '[Speech]\nQuick.' },
         } };
-        expect(pinnableSections(book, { selectedUids: ['0', '1'], pinnedSections: ['Secrets', 'Spoilers'] })).toEqual([
+        expect(pinnableSections(book, { selectedEntries: ['0-1'], pinnedSections: ['Secrets', 'Spoilers'] })).toEqual([
             { name: 'Speech', entryCount: 2, isPinned: false },
             { name: 'History', entryCount: 1, isPinned: false },
             { name: 'Secrets', entryCount: 1, isPinned: true },

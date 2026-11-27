@@ -3,7 +3,8 @@
  * executed/vectfox-multi-collection-per-chat.md): the book's selections, each with the entries the user selected for LoreBase to
  * decide, the section names whose parts are kept whenever their entry is picked (pins, D10), and the chats and
  * characters it is locked to (D11), each character by its avatar file name; and the entries the book held when the
- * selection screen last opened it, in short (seenEntriesOf in lorebase-selection-core.js), so a later one shows as new. A chat uses one selection of a book at a time, the one
+ * selection screen last opened it, so a later one shows as new. Both kinds of entries are kept short, as uid runs
+ * (lorebase-uid-runs-core.js). A chat uses one selection of a book at a time, the one
  * locked to it, else the one locked to its character (selectionInUse), and locking a selection takes that lock off the
  * book's others (setLoreSelectionLock). One record per book, keyed by the book's exact name, in VectFox's settings:
  * never a key per entry (§3.3), and never in the lorebook file. A book's selected entries LoreBase decides are read here
@@ -19,7 +20,8 @@ import { loadWorldInfo } from '../../sillytavern/world-info.js';
 import { newTimeId, numberedName } from '../../shared/new-group-member.js';
 import { oneInUseLockChanges } from '../../shared/one-in-use-locks.js';
 import { decidedEntries } from './lorebase-reply-core.js';
-import { emptySelection, selectionInUseOf, unionOfSelections } from './lorebase-selections-core.js';
+import { emptySelection, selectedUidsOf, selectionInUseOf, unionOfSelections } from './lorebase-selections-core.js';
+import { uidRunsOf } from './lorebase-uid-runs-core.js';
 
 /** @typedef {import('./lorebase-selections-core.js').LoreSelection} LoreSelection */
 
@@ -38,7 +40,7 @@ function allBooks() {
  * nothing: each reply reads the records of the books it loads. `seenEntries` is missing until the selection screen
  * first opens the book.
  * @param {string} bookName
- * @returns {{selections: LoreSelection[], seenEntries?: import('./lorebase-selection-core.js').SeenEntries}|null}
+ * @returns {{selections: LoreSelection[], seenEntries?: string[]}|null}
  */
 export function getLoreBook(bookName) {
     return extension_settings.vectfox[BOOKS_KEY]?.[bookName] ?? null;
@@ -82,7 +84,7 @@ export function selectionInUse(bookName, where) {
  * WorldInfo page's book rows count, the keys count reads and the reply sends from. None when SillyTavern has no such
  * book.
  * @param {string} bookName
- * @param {{selectedUids: string[]}} [selection] - A selection, or every entry the book's selections hold by default
+ * @param {{selectedEntries: string[]}} [selection] - A selection, or every entry the book's selections hold by default
  * @returns {Promise<object[]>}
  * @throws {Error} When SillyTavern cannot load the book
  */
@@ -96,16 +98,17 @@ export async function loadDecidedEntries(bookName, selection = unionOfSelections
  * book list and the Database Browser's rows. A book SillyTavern cannot load counts its saved selection, and the console
  * says why.
  * @param {string} bookName
- * @param {{selectedUids: string[]}} [selection] - A selection, or every entry the book's selections hold by default
+ * @param {{selectedEntries: string[]}} [selection] - A selection, or every entry the book's selections hold by default
  * @returns {Promise<number>}
  */
 export async function decidedCountOf(bookName, selection = unionOfSelections(getLoreBook(bookName))) {
-    if (!selection.selectedUids.length) return 0;
+    const selectedCount = selectedUidsOf(selection).length;
+    if (!selectedCount) return 0;
     try {
         return (await loadDecidedEntries(bookName, selection)).length;
     } catch (error) {
         log.warn(`LoreBase: lorebook "${bookName}" could not be loaded, so its saved selection is counted:`, error);
-        return selection.selectedUids.length;
+        return selectedCount;
     }
 }
 
@@ -118,7 +121,7 @@ export async function decidedCountOf(bookName, selection = unionOfSelections(get
  */
 export async function loadDecidableEntries(bookName) {
     const book = await loadWorldInfo(bookName);
-    return decidedEntries(book, { selectedUids: Object.values(book?.entries ?? {}).map(entry => String(entry.uid)) });
+    return decidedEntries(book, { selectedEntries: uidRunsOf(Object.values(book?.entries ?? {}).map(entry => entry.uid)) });
 }
 
 /**
@@ -139,7 +142,7 @@ export async function loadBookEntries(bookName) {
  */
 export function loreBookRecordCounts() {
     return Object.fromEntries(Object.entries(extension_settings.vectfox[BOOKS_KEY] ?? {}).map(([bookName, record]) => [bookName, {
-        selectedCount: unionOfSelections(record).selectedUids.length,
+        selectedCount: selectedUidsOf(unionOfSelections(record)).length,
         selectionCount: record?.selections?.length ?? 0,
     }]));
 }
@@ -150,7 +153,7 @@ export function loreBookRecordCounts() {
  */
 export function selectedLoreBookNames() {
     return Object.entries(extension_settings.vectfox[BOOKS_KEY] ?? {})
-        .filter(([, record]) => unionOfSelections(record).selectedUids.length)
+        .filter(([, record]) => selectedUidsOf(unionOfSelections(record)).length)
         .map(([bookName]) => bookName);
 }
 
@@ -188,7 +191,7 @@ export function newLoreSelection(bookName, sourceSelectionId) {
     const { selections } = recordFor(bookName);
     const selection = {
         ...emptySelection(newTimeId(selections.map(item => item.id)), numberedName(bookName, selections.map(item => item.name))),
-        selectedUids: [...source.selectedUids],
+        selectedEntries: [...source.selectedEntries],
         pinnedSections: [...source.pinnedSections],
     };
     selections.push(selection);
@@ -234,7 +237,7 @@ export function deleteLoreSelection(bookName, selectionId) {
  * @param {Iterable<string|number>} entryUids
  */
 export function setLoreBookSelection(bookName, selectionId, entryUids) {
-    getLoreSelection(bookName, selectionId).selectedUids = [...new Set([...entryUids].map(String))];
+    getLoreSelection(bookName, selectionId).selectedEntries = uidRunsOf(entryUids);
     saveSettingsDebounced();
 }
 
@@ -252,10 +255,10 @@ export function setLoreBookPins(bookName, selectionId, sectionNames) {
 /**
  * Keep the entries a book holds as the selection screen opens it, so an entry added later shows as new there.
  * @param {string} bookName
- * @param {import('./lorebase-selection-core.js').SeenEntries} seenEntries - As seenEntriesOf gives them
+ * @param {Iterable<string|number>} entryUids
  */
-export function setLoreBookSeenEntries(bookName, seenEntries) {
-    recordFor(bookName).seenEntries = structuredClone(seenEntries);
+export function setLoreBookSeenEntries(bookName, entryUids) {
+    recordFor(bookName).seenEntries = uidRunsOf(entryUids);
     saveSettingsDebounced();
 }
 

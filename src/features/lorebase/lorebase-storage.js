@@ -36,7 +36,7 @@ import {
 } from './lorebase-keys.js';
 import { isEntryReady } from './lorebase-readiness.js';
 import { postLoreBaseRoute } from './lorebase-routes.js';
-import { unionOfSelections } from './lorebase-selections-core.js';
+import { selectedUidsOf, unionOfSelections } from './lorebase-selections-core.js';
 import { qdrantProblem, writingProblem } from './lorebase-setup.js';
 import {
     KEYS, VECTORS, emptyRowOf, hasLoreBaseHoldings, listedHoldingsOf, pendingOfKinds, storageRowsOf, storedCountsOf, writingPanelTitle, writtenSummary,
@@ -496,7 +496,7 @@ export async function planImport(row, fileData, settings) {
         return { row, ...planKeysImport(fileData, { entries, storedKeys }) };
     }
     const decidableEntries = await loadDecidableEntries(row.book);
-    const selectedUids = new Set(unionOfSelections(getLoreBook(row.book)).selectedUids);
+    const selectedUids = new Set(selectedUidsOf(unionOfSelections(getLoreBook(row.book))));
     const decidedEntries = await loadDecidedEntries(row.book);
     const stored = (await readBookVectors([row.book], settings)).get(row.book);
     const plan = planVectorsImport(fileData, {
@@ -601,7 +601,7 @@ export async function loreBookHoldings(bookName, settings) {
     return {
         bookName,
         selectionCount: selections.length,
-        selectedCount: unionOfSelections(record).selectedUids.length,
+        selectedCount: selectedUidsOf(unionOfSelections(record)).length,
         pinnedCount: new Set(selections.flatMap(selection => selection.pinnedSections)).size,
         chatLockCount: selections.reduce((sum, selection) => sum + selection.lockedToChatIds.length, 0),
         characterLockCount: selections.reduce((sum, selection) => sum + selection.lockedToCharacterAvatars.length, 0),

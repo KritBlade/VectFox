@@ -10,6 +10,7 @@ import { isQuietToLoud } from '../../shared/last-generation-core.js';
 import { ACTIVATE_DECORATOR, DONT_ACTIVATE_DECORATOR, activationDecoratorOf } from './lorebase-decorators-core.js';
 import { pickMessages, readPicks, tableOfContents } from './lorebase-pick-core.js';
 import { hasTemplateCode, partsToSend, readReview, reviewMessages } from './lorebase-review-core.js';
+import { selectedUidsOf } from './lorebase-selections-core.js';
 import { entryPassages } from './lorebase-splitter.js';
 
 // Replies (D8): normal sends, swipes, regenerates and continues, and a quiet generation only when it is quiet-to-loud.
@@ -106,11 +107,11 @@ export function isDecidedEntry(entry, selectedUids) {
 /**
  * The entries LoreBase decides in a book (isDecidedEntry), in the book's own order.
  * @param {{entries?: object}|null} book - The book as loadWorldInfo returns it
- * @param {{selectedUids: string[]}|null} selection - One of the book's selections, or every entry they hold together
+ * @param {{selectedEntries: string[]}|null} selection - One of the book's selections, or every entry they hold together
  * @returns {object[]}
  */
 export function decidedEntries(book, selection) {
-    const selected = new Set(selection?.selectedUids ?? []);
+    const selected = new Set(selectedUidsOf(selection));
     return Object.values(book?.entries ?? {}).filter(entry => isDecidedEntry(entry, selected));
 }
 

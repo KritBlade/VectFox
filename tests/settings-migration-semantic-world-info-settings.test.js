@@ -24,7 +24,7 @@ const savedBeforeLoreBase = () => ({
     lorebook_xml_tag: 'VectFoxLorebook',
     // Settings that stay: LoreBase's own, and others beside them.
     lorebase_accuracy: 'high',
-    lorebase_books: { 'Harbor Atlas': { selectedUids: ['0'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] } },
+    lorebase_books: { 'Harbor Atlas': { selectedEntries: ['0'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] } },
     qdrant_host: 'localhost',
 });
 
@@ -37,7 +37,7 @@ describe('migration_remove_semantic_world_info_settings', () => {
         for (const key of SEMANTIC_WORLD_INFO_SETTING_KEYS) expect(settings, key).not.toHaveProperty(key);
         expect(settings).toEqual({
             lorebase_accuracy: 'high',
-            lorebase_books: { 'Harbor Atlas': { selectedUids: ['0'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] } },
+            lorebase_books: { 'Harbor Atlas': { selectedEntries: ['0'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] } },
             qdrant_host: 'localhost',
         });
     });

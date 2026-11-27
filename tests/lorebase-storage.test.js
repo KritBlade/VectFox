@@ -270,7 +270,7 @@ describe("each book's keys and vectors, counted", () => {
         const { extension_settings } = await import('../src/sillytavern/settings.js');
         await selectBooks();
         extension_settings.vectfox.lorebase_books[BOOK].selections.push({
-            id: 'night', name: 'Night watch', selectedUids: ['0', '3'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [],
+            id: 'night', name: 'Night watch', selectedEntries: ['0', '3'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [],
         });
         const harborOf = async selectionId => (await storage.storedCountsOfBooks([{ bookName: BOOK, selectionId }], QDRANT)).get(BOOK);
         expect(await harborOf('night'))
@@ -786,7 +786,7 @@ describe('removing a book from LoreBase', () => {
         extension_settings.vectfox.lorebase_books = {
             [BOOK]: oneSelectionRecord({
                 selectedUids: ['0', '1', '2'], pinnedSections: ['Rules'], lockedToChatIds: ['Harbor Night'],
-                lockedToCharacterAvatars: ['keeper-orrin.png'], seenEntries: { seenUpTo: 3, unseenBelow: [] },
+                lockedToCharacterAvatars: ['keeper-orrin.png'], seenEntries: ['0-3'],
             }),
             'Desert Atlas': oneSelectionRecord({ selectedUids: ['5'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: ['keeper-orrin.png'] }),
         };

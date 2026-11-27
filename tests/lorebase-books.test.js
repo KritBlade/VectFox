@@ -75,7 +75,7 @@ describe('the book record', () => {
         setLoreSelectionLock(BOOK, id, { chatId: 'chat-1' }, true);
 
         expect(getLoreBook(BOOK)).toEqual({ selections: [{
-            id, name: BOOK, selectedUids: ['1', '2'], pinnedSections: ['SEALED KNOWLEDGE'], lockedToChatIds: ['chat-1'], lockedToCharacterAvatars: [],
+            id, name: BOOK, selectedEntries: ['1-2'], pinnedSections: ['SEALED KNOWLEDGE'], lockedToChatIds: ['chat-1'], lockedToCharacterAvatars: [],
         }] });
         expect(selectionInUse(BOOK, { chatId: 'chat-1' })?.id).toBe(id);
         expect(selectionInUse(BOOK, { chatId: 'chat-2', characterAvatar: 'keeper-orrin.png' })).toBeNull();
@@ -161,12 +161,8 @@ describe('the book record', () => {
     it('keeps the entries the book held when the selection screen opened it, missing until the first opening', () => {
         firstOf(BOOK);
         expect(getLoreBook(BOOK)).not.toHaveProperty('seenEntries');
-        const seenEntries = { seenUpTo: 9, unseenBelow: ['3-4'] };
-        setLoreBookSeenEntries(BOOK, seenEntries);
-        expect(getLoreBook(BOOK).seenEntries).toEqual({ seenUpTo: 9, unseenBelow: ['3-4'] });
-        // Its own copy: changing what was handed in changes nothing kept.
-        seenEntries.unseenBelow.push('7');
-        expect(getLoreBook(BOOK).seenEntries.unseenBelow).toEqual(['3-4']);
+        setLoreBookSeenEntries(BOOK, [0, '1', 1, 2, 5, 'harbor']);
+        expect(getLoreBook(BOOK).seenEntries).toEqual(['0-2', '5', 'harbor']);
         expect(saveSettingsDebounced).toHaveBeenCalledTimes(2);
     });
 
@@ -185,7 +181,7 @@ describe('the book record', () => {
 describe("a book's selections", () => {
     it('makes the first one with nothing selected, named after the book, once', () => {
         const first = ensureLoreSelection(BOOK);
-        expect(first).toMatchObject({ name: BOOK, selectedUids: [], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] });
+        expect(first).toMatchObject({ name: BOOK, selectedEntries: [], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] });
         expect(ensureLoreSelection(BOOK)).toBe(first);
         expect(loreSelectionsOf(BOOK)).toHaveLength(1);
         expect(saveSettingsDebounced).toHaveBeenCalledTimes(1);
@@ -198,11 +194,11 @@ describe("a book's selections", () => {
         setLoreSelectionLock(BOOK, id, { chatId: 'Harbor Night' }, true);
 
         const second = newLoreSelection(BOOK, id);
-        expect(second).toMatchObject({ name: 'Harbor Lore 2', selectedUids: ['1', '2'], pinnedSections: ['RUMORS'], lockedToChatIds: [], lockedToCharacterAvatars: [] });
+        expect(second).toMatchObject({ name: 'Harbor Lore 2', selectedEntries: ['1-2'], pinnedSections: ['RUMORS'], lockedToChatIds: [], lockedToCharacterAvatars: [] });
         expect(second.id).not.toBe(id);
         // The copy is its own: changing it leaves the one it came from.
         setLoreBookSelection(BOOK, second.id, ['3']);
-        expect(getLoreSelection(BOOK, id).selectedUids).toEqual(['1', '2']);
+        expect(getLoreSelection(BOOK, id).selectedEntries).toEqual(['1-2']);
         expect(newLoreSelection(BOOK, second.id).name).toBe('Harbor Lore 3');
         expect(loreSelectionsOf(BOOK).map(selection => selection.name)).toEqual(['Harbor Lore', 'Harbor Lore 2', 'Harbor Lore 3']);
     });
@@ -212,7 +208,7 @@ describe("a book's selections", () => {
         expect(getLoreBook(BOOK)).toBeNull();
         const copy = newLoreSelection(BOOK, null);
         expect(loreSelectionsOf(BOOK).map(selection => selection.name)).toEqual([BOOK, 'Harbor Lore 2']);
-        expect(copy.selectedUids).toEqual([]);
+        expect(copy.selectedEntries).toEqual([]);
         expect(() => getLoreSelection(BOOK, 'gone')).toThrow(`LoreBase has no selection "gone" of lorebook "${BOOK}".`);
     });
 
@@ -291,8 +287,8 @@ describe('Clean up locks on the lorebooks', () => {
 
     it('removes them, keeping the selections and the other locks, and saves once', () => {
         expect(cleanUpLoreBookLocks(targets, { shouldApply: true })).toEqual({ goneChatLockCount: 1, goneCharacterLockCount: 1 });
-        expect(getLoreSelection(BOOK, first)).toMatchObject({ selectedUids: ['1'], lockedToChatIds: ['Harbor Night'], lockedToCharacterAvatars: ['wren.png'] });
-        expect(getLoreSelection(BOOK, second)).toMatchObject({ selectedUids: ['1'], lockedToChatIds: [], lockedToCharacterAvatars: [] });
+        expect(getLoreSelection(BOOK, first)).toMatchObject({ selectedEntries: ['1'], lockedToChatIds: ['Harbor Night'], lockedToCharacterAvatars: ['wren.png'] });
+        expect(getLoreSelection(BOOK, second)).toMatchObject({ selectedEntries: ['1'], lockedToChatIds: [], lockedToCharacterAvatars: [] });
         expect(loreSelectionsOf('Tide Tables')[0].lockedToChatIds).toEqual(['Harbor Night']);
         expect(saveSettingsDebounced).toHaveBeenCalledTimes(1);
     });
@@ -304,7 +300,7 @@ describe('Clean up locks on the lorebooks', () => {
     });
 
     it('reads no book record, or a broken one, as nothing to clean up', () => {
-        extension_settings.vectfox = { lorebase_books: { Broken: null, 'No Selections': {}, 'No Lists': { selections: [{ id: 'first', selectedUids: ['1'] }] } } };
+        extension_settings.vectfox = { lorebase_books: { Broken: null, 'No Selections': {}, 'No Lists': { selections: [{ id: 'first', selectedEntries: ['1'] }] } } };
         expect(cleanUpLoreBookLocks(targets, { shouldApply: true })).toEqual({ goneChatLockCount: 0, goneCharacterLockCount: 0 });
         extension_settings.vectfox = {};
         expect(cleanUpLoreBookLocks(targets, { shouldApply: true })).toEqual({ goneChatLockCount: 0, goneCharacterLockCount: 0 });

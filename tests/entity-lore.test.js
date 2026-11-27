@@ -111,13 +111,13 @@ vi.mock('../src/features/lorebase/index.js', () => ({
     // Add to this chat: the chat's list, and the book's first selection locked to the chat.
     addLoreBookToChat: vi.fn(async (bookName) => {
         host.chatBooks.push(bookName);
-        host.selections[bookName] ??= { id: 'selection-1', selectedUids: [] };
+        host.selections[bookName] ??= { id: 'selection-1', selectedEntries: [] };
         return { chatId: host.chatId };
     }),
     askTextOnLoreBase: vi.fn(() => (...args) => host.ask(...args)),
     chatBookNames: () => [...host.chatBooks],
     chatCharacters: () => host.characters,
-    ensureLoreSelection: vi.fn(bookName => (host.selections[bookName] ??= { id: 'selection-1', selectedUids: [] })),
+    ensureLoreSelection: vi.fn(bookName => (host.selections[bookName] ??= { id: 'selection-1', selectedEntries: [] })),
     // A character is a token here, so a test makes a long arc with long events.
     estimatedTokens: text => text.length,
     isLoreBaseSwitchedOn: settings => settings.lorebase_enabled === true,
@@ -130,7 +130,8 @@ vi.mock('../src/features/lorebase/index.js', () => ({
         return { isDecided: true, failure: null, vectorProblem: null };
     }),
     selectionInUse: vi.fn(bookName => host.selections[bookName] ?? null),
-    setLoreBookSelection: vi.fn((bookName, _id, uids) => { host.selections[bookName].selectedUids = [...uids].map(String); }),
+    setLoreBookSelection: vi.fn((bookName, _id, uids) => { host.selections[bookName].selectedEntries = [...new Set([...uids].map(String))]; }),
+    selectedUidsOf: selection => [...(selection?.selectedEntries ?? [])],
     setLoreSelectionLock: vi.fn(),
     writeMissing: vi.fn(async () => ({})),
 }));
@@ -141,6 +142,7 @@ const { progressTracker } = await import('../src/shared/progress-tracker.js');
 const { notifyInvalidModel } = await import('../src/shared/model-config-notifier.js');
 const { log } = await import('../src/sillytavern/log.js');
 const { readChatStoryEvents } = await import('../src/features/eventbase/index.js');
+const { selectedUidsOf } = await import('../src/features/lorebase/lorebase-selections-core.js');
 const { addLoreBookToChat, regenerateKeysOfEntries, saveEntryWithVectors, writeMissing } = await import('../src/features/lorebase/index.js');
 const {
     allowEntityLoreAgain, lastEntityLoreRun, lockEntityLoreCharacter, onEntityLoreRunEnded, onEntityNameSplit, onEntityNamesMerged, onEventBaseRunEnded,
@@ -242,7 +244,7 @@ describe('a run (§4.2 to §4.6)', () => {
         expect(entryCall.match(/^- #\d+: /gmu)).toHaveLength(22);
         expect(entryCall).toContain('Tamsin Vale signs the ledger.');
         expect(host.books[BOOK].entries[0]).toEqual({ uid: 0, comment: 'Tamsin', key: ['Tamsin', 'Tamsin Vale'], content: entryAbout('Tamsin') });
-        expect(host.selections[BOOK].selectedUids).toEqual(['0']);
+        expect(selectedUidsOf(host.selections[BOOK])).toEqual(['0']);
         expect(record()).toEqual({
             bookName: BOOK,
             entries: {
@@ -428,7 +430,7 @@ describe("the card's rows (§3)", () => {
         host.worldNames.push(BOOK);
         host.chatBooks.push(BOOK);
         host.books[BOOK] = { entries };
-        host.selections[BOOK] = { id: 'selection-1', selectedUids: Object.keys(entries) };
+        host.selections[BOOK] = { id: 'selection-1', selectedEntries: Object.keys(entries) };
     };
 
     it("reads each character's state and the chat's book as a run reads them, saving nothing", async () => {
@@ -864,7 +866,7 @@ describe('failures (§7)', () => {
         host.worldNames.push(BOOK);
         host.chatBooks.push(BOOK);
         host.books[BOOK] = { entries: {} };
-        host.selections[BOOK] = { id: 'selection-1', selectedUids: [] };
+        host.selections[BOOK] = { id: 'selection-1', selectedEntries: [] };
         host.collectionMeta[REGISTRY_KEY] = { entityLore: { bookName: BOOK, entries: {} } };
         const model = answering();
         host.ask = vi.fn(async (messages) => {
@@ -873,7 +875,7 @@ describe('failures (§7)', () => {
         });
         await runAfterEventBase();
         expect(host.books[BOOK].entries[0].comment).toBe('Tamsin');
-        expect(host.selections[BOOK].selectedUids).toEqual(['0']);
+        expect(selectedUidsOf(host.selections[BOOK])).toEqual(['0']);
         expect(addLoreBookToChat).not.toHaveBeenCalled();
         expect(writeMissing).not.toHaveBeenCalled();
     });

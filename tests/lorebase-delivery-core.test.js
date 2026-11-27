@@ -100,11 +100,11 @@ describe('armScan', () => {
         personaLore: [],
     });
     const selections = { 'Harbor Atlas': new Set(['0', '1', '5', '6']), 'Keeper Notes': new Set(['7']) };
-    const selectedUidsOf = bookName => selections[bookName] ?? null;
+    const takingPartUidsOf = bookName => selections[bookName] ?? null;
 
     it('blanks the keys of every entry LoreBase decides, in every list, and no other', () => {
         const loaded = loadedScan();
-        armScan(loaded, { selectedUidsOf, deliveries: null });
+        armScan(loaded, { takingPartUidsOf, deliveries: null });
         const keysOf = list => list.map(entry => entry.key);
         expect(keysOf(loaded.globalLore)).toEqual([[], [], ['bell'], ['fog'], ['gull']]);
         expect(keysOf(loaded.characterLore)).toEqual([[]]);
@@ -113,7 +113,7 @@ describe('armScan', () => {
 
     it("gives a blanked entry a new key list, leaving the list SillyTavern's cached book shares with it", () => {
         const loaded = loadedScan();
-        armScan(loaded, { selectedUidsOf, deliveries: null });
+        armScan(loaded, { takingPartUidsOf, deliveries: null });
         expect(loaded.globalLore[0].key).toEqual([]);
         expect(harborKeys).toEqual(['lighthouse']);
     });
@@ -121,12 +121,12 @@ describe('armScan', () => {
     const whole = title => ({ isWhole: true, text: '', title, hasFrame: false });
     // The block two whole picks that go to the same place in the prompt make, titled as given.
     const blockOfTwo = (firstTitle, secondTitle) => armScan(loadedScan(), {
-        selectedUidsOf, deliveries: new Map([['Harbor Atlas.1', whole(firstTitle)], ['Keeper Notes.7', whole(secondTitle)]]),
+        takingPartUidsOf, deliveries: new Map([['Harbor Atlas.1', whole(firstTitle)], ['Keeper Notes.7', whole(secondTitle)]]),
     }).forced[0].content;
 
     it('sends a pick inside a VectLorebook block, as the scan loaded the entry, which goes in whole', () => {
         const deliveries = new Map([['Harbor Atlas.0', { isWhole: false, text: 'The lamp burns.', title: 'Lantern Room', hasFrame: false }]]);
-        const { forced, sentCount } = armScan(loadedScan(), { selectedUidsOf, deliveries });
+        const { forced, sentCount } = armScan(loadedScan(), { takingPartUidsOf, deliveries });
         expect(sentCount).toBe(1);
         expect(forced).toEqual([{
             uid: 0, world: 'Harbor Atlas', key: ['lighthouse'], keysecondary: ['night'],
@@ -141,7 +141,7 @@ describe('armScan', () => {
             ['Harbor Atlas.1', whole('Tide Tables')],
             ['Harbor Atlas.0', { isWhole: false, text: 'The lamp burns.', title: 'Lantern Room', hasFrame: false }],
         ]);
-        expect(armScan(loadedScan(), { selectedUidsOf, deliveries }).blocks).toEqual([
+        expect(armScan(loadedScan(), { takingPartUidsOf, deliveries }).blocks).toEqual([
             {
                 key: 'Keeper Notes.7',
                 picks: [
@@ -155,7 +155,7 @@ describe('armScan', () => {
 
     it('carries the picks that go to one place in one block, most needed first, a whole pick less its opening decorator lines', () => {
         const deliveries = new Map([['Keeper Notes.7', whole("Oil's Store")], ['Harbor Atlas.1', whole('Tide Tables')]]);
-        const { forced, sentCount } = armScan(loadedScan(), { selectedUidsOf, deliveries });
+        const { forced, sentCount } = armScan(loadedScan(), { takingPartUidsOf, deliveries });
         expect(sentCount).toBe(2);
         expect(forced.map(entry => [entry.world, entry.uid, entry.content])).toEqual([[
             'Keeper Notes', 7,
@@ -168,7 +168,7 @@ describe('armScan', () => {
             ['Harbor Atlas.1', whole('Tide Tables')],
             ['Harbor Atlas.0', { isWhole: false, text: '<lamp>\nThe lamp burns.\n</lamp>', title: 'Lantern Room', hasFrame: true }],
         ]);
-        expect(armScan(loadedScan(), { selectedUidsOf, deliveries }).forced.map(entry => [entry.uid, entry.position, entry.content])).toEqual([
+        expect(armScan(loadedScan(), { takingPartUidsOf, deliveries }).forced.map(entry => [entry.uid, entry.position, entry.content])).toEqual([
             [1, undefined, '<VectLorebook>\n<Tide_Tables>\nThe tide turns at noon.\n</Tide_Tables>\n</VectLorebook>'],
             [0, 4, '<VectLorebook>\n<lamp>\nThe lamp burns.\n</lamp>\n</VectLorebook>'],
         ]);
@@ -184,7 +184,7 @@ describe('armScan', () => {
     it('sends no pick the scan does not hold, or no longer leaves to LoreBase, and leaves the latter its keys', () => {
         const loaded = loadedScan();
         const deliveries = new Map([['Harbor Atlas.9', whole('Lost')], ['Harbor Atlas.5', whole('Fog')], ['Voyage Log.0', whole('Log')]]);
-        expect(armScan(loaded, { selectedUidsOf, deliveries })).toEqual({ forced: [], sentCount: 0, blocks: [] });
+        expect(armScan(loaded, { takingPartUidsOf, deliveries })).toEqual({ forced: [], sentCount: 0, blocks: [] });
         expect(loaded.globalLore[3].key).toEqual(['fog']);
         expect(loaded.chatLore[0].key).toEqual(['lighthouse']);
     });
@@ -198,7 +198,7 @@ describe('armScan', () => {
             ],
         };
         const deliveries = new Map([['Harbor Atlas.0', whole('Lamp')], ['Harbor Atlas.1', whole('Tide')], ['Harbor Atlas.2', whole('Bell')]]);
-        const { forced, sentCount } = armScan(loaded, { selectedUidsOf: () => new Set(['0', '1', '2']), deliveries });
+        const { forced, sentCount } = armScan(loaded, { takingPartUidsOf: () => new Set(['0', '1', '2']), deliveries });
         expect(loaded.globalLore.map(entry => entry.key)).toEqual([['lamp'], ['tide'], []]);
         expect(sentCount).toBe(1);
         expect(forced.map(entry => [entry.uid, entry.content])).toEqual([[2, '<VectLorebook>\n<Bell>\nThe bell rings at dusk.\n</Bell>\n</VectLorebook>']]);

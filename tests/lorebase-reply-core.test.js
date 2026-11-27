@@ -72,21 +72,21 @@ describe('the entries LoreBase decides', () => {
     };
 
     it("keeps the selected entries in the book's order, and leaves SillyTavern its disabled, constant, sticky and cooldown ones", () => {
-        expect(decidedEntries(book, { selectedUids: ['6', '0', '2', '3', '4', '5'] }).map(entry => entry.uid)).toEqual([0, 6]);
+        expect(decidedEntries(book, { selectedEntries: ['0', '2-6'] }).map(entry => entry.uid)).toEqual([0, 6]);
     });
 
     it('never decides a selected entry with no text, which has nothing to key, pick or send', () => {
-        expect(decidedEntries(book, { selectedUids: ['7', '1', '8'] }).map(entry => entry.uid)).toEqual([1]);
+        expect(decidedEntries(book, { selectedEntries: ['1', '7-8'] }).map(entry => entry.uid)).toEqual([1]);
     });
 
     it('leaves SillyTavern an entry an @@activate or @@dont_activate line opens, which its scan reads before the keys', () => {
-        expect(decidedEntries(book, { selectedUids: ['9', '10', '11'] }).map(entry => entry.uid)).toEqual([11]);
+        expect(decidedEntries(book, { selectedEntries: ['9-11'] }).map(entry => entry.uid)).toEqual([11]);
     });
 
     it('decides nothing in a book with no selection, or one SillyTavern could not load', () => {
-        expect(decidedEntries(book, { selectedUids: [] })).toEqual([]);
+        expect(decidedEntries(book, { selectedEntries: [] })).toEqual([]);
         expect(decidedEntries(book, null)).toEqual([]);
-        expect(decidedEntries(null, { selectedUids: ['0'] })).toEqual([]);
+        expect(decidedEntries(null, { selectedEntries: ['0'] })).toEqual([]);
     });
 });
 

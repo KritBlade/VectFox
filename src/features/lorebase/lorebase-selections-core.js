@@ -6,14 +6,18 @@
  * rule EventBase's collections follow too (oneInUseLockChanges in src/shared/one-in-use-locks.js), and New selection
  * names its copy and gives it its ID as EventBase's New collection does (numberedName and newTimeId in
  * src/shared/new-group-member.js). LoreBase writes keys and vectors for every entry any selection holds
- * (unionOfSelections), so the selections of a book share them. Pure: no settings, no host.
+ * (unionOfSelections), so the selections of a book share them. A selection keeps its entries short, as uid runs
+ * (lorebase-uid-runs-core.js); selectedUidsOf reads them out. Pure: no settings, no host.
  */
+
+import { uidRunsOf, uidsOfRuns } from './lorebase-uid-runs-core.js';
 
 /**
  * @typedef {object} LoreSelection
  * @property {string} id - The time it was made in base 36 (newTimeId), never made twice in its book
  * @property {string} name - What the pages show; a book's first selection is named after the book
- * @property {string[]} selectedUids - The entries LoreBase decides while the selection is in use
+ * @property {string[]} selectedEntries - The entries LoreBase decides while the selection is in use, as uid runs
+ *   (uidRunsOf); selectedUidsOf reads their uids
  * @property {string[]} pinnedSections - The section names whose parts are kept whenever their entry is picked
  * @property {string[]} lockedToChatIds - The chats using it, each by its file name
  * @property {string[]} lockedToCharacterAvatars - The characters using it, each by its avatar file name
@@ -26,7 +30,16 @@
  * @returns {LoreSelection}
  */
 export function emptySelection(id, name) {
-    return { id, name, selectedUids: [], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] };
+    return { id, name, selectedEntries: [], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] };
+}
+
+/**
+ * The uids of the entries a selection holds, each once; none for no selection.
+ * @param {{selectedEntries?: string[]}|null|undefined} selection - A selection, or the union of a book's
+ * @returns {string[]}
+ */
+export function selectedUidsOf(selection) {
+    return uidsOfRuns(selection?.selectedEntries);
 }
 
 /**
@@ -57,8 +70,8 @@ export function selectionInUseOf(record, { chatId = null, characterAvatar = null
  * Every entry any of a book's selections holds, each once, in the shape of a selection's: what LoreBase writes keys and
  * vectors for, and deletes the vectors of no other entry while the book is written.
  * @param {{selections: LoreSelection[]}|null} record - The book's record
- * @returns {{selectedUids: string[]}}
+ * @returns {{selectedEntries: string[]}}
  */
 export function unionOfSelections(record) {
-    return { selectedUids: [...new Set((record?.selections ?? []).flatMap(selection => selection.selectedUids))] };
+    return { selectedEntries: uidRunsOf((record?.selections ?? []).flatMap(selectedUidsOf)) };
 }

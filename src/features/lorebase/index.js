@@ -54,6 +54,7 @@ export { PICK_LIMIT_DEFAULT, pickLimitOf } from './lorebase-pick-core.js';
 export { initializeLoreBase, prepareLoreBesideRetrieval, tryLoreBasePick } from './lorebase-reply.js';
 export { FAST_AND_CHEAP, THINKING_TOKEN_ALLOWANCE, isReplyGeneration, loreBaseAccuracyOf } from './lorebase-reply-core.js';
 export { openLoreBaseSelection } from './lorebase-selection-screen.js';
+export { selectedUidsOf } from './lorebase-selections-core.js';
 export {
     LOREBASE_KEYS_FILE_TYPE, LOREBASE_VECTORS_FILE_TYPE, describeDelete, describeExport, describeImport, describeImported, modelWords,
     describeRemovedLoreBook, nothingToImportText,

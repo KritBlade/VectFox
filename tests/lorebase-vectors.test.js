@@ -368,7 +368,7 @@ describe('deleting vectors', () => {
         await vectors.writeBookVectors(BOOK, [lighthouse, buoy], [lighthouse, buoy], SETTINGS);
         selectEntries([lighthouse, buoy], ['3']);
         host.settings.vectfox.lorebase_books[BOOK].selections.push({
-            id: 'night', name: 'Night watch', selectedUids: ['4'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [],
+            id: 'night', name: 'Night watch', selectedEntries: ['4'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [],
         });
         host.calls = [];
         await vectors.pruneBookVectors(BOOK, SETTINGS);

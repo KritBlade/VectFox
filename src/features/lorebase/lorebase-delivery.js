@@ -32,6 +32,7 @@ import { log } from '../../sillytavern/log.js';
 import { loadWorldInfo, world_names } from '../../sillytavern/world-info.js';
 import { addedChatBookNames, selectionInUseHere } from './lorebase-chat-books.js';
 import { LOREBOOK_TAG, addedBooksToLoad, armScan, chatLoreEntriesOf, scanDeliveries, scanKey } from './lorebase-delivery-core.js';
+import { selectedUidsOf } from './lorebase-selections-core.js';
 import { isLoreBaseActive } from './lorebase-switch.js';
 
 // The picks of the last reply's interceptor, until a scan takes them: {chatId, deliveries}, or null.
@@ -96,7 +97,8 @@ function takingPartLookup() {
     return bookName => {
         if (!lookups.has(bookName)) {
             const selection = selectionInUseHere(bookName);
-            lookups.set(bookName, selection?.selectedUids.length ? new Set(selection.selectedUids) : null);
+            const selectedUids = selectedUidsOf(selection);
+            lookups.set(bookName, selectedUids.length ? new Set(selectedUids) : null);
         }
         return lookups.get(bookName);
     };
@@ -144,7 +146,7 @@ async function armLoadedScan(loaded) {
     const deliveries = held && held.chatId === (getCurrentChatId() ?? null) ? held.deliveries : null;
     let armed;
     try {
-        armed = armScan(loaded, { selectedUidsOf: takingPartLookup(), deliveries });
+        armed = armScan(loaded, { takingPartUidsOf: takingPartLookup(), deliveries });
     } catch (error) {
         log.error('LoreBase: arming the World Info scan failed, so this scan may send entries selected for LoreBase by their keys:', error);
         return;

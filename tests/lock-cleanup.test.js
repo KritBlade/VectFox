@@ -68,7 +68,7 @@ function staleSettings() {
         lorebase_books: {
             'Harbor Lore': {
                 selections: [{
-                    id: 'first', name: 'Harbor Lore', selectedUids: ['1'], pinnedSections: [], lockedToChatIds: ['Wren - harbor', 'Orrin - deleted'],
+                    id: 'first', name: 'Harbor Lore', selectedEntries: ['1'], pinnedSections: [], lockedToChatIds: ['Wren - harbor', 'Orrin - deleted'],
                     lockedToCharacterAvatars: ['wren.png', 'gone.png'],
                 }],
             },
@@ -109,7 +109,7 @@ describe('Clean up locks', () => {
         expect(settings.collections[LIGHTHOUSE].lockedToChatIds).toEqual(['Harbor night group']);
         expect(settings.collections[LIGHTHOUSE].lockedToCharacterIds).toEqual([]);
         expect(settings.chat_lock_index).toEqual({ 'Wren - harbor': [HARBOR], 'Harbor night group': [LIGHTHOUSE] });
-        expect(settings.lorebase_books['Harbor Lore'].selections[0]).toMatchObject({ lockedToChatIds: ['Wren - harbor'], lockedToCharacterAvatars: ['wren.png'], selectedUids: ['1'] });
+        expect(settings.lorebase_books['Harbor Lore'].selections[0]).toMatchObject({ lockedToChatIds: ['Wren - harbor'], lockedToCharacterAvatars: ['wren.png'], selectedEntries: ['1'] });
         expect(host.saveSettingsDebounced).toHaveBeenCalled();
         expect(toastr.success).toHaveBeenCalledWith(
             'Removed 4 locks on chats and characters that no longer exist. Rebuilt the chat lock index: 2 entries removed, 1 entry added.',
@@ -177,7 +177,7 @@ describe('Clean up locks', () => {
         host.extensionSettings.vectfox = {
             collections: { [HARBOR]: { lockedToChatIds: ['Wren - harbor'] } },
             chat_lock_index: { 'Wren - harbor': [HARBOR] },
-            lorebase_books: { 'Harbor Lore': { selections: [{ id: 'first', name: 'Harbor Lore', selectedUids: [], pinnedSections: [], lockedToChatIds: ['Harbor night group'], lockedToCharacterAvatars: ['orrin.png'] }] } },
+            lorebase_books: { 'Harbor Lore': { selections: [{ id: 'first', name: 'Harbor Lore', selectedEntries: [], pinnedSections: [], lockedToChatIds: ['Harbor night group'], lockedToCharacterAvatars: ['orrin.png'] }] } },
         };
         await cleanUpLocks();
 

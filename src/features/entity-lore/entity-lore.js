@@ -56,7 +56,7 @@ import { parseJsonArrayFromLlm } from '../llm-provider/index.js';
 import {
     ADD_TO_CHAT, BOTH_KINDS, THINKING_TOKEN_ALLOWANCE, addLoreBookToChat, askTextOnLoreBase, chatBookNames, chatCharacters, ensureLoreSelection,
     estimatedTokens, isLoreBaseSwitchedOn, isLoreBaseWriting, loreBaseInactiveReason, regenerateKeysOfEntries, resolveLoreBaseLlmConfig,
-    saveEntryWithVectors, selectionInUse, setLoreBookSelection, setLoreSelectionLock, writeMissing,
+    saveEntryWithVectors, selectedUidsOf, selectionInUse, setLoreBookSelection, setLoreSelectionLock, writeMissing,
 } from '../lorebase/index.js';
 import {
     ENTITY_LORE_SETTING, ENTITY_STATE, ENTRIES_PER_AUTOMATIC_RUN, RECORD_STATE, dueCounts, entityLoreBlocker as blockerOf, entityLoreStates,
@@ -716,7 +716,7 @@ async function saveNewEntry(job, pick, otherNames, content) {
     if (!bookName) return;
     const uid = await createLorebookEntry(bookName, { comment: pick.name, keys: entryKeysOf({ name: pick.name, otherNames }), content });
     const selection = selectionInUse(bookName, { chatId: job.run.chatId }) ?? lockedToChat(bookName, job.run.chatId);
-    setLoreBookSelection(bookName, selection.id, [...selection.selectedUids, uid]);
+    setLoreBookSelection(bookName, selection.id, [...selectedUidsOf(selection), uid]);
     job.record = withWrittenEntry(job.record, pick.name, { uid, writtenAtEvents: pick.eventCount, content });
     saveRecord(job);
     job.outcome.written += 1;

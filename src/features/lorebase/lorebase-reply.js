@@ -31,6 +31,7 @@ import { readBookKeys } from './lorebase-keys.js';
 import { isReplyGeneration, loreBaseAccuracyOf, loreForReply, leftOutLoreMessage, unreadyEntriesNotice } from './lorebase-reply-core.js';
 import { sceneText } from './lorebase-scene-core.js';
 import { sceneMessagesFromChat } from './lorebase-scene.js';
+import { selectedUidsOf } from './lorebase-selections-core.js';
 import { replyModel } from './lorebase-setup.js';
 import { isLoreBaseActive, loreBaseInactiveReason } from './lorebase-switch.js';
 import { initializeLoreBaseTester, keepReplyScan, recordReplyReport } from './lorebase-tester.js';
@@ -97,7 +98,7 @@ async function booksTakingPart(settings) {
     const books = [];
     for (const bookName of chatBookNames()) {
         const selection = selectionInUseHere(bookName);
-        if (!selection?.selectedUids.length) continue;
+        if (!selectedUidsOf(selection).length) continue;
         const entries = await loadDecidedEntries(bookName, selection);
         if (entries.length) books.push({ bookName, entries, pinnedSections: selection.pinnedSections });
     }
