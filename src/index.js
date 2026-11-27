@@ -13,10 +13,13 @@ import { eventSource, event_types } from './sillytavern/events.js';
 import { extension_prompt_types } from './sillytavern/prompt-injection.js';
 import { ModuleWorkerWrapper, debounce, debounce_timeout } from './sillytavern/extension-runtime.js';
 import { extension_settings } from './sillytavern/settings.js';
+import { accountPersonaNames } from './sillytavern/user.js';
 
 // VectFox modules - Core
 import {
+    accountHandlesOf,
     followChatRenameOfCollections,
+    isCollectionOfAccount,
     migrateOldEnabledKeys,
     registerCollection,
     setDeletedOrImportedCollectionCleanup,
@@ -35,6 +38,7 @@ import { migration_remove_semantic_world_info_settings } from './app/settings-mi
 import { migration_remove_chunkbase_settings } from './app/settings-migration-chunkbase-settings.js';
 import { migration_remove_retired_collection_fields } from './app/settings-migration-collection-retired-fields.js';
 import { migration_eventbase_progress_into_collections } from './app/settings-migration-eventbase-progress.js';
+import { migration_drop_eventbase_records_of_other_accounts } from './app/settings-migration-eventbase-records-of-other-accounts.js';
 import { forcedSettingValueIds, migration_apply_forced_setting_values } from './app/settings-migration-forced-values.js';
 import { log } from './sillytavern/log.js';
 import {
@@ -567,13 +571,28 @@ jQuery(async () => {
     }
 
     // Copy how far EventBase has read each chat, stored per chat until now, into the record of each of the chat's
-    // collections, before anything reads it; an empty registry waits for the next start. Idempotent. See
-    // src/app/settings-migration-eventbase-progress.js.
-    const _eventBaseProgressCopy = migration_eventbase_progress_into_collections(extension_settings.vectfox);
-    if (_eventBaseProgressCopy.storeCount > 0) {
-        log.lifecycle(`VectFox: Copied EventBase's pointer of ${_eventBaseProgressCopy.chatCount} chat(s) onto ${_eventBaseProgressCopy.migrated} collection(s), dropped ${_eventBaseProgressCopy.droppedChatCount} chat(s) no collection holds, and deleted ${_eventBaseProgressCopy.storeCount} per-chat store(s)`);
-        const { saveSettings } = await import('./sillytavern/settings.js');
-        await saveSettings();
+    // collections of this account, before anything reads it; an empty registry waits for the next start. Then delete
+    // the records an older copy left on other accounts' collections. Both wait for a start that knows the account's
+    // personas, which say whose a collection is. Idempotent. See src/app/settings-migration-eventbase-progress.js and
+    // src/app/settings-migration-eventbase-records-of-other-accounts.js.
+    const _personaNames = accountPersonaNames();
+    if (_personaNames.length === 0) {
+        log.warn('VectFox: EventBase\'s record migrations wait for the next start: no persona name is known yet, which says whose a collection is');
+    } else {
+        const _accountHandles = accountHandlesOf(_personaNames);
+        const isAccountCollection = registryKey => isCollectionOfAccount(extension_settings.vectfox, registryKey, _accountHandles);
+        const _eventBaseProgressCopy = migration_eventbase_progress_into_collections(extension_settings.vectfox, isAccountCollection);
+        const _otherAccountsRecords = migration_drop_eventbase_records_of_other_accounts(extension_settings.vectfox, isAccountCollection);
+        if (_eventBaseProgressCopy.storeCount > 0) {
+            log.lifecycle(`VectFox: Copied EventBase's pointer of ${_eventBaseProgressCopy.chatCount} chat(s) onto ${_eventBaseProgressCopy.migrated} collection(s), dropped ${_eventBaseProgressCopy.droppedChatCount} chat(s) no collection of this account holds, and deleted ${_eventBaseProgressCopy.storeCount} per-chat store(s)`);
+        }
+        if (_otherAccountsRecords.migrated > 0) {
+            log.lifecycle(`VectFox: Deleted EventBase's record from ${_otherAccountsRecords.migrated} collection(s) of other accounts`);
+        }
+        if (_eventBaseProgressCopy.storeCount > 0 || _otherAccountsRecords.migrated > 0) {
+            const { saveSettings } = await import('./sillytavern/settings.js');
+            await saveSettings();
+        }
     }
 
     // Apply each forced setting value this install has not applied yet, over any value the user saved, once per push.

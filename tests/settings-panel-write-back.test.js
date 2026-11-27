@@ -42,7 +42,10 @@ vi.mock('../src/sillytavern/extension-runtime.js', () => ({
     debounce: callback => callback,
     debounce_timeout: { relaxed: 1 },
 }));
+vi.mock('../src/sillytavern/user.js', () => ({ accountPersonaNames: () => ['Wren'], getCurrentUserHandle: () => 'wren' }));
 vi.mock('../src/features/collections/index.js', () => ({
+    accountHandlesOf: () => new Set(['wren']),
+    isCollectionOfAccount: () => true,
     followChatRenameOfCollections: vi.fn(),
     migrateOldEnabledKeys: () => ({ migrated: 0 }),
     cleanupCorruptedCollections: vi.fn(),

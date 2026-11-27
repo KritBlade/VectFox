@@ -14,13 +14,17 @@
  *   eventbase_unfinished_windows     → unfinishedWindows
  *   eventbase_autosync_start_marker  → autoSyncStartMarker
  *   eventbase_last_used_window_size  → windowSize
- * Each chat's entries go onto every EventBase and archive collection in the
- * registry whose chat UUID, as parseCollectionId reads it, is the entry's key,
- * and whose record has no pointer yet. The
+ * Each chat's entries go onto every EventBase and archive collection of this
+ * account in the registry whose chat UUID, as parseCollectionId reads it, is
+ * the entry's key, and whose record has no pointer yet. Of this account, as
+ * isAccountCollection says (isCollectionOfAccount): discovery registers other
+ * accounts' collections too, and a chat imported from another account shares
+ * its chat UUID with that account's collections, whose reading the entries do
+ * not tell. The
  * window size is the number of messages in the first window on the chat's record,
  * the size Vectorize read it with; the stored size only when the record holds no
  * window, and the Vectorize dialog's Window size when there is neither. An entry
- * whose UUID no collection holds is dropped, then the five stores are deleted. An
+ * whose UUID no collection of this account holds is dropped, then the five stores are deleted. An
  * empty registry leaves them for the next start, so a start that knows no
  * collection yet drops nothing. Re-running once the stores are gone does
  * nothing. Covered by tests/settings-migration-eventbase-progress.test.js.
@@ -78,11 +82,12 @@ function pointerOfChat(settings, chatUUID) {
  * Idempotent: once the stores are gone, a no-op.
  *
  * @param {object} settings - extension_settings.vectfox
+ * @param {(registryKey: string) => boolean} isAccountCollection - Whether a registry entry is this account's collection
  * @returns {{migrated: number, chatCount: number, droppedChatCount: number, storeCount: number}} how many collections
- *   got a pointer, from how many chats' entries, how many chats' entries no collection held, and how many stores were
- *   deleted
+ *   got a pointer, from how many chats' entries, how many chats' entries no collection of this account held, and how
+ *   many stores were deleted
  */
-export function migration_eventbase_progress_into_collections(settings) {
+export function migration_eventbase_progress_into_collections(settings, isAccountCollection) {
     const none = { migrated: 0, chatCount: 0, droppedChatCount: 0, storeCount: 0 };
     if (!settings || typeof settings !== 'object') return none;
     const stores = Object.keys(EVENTBASE_PROGRESS_STORES).filter(store => Object.prototype.hasOwnProperty.call(settings, store));
@@ -101,7 +106,7 @@ export function migration_eventbase_progress_into_collections(settings) {
     for (const registryKey of registry) {
         if (typeof registryKey !== 'string') continue;
         const chatUUID = chatUUIDOf(registryKey);
-        if (!chatUUID || !chatUUIDs.has(chatUUID)) continue;
+        if (!chatUUID || !chatUUIDs.has(chatUUID) || !isAccountCollection(registryKey)) continue;
         collectionsByChat.set(chatUUID, [...(collectionsByChat.get(chatUUID) ?? []), registryKey]);
     }
 

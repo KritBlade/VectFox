@@ -1,5 +1,5 @@
 /**
- * Tests for remapCollectionIdToHandle + sanitizeHandleId (src/shared/collection-ids.js).
+ * Tests for remapCollectionIdToHandle, isCollectionIdOfHandle and sanitizeHandleId (src/shared/collection-ids.js).
  *
  * These exercise the REAL implementation, so the SillyTavern host modules that
  * collection-ids.js imports must be stubbed. The deep relative specifiers below
@@ -19,7 +19,7 @@ vi.mock('../src/sillytavern/log.js', () => ({
     log: new Proxy({}, { get: () => () => {} }),
 }));
 
-import { remapCollectionIdToHandle, sanitizeHandleId, sanitizeNameSegment, sanitizeIdSegment } from '../src/shared/collection-ids.js';
+import { isCollectionIdOfHandle, remapCollectionIdToHandle, sanitizeHandleId, sanitizeNameSegment, sanitizeIdSegment } from '../src/shared/collection-ids.js';
 
 describe('sanitizeIdSegment (primitive)', () => {
     it('does not edge-trim or apply fallback by default', () => {
@@ -97,5 +97,25 @@ describe('remapCollectionIdToHandle', () => {
         // char name itself contains underscores — only the handle segment must change
         const out = remapCollectionIdToHandle('vf_eventbase_qdrant_wanderer_my_long_char_name_999', 'rabbit');
         expect(out).toBe('vf_eventbase_qdrant_rabbit_my_long_char_name_999');
+    });
+});
+
+describe('isCollectionIdOfHandle', () => {
+    it('reads the handle after the prefix and the optional backend', () => {
+        expect(isCollectionIdOfHandle('vf_eventbase_qdrant_wren_harbor_aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa', 'wren')).toBe(true);
+        expect(isCollectionIdOfHandle('vf_eventbase_wren_harbor_aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa', 'wren')).toBe(true);
+        expect(isCollectionIdOfHandle('vf_archiveevent_standard_wren_harbor_bbbbbbbb', 'wren')).toBe(true);
+        expect(isCollectionIdOfHandle('vf_eventbase_qdrant_orrin_harbor_aaaaaaaa', 'wren')).toBe(false);
+    });
+
+    it('takes a handle that holds underscores whole, and never matches one only by its start', () => {
+        expect(isCollectionIdOfHandle('vf_eventbase_qdrant_wren_keeper_harbor_aaaaaaaa', sanitizeHandleId('Wren Keeper'))).toBe(true);
+        expect(isCollectionIdOfHandle('vf_eventbase_qdrant_wrenna_harbor_aaaaaaaa', 'wren')).toBe(false);
+    });
+
+    it('reads no handle, so no owner, in an ID with no VectFox prefix, and none for no handle', () => {
+        expect(isCollectionIdOfHandle('vectfox_main', 'wren')).toBe(false);
+        expect(isCollectionIdOfHandle('vf_eventbase_qdrant_wren_harbor_aaaaaaaa', '')).toBe(false);
+        expect(isCollectionIdOfHandle(undefined, 'wren')).toBe(false);
     });
 });

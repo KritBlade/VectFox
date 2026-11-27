@@ -60,5 +60,6 @@ export {
     setCollectionLock,
     setCollectionMeta,
 } from './collection-metadata.js';
+export { accountHandlesOf, isCollectionOfAccount } from './collection-ownership-core.js';
 export { convertToPNG, downloadPNG, embedDataInPNG, extractDataFromPNG, readPNGFile } from './png-export.js';
 export { deleteRetiredContentCollections } from './retired-content-collections.js';

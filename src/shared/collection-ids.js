@@ -170,29 +170,48 @@ export function remapCollectionIdToBackend(collectionId, targetBackend) {
  */
 export function remapCollectionIdToHandle(collectionId, targetHandle) {
     const sanitizedTarget = sanitizeHandleId(targetHandle);
+    const split = splitAtHandle(collectionId);
+    if (!split) return collectionId; // unknown format — leave unchanged
 
-    for (const prefix of Object.values(COLLECTION_PREFIXES)) {
-        if (!collectionId.startsWith(prefix)) continue;
-        let rest = collectionId.slice(prefix.length); // 'qdrant_wanderer_char_uuid' or 'wanderer_char_uuid'
+    const sepIdx = split.rest.indexOf('_');
+    if (sepIdx <= 0) return collectionId; // no handle segment (legacy / malformed)
+    const oldHandle = split.rest.slice(0, sepIdx);
+    return oldHandle === sanitizedTarget
+        ? collectionId // no-op
+        : split.head + sanitizedTarget + split.rest.slice(oldHandle.length);
+}
 
-        // Skip the optional backend segment if present so we land on the handle.
-        let backendPart = '';
-        for (const b of KNOWN_BACKEND_LABELS) {
-            if (rest.startsWith(b + '_')) {
-                backendPart = b + '_';
-                rest = rest.slice(backendPart.length);
-                break;
-            }
-        }
+/**
+ * Whether a VectFox collection's ID names the persona handle given as the one it was made under: the part after its
+ * prefix and optional backend starts with the handle and an underscore, as the ID builders write it. A handle can hold
+ * underscores itself (sanitizeHandleId), so the test is on the start, never on one segment. False for an ID with no
+ * VectFox prefix.
+ *
+ * @param {string} collectionId - A bare collection ID
+ * @param {string} handle - A persona handle, as sanitizeHandleId gives it
+ * @returns {boolean}
+ */
+export function isCollectionIdOfHandle(collectionId, handle) {
+    if (typeof collectionId !== 'string' || !handle) return false;
+    const split = splitAtHandle(collectionId.toLowerCase());
+    return Boolean(split) && split.rest.startsWith(`${String(handle).toLowerCase()}_`);
+}
 
-        const sepIdx = rest.indexOf('_');
-        if (sepIdx <= 0) return collectionId; // no handle segment (legacy / malformed)
-        const oldHandle = rest.slice(0, sepIdx);
-        return oldHandle === sanitizedTarget
-            ? collectionId // no-op
-            : prefix + backendPart + sanitizedTarget + rest.slice(oldHandle.length);
-    }
-    return collectionId; // unknown format — leave unchanged
+/**
+ * A VectFox collection ID cut where its handle starts: `head`, its prefix and the optional backend after it
+ * ('vf_eventbase_qdrant_'), and `rest`, from the handle on ('wanderer_char_uuid'). null for an ID with no VectFox prefix.
+ *
+ * @param {string} collectionId
+ * @returns {{head: string, rest: string}|null}
+ */
+function splitAtHandle(collectionId) {
+    const prefix = Object.values(COLLECTION_PREFIXES).find(candidate => collectionId.startsWith(candidate));
+    if (!prefix) return null;
+    const rest = collectionId.slice(prefix.length);
+    const backend = KNOWN_BACKEND_LABELS.find(label => rest.startsWith(`${label}_`));
+    return backend
+        ? { head: `${prefix}${backend}_`, rest: rest.slice(backend.length + 1) }
+        : { head: prefix, rest };
 }
 
 /**
