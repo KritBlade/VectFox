@@ -401,9 +401,11 @@ Think of a hotel key card. Reception checks you in once, and the card opens your
 
 `owner` is the name the question shows, so give your extension's real name, the same in every call. Every write needs it, and the console says which `owner` made each write and what it changed.
 
-The question waits as long as the user does, and so does your promise. Questions open one at a time, in the order the writes came, so 2 extensions writing at once never stack 2 questions. SillyTavern's popups sit in the browser's top layer, so the question opens over everything, your own popups too.
+The question waits as long as the user does, and so does your promise. Questions open one at a time, in the order the writes came, so 2 extensions writing at once never stack 2 questions.
 
-The one place the user won't see it is a GUI in its own browser window, as the question opens in SillyTavern's tab. So write only when your user just did something, and the question never comes out of nowhere.
+SillyTavern's popups sit in the browser's top layer, so the question opens over everything already open, your own popups too. But a popup you open AFTER the write, while it still waits, opens over the question, and the user can't click the question until yours closes. So open your own popup only once the write has answered.
+
+A GUI in its own browser window never shows the question, as the question opens in SillyTavern's tab. So write only when your user just did something, and the question never comes out of nowhere.
 
 ### A delete asks every time
 
