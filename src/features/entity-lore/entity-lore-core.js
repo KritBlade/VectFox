@@ -897,14 +897,18 @@ export function namesMatchedTo(record, name) {
         .map(([other]) => other);
 }
 
-const CATCH_UP_LINE = "A catch-up adds the character's events since their entry was last written to the entry as it stands, "
-    + 'one request each, a few when very many came since.';
-const REWRITE_LINE = "A rewrite writes the entry again from the character's whole story so far, one request each, a few for a very long story.";
+// Each entry a run writes, catches up or rewrites takes two requests: the entry's own, then LoreBase's for its keys,
+// which every such write has written anew (§5.3).
+const ENTRY_REQUESTS = 'one for the entry and one for its LoreBase keys';
+const CATCH_UP_LINE = "A catch-up adds the character's events since their entry was last written to the entry as it stands: "
+    + `two requests each, ${ENTRY_REQUESTS}, a few more when very many came since.`;
+const REWRITE_LINE = "A rewrite writes the entry again from the character's whole story so far: "
+    + `two requests each, ${ENTRY_REQUESTS}, a few more for a very long story.`;
 
 /**
  * Run now's question (§4.1), in plain words: what it writes, catches up and rewrites, into which lorebook, and the
- * requests it makes on LoreBase's model. The name check comes first only when there are new entries. Lines for
- * confirmPopup, each count and the book's name a value, never part of a fixed sentence.
+ * requests it makes on LoreBase's model, its keys' among them. The name check comes first only when there are new
+ * entries. Lines for confirmPopup, each count and the book's name a value, never part of a fixed sentence.
  *
  * @param {object} run
  * @param {number} run.newCount - From dueCounts; with catchUpCount and rewriteCount, at least one above 0
@@ -956,8 +960,8 @@ export function runNowQuestion({ newCount, catchUpCount, rewriteCount, bookName,
         {
             text: "First, one request to LoreBase's model checks which names are named characters: a job or a title gets no entry, "
                 + "and another name of a character joins that character's entry. A second request looks for the named ones among the "
-                + "keys of the chat's other lorebooks, when they have keys. Each entry then takes one more request, a few for a very "
-                + 'long story, and LoreBase writes their keys and vectors.',
+                + `keys of the chat's other lorebooks, when they have keys. Each entry then takes two more requests, ${ENTRY_REQUESTS}, `
+                + "a few more for a very long story, and VectFox's embedding model writes its vectors.",
         },
         ...updateLines,
     ];

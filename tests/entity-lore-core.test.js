@@ -613,10 +613,10 @@ describe("Run now's question (§4.1)", () => {
     const linesText = lines => lines.map(line => (line.parts ?? [line]).map(part => part.text ?? part.name).join(''));
     const CHECK_LINE = "First, one request to LoreBase's model checks which names are named characters: a job or a title gets no entry, and "
         + "another name of a character joins that character's entry. A second request looks for the named ones among the keys of the "
-        + "chat's other lorebooks, when they have keys. Each entry then takes one more request, a few for a very long story, and LoreBase "
-        + 'writes their keys and vectors.';
+        + "chat's other lorebooks, when they have keys. Each entry then takes two more requests, one for the entry and one for its "
+        + "LoreBase keys, a few more for a very long story, and VectFox's embedding model writes its vectors.";
 
-    it('says in plain words what it writes, into which lorebook, and the requests it makes, each count and the book a value', () => {
+    it('says in plain words what it writes, into which lorebook, and the requests it makes, LoreBase\'s keys among them, each count and the book a value', () => {
         const lines = runNowQuestion({ newCount: 25, rewriteCount: 0, bookName: 'VectFox NPCs - Harbor', isBookMade: true });
         expect(linesText(lines)).toEqual([
             'Write lorebook entries for 25 characters?',
@@ -628,9 +628,10 @@ describe("Run now's question (§4.1)", () => {
         expect(lines[2]).toEqual({ text: CHECK_LINE });
     });
 
-    const CATCH_UP_LINE = "A catch-up adds the character's events since their entry was last written to the entry as it stands, one request each, "
-        + 'a few when very many came since.';
-    const REWRITE_LINE = "A rewrite writes the entry again from the character's whole story so far, one request each, a few for a very long story.";
+    const CATCH_UP_LINE = "A catch-up adds the character's events since their entry was last written to the entry as it stands: two requests "
+        + 'each, one for the entry and one for its LoreBase keys, a few more when very many came since.';
+    const REWRITE_LINE = "A rewrite writes the entry again from the character's whole story so far: two requests each, one for the entry and "
+        + 'one for its LoreBase keys, a few more for a very long story.';
     const asked = counts => linesText(runNowQuestion({ newCount: 0, catchUpCount: 0, rewriteCount: 0, bookName: 'VectFox NPCs - Harbor', isBookMade: true, ...counts }));
 
     it('names the new lorebook the first entry makes, says one character in the singular, and adds the catch-ups and rewrites', () => {
