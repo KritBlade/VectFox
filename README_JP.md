@@ -530,13 +530,13 @@ VectFox は SillyTavern の接続プロファイル（connection profile）で�
 7. それ以外のほとんどの設定はデフォルトのままで大丈夫です。必要に応じて調整してください。
 8. **まずチャットを 1 回ベクトル化する。** チャットを開き、**Action** ページで **Vectorize content** を押して **Chat** を選び、**Vectorize** を押します。最初の DB を作るには、これが**必須**です。
 9. **同期を保つ。** 自動にしたいなら、**AutoSync** ページで **Auto-sync this chat** をオンにします。**Turns** で 1 回の実行に入るターン数が決まります。手動で追いつきたいときは、**Action** ページの **Sync chat** を押します。
-10. （オプション）ロアブックのエントリーを LoreBase に選ばせます。**WorldInfo** ページで **Use LoreBase** をオンにし、**LoreBase model** カードを設定します。足りないものがあれば、カードの通知が教えてくれます。**Choose entries** を押して LoreBase に任せたいエントリーをオンにし、画面を閉じます。VectFox がキーとベクトルを書くか尋ね、キーが書かれると、ブックはそのチャットにロックされます。その画面の各ボタンと、各選択肢がどう選ぶかの説明は [Doc/lorebase-choose-entries.md](Doc/lorebase-choose-entries.md)（英語）にあります。
+10. （オプション）ロアブックのエントリーを LoreBase に選ばせます。**WorldInfo** ページで **Use LoreBase** をオンにし、**LoreBase model** カードを設定します。足りないものがあれば、カードの通知が教えてくれます。**Choose entries** を押して LoreBase に任せたいエントリーをオンにし、画面を閉じます。VectFox がキーとベクトルを書くか尋ね、キーが書かれると、ブックはそのチャットにロックされます。その画面の各ボタンと、各選択肢がどう選ぶかの説明は [Doc/lorebase.md](Doc/lorebase.md)（英語）にあります。
    - LoreBase は各エントリーのキーとベクトルを Qdrant に保存するので、ベクトルバックエンドの Qdrant と、VectFox のエンベディングモデルが必要です。デフォルトの **Fast and Cheap [Jev]** には、返信ごとに各エントリーを評価する小さなモデル Jev 用の SillyTavern プロファイルも必要です。**High Accuracy** では、LoreBase model がエントリーを選び、それぞれを返信に必要な部分だけに削ります。
    - チャットがまだそのブックを読み込んでいませんか？ ブック一覧の下の **Add a lorebook** で、このチャットかこのキャラクターに追加できます。このチャットにはブックをいくつでも追加でき、追加したブックはこのチャットだけで、LoreBase がオンの間だけ読み込まれます。
    - SillyTavern の **Vector Storage** で **Enabled for World Info** がオンなら、VectFox はそれをオフにするか尋ねます。Vector Storage は独自の検索でロアブックのエントリーを送るため、LoreBase が外したエントリーでも、LoreBase に任せたエントリーを丸ごと送ってしまいます。オンのままにすると、LoreBase はオフのままです。Vector Storage のチャットとファイルの検索はそのままです。
    - 同じページの **LoreBase tester** カードには、各返信で LoreBase が何をしたかが表示されます。何がなぜ選ばれたか、各エントリーのどの部分が入ったか、そしてそれが何トークンで、SillyTavern のキーなら何トークン送っていたかが分かります。返信が何かを忘れていたら、LoreBase が外したのかを確認できます。記録はページを再読み込みするまで残ります。
    - プロンプトでは、LoreBase が送るものはすべて `<VectLorebook>` ブロックに入り、各エントリーはその名前のタグに入ります。だから、あなたも AI も SillyTavern 自身のエントリーと区別できます。
-   - **Database Browser** には、各ブックの LoreBase のキーとベクトルが並び、それぞれに Export、Import、Delete があります。キーは 1 つ書くごとに LoreBase model の呼び出しがかかるので、一度 Export しておきましょう。Import すれば、LLM を呼ばずに元に戻せます。詳しくは [Doc/lorebase-choose-entries.md](Doc/lorebase-choose-entries.md)（英語）にあります。
+   - **Database Browser** には、各ブックの LoreBase のキーとベクトルが並び、それぞれに Export、Import、Delete があります。キーは 1 つ書くごとに LoreBase model の呼び出しがかかるので、一度 Export しておきましょう。Import すれば、LLM を呼ばずに元に戻せます。詳しくは [Doc/lorebase.md](Doc/lorebase.md)（英語）にあります。
    - 以前の VectFox でロアブックをベクトル化していた場合、その古いコレクションは LoreBase では使えません。そのため VectFox は起動時に一度だけそれらを削除し、どのブックから作られたかを表示します。古いベクトルは必要ありません。LoreBase が、選んだエントリーのキーとベクトルを自分で書きます。上の手順で設定するまで、それらのブックは普通の SillyTavern のロアブックとして動きます。古いコレクションのチャットやキャラクターへのロックは、そのブックに移ります。
 11. （オプション）他がすべて動いたら、**AgentMode** ページで **Agent Mode** をオンにします。**Provider** を **Same as EventBase model** のままにすると、プランナーは EventBase model のプロファイルで動きます。つまりステップ 5 の安くて速いモデルがプランナーも動かします。詳しくは上の「どう動くのか」>「Agent Mode」を参照してください。
 
