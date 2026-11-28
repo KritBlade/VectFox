@@ -9,7 +9,8 @@
  *   - after a stretch is read again, every new event is linked and each event whose links went into it is decided
  *     again, the new events among its candidates, each step on the panel with its own count,
  *   - a links file reads and writes a collection's links with no LLM call,
- *   - deleting a collection's links leaves its events undecided, with no LLM call.
+ *   - deleting a collection's links leaves its events undecided, with no LLM call,
+ *   - a link write waits while a text edit of the collection's events holds it, as that edit writes the whole point.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -97,6 +98,7 @@ const {
     runStoryLinkPass,
     writeImportedStoryLinks,
 } = await import('../src/features/eventbase/story-arc-links.js');
+const { inTextEditTurn } = await import('../src/features/eventbase/eventbase-write-turns.js');
 
 const COLLECTION = 'vf_eventbase_chat';
 const settings = {
@@ -612,6 +614,23 @@ describe('links files and deleting links', () => {
         expect(callLlmForJsonMock).not.toHaveBeenCalled();
         expect(progressMock.complete).toHaveBeenCalledWith(true, expect.stringContaining('3 of 3 events written'));
         expect(progressMock.clearCancelHandler).toHaveBeenCalled();
+    });
+
+    it('waits to store links while a text edit of the collection\'s events holds it', async () => {
+        let endEdit;
+        const edit = inTextEditTurn(collection.id, () => new Promise(resolve => { endEdit = resolve; }));
+        const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+        // The edit holds the collection once it has started.
+        await settle();
+        expect(endEdit).toBeTypeOf('function');
+        const written = writeImportedStoryLinks(writesFor(1), collection.id, settings);
+        await settle();
+        const callsWhileHeld = updateChunkMetadataMock.mock.calls.length;
+        endEdit();
+        expect(callsWhileHeld).toBe(0);
+        await edit;
+        expect(await written).toEqual({ writtenCount: 1, failedCount: 0, isStopped: false });
+        expect(updateChunkMetadataMock.mock.calls).toEqual([[collection.id, 1, { story_links: [link] }, settings]]);
     });
 
     it('tries a failed write again', async () => {

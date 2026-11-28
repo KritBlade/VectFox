@@ -10,11 +10,9 @@
  * ============================================================================
  */
 
-import { deleteVectorItems } from '../vector-backend/index.js';
 import { log } from '../../sillytavern/log.js';
-import { announceEventsRemoved } from './eventbase-announcements.js';
 import { planCompaction } from './eventbase-compaction-core.js';
-import { keepWindowsOfRemovedEvents } from './eventbase-store.js';
+import { deleteEventPoints } from './eventbase-event-edits.js';
 import { moveStoryLinks } from './story-arc-links.js';
 import { listStoryEvents } from './story-arc-retrieval.js';
 
@@ -33,8 +31,9 @@ export async function planCollectionCompaction(collectionId, settings) {
 }
 
 /**
- * Carry out a compaction plan: move the StoryArc links first, then remove the repeated events, whose windows stay
- * read on the collection's record and whose IDs go to EventBase's listener (announceEventsRemoved).
+ * Carry out a compaction plan: move the StoryArc links first, then remove the repeated events through EventBase's
+ * route for deleting its events (deleteEventPoints), so their windows stay read on the collection's record and their
+ * IDs go to EventBase's listener.
  *
  * @param {{repeats: object[], repeatWindowCount: number, linkMoves: object[]}} plan - From planCollectionCompaction
  * @param {string} collectionId
@@ -49,9 +48,7 @@ export async function compactCollection(plan, collectionId, settings) {
         : { writtenCount: 0, failedCount: 0, isStopped: false };
     if (linkMoves.failedCount > 0 || linkMoves.isStopped) return { removedCount: 0, linkMoves };
 
-    await deleteVectorItems(collectionId, plan.repeats.map(event => event._hash), settings);
-    keepWindowsOfRemovedEvents(collectionId, plan.repeats, settings);
-    announceEventsRemoved(collectionId, plan.repeats.map(event => event.event_id));
+    await deleteEventPoints(collectionId, plan.repeats.map(event => ({ hash: event._hash, metadata: event })), settings);
     log.lifecycle(`[EventBase] Compacted ${collectionId}: removed ${plan.repeats.length} repeated event(s) in ${plan.repeatWindowCount} window(s), and moved the links of ${linkMoves.writtenCount} event(s)`);
     return { removedCount: plan.repeats.length, linkMoves };
 }

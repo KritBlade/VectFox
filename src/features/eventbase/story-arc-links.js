@@ -10,6 +10,9 @@
  * stored as it finishes, so a stopped pass keeps its work.
  * A collection's links can also be saved to a file, put back, deleted, or moved off the events
  * Compact collection removes, with no LLM call.
+ * Every link write goes through _storeEventLinks, in its turn with the text
+ * edits of the collection's events (eventbase-write-turns.js), so an edit that
+ * writes an event's whole point again never puts back links read before it.
  *
  * Pure logic lives in story-arc-links-core.js.
  * ============================================================================
@@ -26,6 +29,7 @@ import { progressTracker } from '../../shared/progress-tracker.js';
 import { log } from '../../sillytavern/log.js';
 import { callLlmForJson, resolveStoryLinkLlmConfig } from './agentic-retrieval.js';
 import { collectionInUse, noCollectionInUseText } from './eventbase-chat-collections.js';
+import { inStoryLinkWriteTurn } from './eventbase-write-turns.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
 import { isStoryArcActive } from './story-arc-core.js';
 import {
@@ -82,6 +86,21 @@ async function _decideLinks(event, candidates, llmConnection, settings) {
 }
 
 /**
+ * Store one event's links, `story_links` alone, on its own point: in its turn with the collection's text edits, which
+ * write an event's whole point again (inStoryLinkWriteTurn). Each attempt takes its own turn, so an edit never waits
+ * through a retry.
+ *
+ * @param {string} collectionId
+ * @param {{_hash: number}} event
+ * @param {object[]|null} links - null leaves the event undecided
+ * @param {object} settings
+ * @returns {Promise<unknown>}
+ */
+function _storeEventLinks(collectionId, event, links, settings) {
+    return inStoryLinkWriteTurn(collectionId, () => updateChunkMetadata(collectionId, event._hash, { story_links: links }, settings));
+}
+
+/**
  * Run `work`, trying once more after a failure, unless the model is invalid, which no retry can fix.
  *
  * @param {() => Promise<any>} work
@@ -128,7 +147,7 @@ async function _linkEvents({ events, parallelCalls, findCandidates, collectionId
         const label = `The event at message ${event.source_window_start}`;
         const decision = await _tryTwice(() => _decideLinks(event, candidates, llmConnection, settings), `${label}: its link decision`);
         // Only the write is tried again here, so a failed write never pays for a second decision.
-        await _tryTwice(() => updateChunkMetadata(collectionId, event._hash, { story_links: decision.links }, settings), `${label}: storing its links`);
+        await _tryTwice(() => _storeEventLinks(collectionId, event, decision.links, settings), `${label}: storing its links`);
         return decision;
     };
     const runWorker = async () => {
@@ -522,7 +541,7 @@ async function _storeLinksOnEvents(writes, collectionId, settings, wording) {
         while (next < writes.length && !isStopRequested && !stopReason) {
             const { event, links } = writes[next++];
             try {
-                await _tryTwice(() => updateChunkMetadata(collectionId, event._hash, { story_links: links }, settings), `The event at message ${event.source_window_start}: storing its links`);
+                await _tryTwice(() => _storeEventLinks(collectionId, event, links, settings), `The event at message ${event.source_window_start}: storing its links`);
                 writtenCount++;
                 consecutiveFailures = 0;
             } catch (err) {

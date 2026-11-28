@@ -6,9 +6,10 @@
  * Browser (chunk-visualizer-markup.js draws it, chunk-visualizer-core.js holds
  * its rules). It loads them from Similharity and lists them by the search,
  * filter and order chosen; one opens in a form that one Save writes, embedding
- * the text again first when it changed. Leaving one or closing with unsaved
- * edits asks first. Ticked ones are deleted together. The backend payload holds
- * every field. A Qdrant collection made with another CJK tokenizer than VectFox
+ * the text again first when it changed. A new text and a delete go through
+ * EventBase's route for an edit of its events (writeEventText,
+ * deleteEventPoints). Leaving one or closing with unsaved edits asks first.
+ * Ticked ones are deleted together. The backend payload holds every field. A Qdrant collection made with another CJK tokenizer than VectFox
  * is set to takes no new vector, so there the text is locked. A lorebook's
  * LoreBase parts open read only, in their entries' order: LoreBase writes them
  * from the entries, and an edit here would leave them out of step. Where the
@@ -17,10 +18,9 @@
  * ============================================================================
  */
 
-import { deleteVectorItems, describeEmbeddingFailure, insertVectorItems, qdrantTarget, textWithoutKeywordSuffix, updateChunkMetadata } from '../vector-backend/index.js';
-import { announceEventsRemoved, eventPointHash, keepWindowsOfRemovedEvents, packTimelineSortKey } from '../eventbase/index.js';
+import { qdrantTarget, textWithoutKeywordSuffix, updateChunkMetadata } from '../vector-backend/index.js';
+import { deleteEventPoints, packTimelineSortKey, writeEventText } from '../eventbase/index.js';
 import { languageModeLabel } from '../keyword-search/index.js';
-import { getStringHash } from '../../sillytavern/identifiers.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { log } from '../../sillytavern/log.js';
 import { confirmPopup, openPanelPopup } from '../../sillytavern/popup.js';
@@ -408,28 +408,6 @@ async function openChunk(root, session, key) {
 
 // ── Saving ────────────────────────────────────────────────────────────────────────────────────────────
 
-/**
- * Store one chunk's vector. A failure is an embedding failure, read for the person who pressed Save: whether saving
- * again can work.
- */
-async function insertChunkVector(session, item) {
-    try {
-        await insertVectorItems(session.collection.id, [item], session.settings);
-    } catch (error) {
-        throw Object.assign(new Error(error?.message ?? String(error), { cause: error }), { embeddingFailure: describeEmbeddingFailure(error) });
-    }
-}
-
-/**
- * The ID a chunk with this text is stored under: an EventBase event keeps the one EventBase gives it from its event ID,
- * so its new text replaces it in place and a later read of its window replaces it again, never adding a second copy;
- * anything without an event ID takes its ID from its text.
- */
-function storedHashFor(metadata, text) {
-    const eventId = metadata.event_id;
-    return typeof eventId === 'string' && eventId !== '' ? eventPointHash(eventId) : getStringHash(text);
-}
-
 /** Write a chunk whose text is unchanged: the payload fields the form changed. */
 async function writeChunkChanges(session, chunk, changes) {
     if (!Object.keys(changes.payload).length) return;
@@ -438,26 +416,17 @@ async function writeChunkChanges(session, chunk, changes) {
 }
 
 /**
- * Write a chunk whose text changed: the text embedded under the ID storedHashFor gives, with every field it keeps and
- * the form's changes; then a copy under another ID goes. The new text goes in first, so a failed embedding leaves the
- * stored chunk as it was, and a later failure leaves both, never neither.
+ * Write a chunk whose text changed, through EventBase's route for an event's new text (writeEventText): embedded, from
+ * the chunk as stored now with the form's changes. The chunk then holds what was written, also when only its old copy
+ * could not be deleted.
  */
-async function reembedChunk(session, chunk, changes) {
-    const { collection, settings } = session;
-    const oldHash = chunk.hash;
-    const metadata = { ...chunk.metadata, ...changes.payload };
-    for (const field of ['hash', 'text']) delete metadata[field];
-    const newHash = storedHashFor(metadata, changes.text);
-
-    await insertChunkVector(session, { hash: newHash, text: changes.text, index: chunk.index, metadata });
-    Object.assign(chunk, { hash: newHash, text: changes.text, metadata });
-
-    if (String(newHash) !== String(oldHash)) {
-        try {
-            await deleteVectorItems(collection.id, [oldHash], settings);
-        } catch (error) {
-            throw new Error(`the new text is saved, but the old copy is still in the collection: ${error.message}`, { cause: error });
-        }
+async function rewriteChunkText(session, chunk, changes) {
+    try {
+        const { hash, metadata } = await writeEventText(session.collection.id, chunk, changes, session.settings);
+        Object.assign(chunk, { hash, text: changes.text, metadata });
+    } catch (error) {
+        if (error.saved) Object.assign(chunk, { hash: error.saved.hash, text: changes.text, metadata: error.saved.metadata });
+        throw error;
     }
 }
 
@@ -475,7 +444,7 @@ async function saveOpenChunk(root, session) {
     setBusy(root, session, true);
     let isSaved = false;
     try {
-        if (changes.text !== null) await reembedChunk(session, chunk, changes);
+        if (changes.text !== null) await rewriteChunkText(session, chunk, changes);
         else await writeChunkChanges(session, chunk, changes);
         isSaved = true;
         const how = changes.text !== null ? ', embedded again' : '';
@@ -502,14 +471,11 @@ async function saveOpenChunk(root, session) {
 // ── Deleting and bulk actions ─────────────────────────────────────────────────────────────────────────
 
 /**
- * Delete chunks' vectors. The windows of the EventBase events among them stay read, on the collection's record, and
- * their IDs go to EventBase's listener.
+ * Delete chunks, through EventBase's route for deleting its events (deleteEventPoints), which keeps the windows of the
+ * events among them read and tells EventBase's listener their IDs; then the list goes without them.
  */
 async function deleteChunks(session, chunks) {
-    await deleteVectorItems(session.collection.id, chunks.map(chunk => chunk.hash), session.settings);
-    keepWindowsOfRemovedEvents(session.collection.id, chunks.map(chunk => chunk.metadata ?? {}), session.settings);
-    const eventIds = chunks.map(chunk => chunk.metadata?.event_id).filter(eventId => typeof eventId === 'string' && eventId !== '');
-    announceEventsRemoved(session.collection.id, eventIds);
+    await deleteEventPoints(session.collection.id, chunks, session.settings);
     const deletedKeys = new Set(chunks.map(chunk => chunk.key));
     session.chunks = session.chunks.filter(chunk => !deletedKeys.has(chunk.key));
     for (const key of deletedKeys) session.tickedKeys.delete(key);

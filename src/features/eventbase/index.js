@@ -5,8 +5,9 @@
 // src/index.js runs the reply step (runEventBaseReplyStep) from the manifest's generation interceptor and auto-sync
 // (synchronizeChat) on chat events, hands clearCachesForDeletedOrImportedCollection to collection deletion and
 // import, and sets the listeners told of runs, removals and the collection in use (setEventBaseListeners,
-// followCollectionInUse); the Database Browser tells them of the events it deletes (announceEventsRemoved); src/app/
-// runs ensureEventBaseIndexes at startup. The settings panel opens
+// followCollectionInUse); the Database Browser's Chunk Visualizer writes an event's new text and deletes events through
+// EventBase's route for an edit of its events (writeEventText, deleteEventPoints), which tells them of the events it
+// deletes; src/app/ runs ensureEventBaseIndexes at startup. The settings panel opens
 // Vectorize Content and runs Sync chat and the auto-sync catch-up. The Database Browser runs a collection's StoryArc
 // link actions and Compact collection here. The public API answers which chat is open and the collection it uses from
 // openChatCollectionInUse, and reads a collection's events and removals after a change number from readEventFeed.
@@ -14,7 +15,7 @@
 // Re-exports only. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
 export { testAgentModeConnection, testStoryArcConnection } from './agentic-retrieval.js';
 export { backfillCurrentChatWithProgress, openContentVectorizer, syncOpenChat } from './content-vectorizer.js';
-export { announceEventsRemoved, setEventBaseListeners } from './eventbase-announcements.js';
+export { setEventBaseListeners } from './eventbase-announcements.js';
 export {
     askWhichChatCollection, chatOwnCollections, collectionInUse, followCollectionInUse, lockCollectionToOpenChat,
     openChatCollectionInUse, showNoCollectionInUse, useChatCollection,
@@ -22,6 +23,7 @@ export {
 export { describeCompaction } from './eventbase-compaction-core.js';
 export { compactCollection, planCollectionCompaction } from './eventbase-compaction.js';
 export { synchronizeChat } from './eventbase-chat-sync.js';
+export { deleteEventPoints, writeEventText } from './eventbase-event-edits.js';
 export { testEventBaseConnection } from './eventbase-extractor.js';
 export { readEventFeed } from './eventbase-feed.js';
 export { findEventBaseForkSource, forkEventBaseFromSource } from './eventbase-fork.js';
@@ -33,9 +35,7 @@ export {
     clearCachesForDeletedOrImportedCollection,
     countWindowsBehind,
     ensureEventBaseIndexes,
-    eventPointHash,
     getVectorizationTip,
-    keepWindowsOfRemovedEvents,
     loadEventWindows,
     readEventBaseProgress,
     stampAutoSyncMarker,

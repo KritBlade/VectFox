@@ -29,6 +29,8 @@ const progressMock = vi.hoisted(() => ({
 }));
 vi.mock('../src/shared/progress-tracker.js', () => ({ progressTracker: progressMock }));
 vi.mock('../src/sillytavern/log.js', () => ({ log: { warn: vi.fn(), lifecycle: vi.fn(), domain: vi.fn(), error: vi.fn() } }));
+// EventBase's route for an edit of its events, which a compaction deletes through, names a new text's ID by this.
+vi.mock('../src/sillytavern/identifiers.js', () => ({ getStringHash: vi.fn() }));
 
 const { compactCollection, planCollectionCompaction } = await import('../src/features/eventbase/eventbase-compaction.js');
 const { setEventBaseListeners } = await import('../src/features/eventbase/eventbase-announcements.js');

@@ -1068,6 +1068,20 @@ export async function listChunks(collectionId, settings, options = {}) {
 }
 
 /**
+ * One point of a collection as the backend holds it now, for a write that must build on what is stored at that
+ * moment rather than on an older read.
+ * @param {string} collectionId - Collection ID
+ * @param {number|string} hash - The point's hash
+ * @param {object} settings - VectFox settings
+ * @returns {Promise<{hash: number, text: string, metadata: object}|null>} null when the collection holds no point of
+ *   that hash, or the Standard backend could not read it (its getChunk logs why)
+ */
+export async function getChunk(collectionId, hash, settings) {
+    const backend = await getBackend(settings);
+    return await backend.getChunk(collectionId, hash, settings);
+}
+
+/**
  * What changed in a collection after a change number, through the backend in use: Qdrant reads Similharity's change
  * numbers, which the EventBase feed follows, and a backend that keeps none answers `{ supported: false, reason }`. A
  * failed read drops the backend's health cache, so the next request sets the backend up again.

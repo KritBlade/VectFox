@@ -3,8 +3,10 @@
  *
  * The Chunk Visualizer's wiring (src/features/database-browser/chunk-visualizer.js), driven as a user would while it is
  * open: it loads and lists a collection's chunks; one Save writes a changed name, or, for a changed text, embeds the
- * new text before the old chunk goes, an event of a chat or of a chat file keeping its own ID; a failed embedding loses
- * nothing; a collection made with another CJK tokenizer locks the text; leaving or closing with unsaved edits asks; the
+ * new text before the old chunk goes, an event of a chat or of a chat file keeping its own ID, from the chunk as stored
+ * then, so a link StoryArc wrote after the list was read stays on it; a failed embedding loses nothing; a chunk gone
+ * since the list was read saves nothing; a collection made with another CJK tokenizer locks the text; leaving or
+ * closing with unsaved edits asks; the
  * bulk bar deletes only ticked chunks the list shows; a lorebook's LoreBase parts open read only, in their entries'
  * order, from the collection that holds them, and Edit entry, where the browser gives an entry editor, waits for it and
  * reads the list again after a save, the same part open.
@@ -22,19 +24,27 @@ const backend = vi.hoisted(() => ({
     updateChunkMetadata: vi.fn(),
 }));
 
+// The point as the backend holds it now, which a new text is written from: by default the chunk the list read.
+const getChunk = vi.hoisted(() => vi.fn());
+
 vi.mock('../src/features/vector-backend/index.js', async () => ({
     ...backend,
+    getChunk,
     textWithoutKeywordSuffix: (await import('../src/features/vector-backend/stored-chunk.js')).textWithoutKeywordSuffix,
     describeEmbeddingFailure: (await import('../src/features/vector-backend/embedding-failure.js')).describeEmbeddingFailure,
     qdrantTarget: (await import('../src/features/vector-backend/qdrant-target.js')).qdrantTarget,
 }));
 const announceEventsRemoved = vi.hoisted(() => vi.fn());
 const keepWindowsOfRemovedEvents = vi.hoisted(() => vi.fn());
-vi.mock('../src/features/eventbase/index.js', () => ({
-    announceEventsRemoved,
+// EventBase's own route for an edit of its events, on the stubs it writes through.
+vi.mock('../src/features/eventbase/eventbase-store.js', () => ({
     keepWindowsOfRemovedEvents,
-    packTimelineSortKey: (message, order) => message * 1000 + order,
     eventPointHash: id => 7_000_000 + [...String(id)].reduce((hash, character) => (hash * 31 + character.charCodeAt(0)) % 1000003, 3),
+}));
+vi.mock('../src/features/eventbase/eventbase-announcements.js', () => ({ announceEventsRemoved }));
+vi.mock('../src/features/eventbase/index.js', async () => ({
+    ...(await import('../src/features/eventbase/eventbase-event-edits.js')),
+    packTimelineSortKey: (message, order) => message * 1000 + order,
 }));
 vi.mock('../src/features/keyword-search/index.js', () => ({
     languageModeLabel: mode => ({ intl: 'Intl.Segmenter (English / Latin)', jieba_tw: 'Traditional Chinese (Jieba WASM)' })[mode] ?? String(mode),
@@ -101,6 +111,10 @@ beforeEach(() => {
         mock.mockReset();
         mock.mockImplementation(async (collectionId, ...rest) => { host.calls.push([name, ...rest]); });
     }
+    getChunk.mockReset().mockImplementation(async (collectionId, hash) => {
+        const item = host.items.find(each => each.hash === hash);
+        return item ? { hash: item.hash, text: item.text, metadata: { ...item.metadata } } : null;
+    });
     confirmPopup.mockClear();
     announceEventsRemoved.mockClear();
     keepWindowsOfRemovedEvents.mockClear();
@@ -219,6 +233,36 @@ describe('editing an event', () => {
         await vi.waitFor(() => expect(backend.deleteVectorItems).toHaveBeenCalledTimes(1));
         expect(backend.insertVectorItems.mock.calls[0][1][0].hash).toBe(pointHashOf('evt-harbor-1'));
         expect(backend.deleteVectorItems.mock.calls[0][1]).toEqual([5555]);
+    });
+
+    it('keeps the links StoryArc wrote on the event after the list was read', async () => {
+        host.items = [eventItem(pointHashOf('evt-harbor-1'))];
+        await openHarbor(SETTINGS, EVENTS);
+        await openChunk('0');
+        // A link pass stores the event's links while it is open: the list read it with none.
+        const links = [{ event_id: 'evt-harbor-0', type: 'continues', thread: 'The key' }];
+        host.items[0] = { ...host.items[0], metadata: { ...host.items[0].metadata, story_links: links } };
+        type($id('vectfox_chunk_text'), 'Orrin hid the brass key.');
+        actionButton('save').click();
+        await vi.waitFor(() => expect(saveState()).toBe('No changes.'));
+        expect(getChunk).toHaveBeenCalledWith(EVENTS.id, pointHashOf('evt-harbor-1'), SETTINGS);
+        const [stored] = backend.insertVectorItems.mock.calls[0][1];
+        expect(stored.metadata).toEqual({ event_id: 'evt-harbor-1', keywords: ['orrin', 'key'], importance: 6, story_links: links });
+    });
+
+    it('saves nothing for an event gone since the list was read, says so, and keeps the edit', async () => {
+        host.items = [eventItem(pointHashOf('evt-harbor-1'))];
+        await openHarbor(SETTINGS, EVENTS);
+        await openChunk('0');
+        getChunk.mockResolvedValue(null);
+        type($id('vectfox_chunk_text'), 'Orrin hid the brass key.');
+        actionButton('save').click();
+        await vi.waitFor(() => expect(toastr.error).toHaveBeenCalledTimes(1));
+        expect(toastr.error.mock.calls[0][0]).toBe('The chunk was not saved: it could not be read from the collection as stored now (another edit or a delete may have replaced it), so nothing was written');
+        expect(backend.insertVectorItems).not.toHaveBeenCalled();
+        expect(backend.deleteVectorItems).not.toHaveBeenCalled();
+        expect($id('vectfox_chunk_text').value).toBe('Orrin hid the brass key.');
+        expect(saveState()).toBe('Unsaved changes.');
     });
 });
 
