@@ -15,6 +15,7 @@ And why not just import the files? Because files move. When I reorganize VectFox
 - [Events](#events): what VectFox tells you, and when
 - [The chat, its collection and the settings](#the-chat-its-collection-and-the-settings): what VectFox sees right now
 - [Reading EventBase](#reading-eventbase): a chat's events, then only what changed
+- [Writing to VectFox](#writing-to-vectfox): editing and deleting events, after the user says yes
 - [Message sources](#message-sources): for summarizers, so VectFox still reads the story right
 - [What VectFox does on each generation](#what-vectfox-does-on-each-generation): replies, quiet generations and slash commands
 - [VectFox's own LLM calls](#vectfoxs-own-llm-calls): for usage trackers
@@ -61,16 +62,16 @@ Once you have the object, `await VectFox.whenReady()` does the same wait as a pr
 
 | Name | What it gives you |
 |---|---|
-| `apiVersion` | The API's version, like `'1.4.0'`. See Versions below |
+| `apiVersion` | The API's version, like `'1.5.0'`. See Versions below |
 | `extensionVersion` | VectFox's own version from its manifest, like `'3.6.249'`, once VectFox is ready. `null` before that, or when VectFox could not read its manifest (the console says why) |
 | `isReady()` | `true` once VectFox has finished starting up |
 | `whenReady()` | A promise that resolves when VectFox has finished starting up. It's the same promise every time you ask |
-| `capabilities` | The groups of the API this VectFox serves, like `['events', 'chat', 'settings', 'eventbase.read', 'chat.messageSource']` |
+| `capabilities` | The groups of the API this VectFox serves, like `['events', 'chat', 'settings', 'eventbase.read', 'chat.messageSource', 'eventbase.collections', 'eventbase.write']` |
 | `on(name, handler)` | Calls your handler every time VectFox sends that event. Returns a function that stops it |
 | `off(name, handler)` | Stops calling your handler for that event |
 | `chat` | The open chat: `chat.getChatId()` and `chat.getCollectionInUse()`, see The chat, its collection and the settings below. And `chat.registerMessageSource()`, for a summarizer, see Message sources below |
-| `getSettingsSnapshot()` | A frozen copy of the settings that decide what VectFox does to the prompt, and whether it marks its LLM requests. Also below |
-| `eventBase` | The events VectFox reads out of a chat: `eventBase.listEvents()`. See Reading EventBase below |
+| `getSettingsSnapshot()` | A frozen copy of the settings that decide what VectFox does to the prompt, whether it marks its LLM requests, and whether other extensions' writes ask the user. Also below |
+| `eventBase` | The events VectFox reads out of a chat: `eventBase.listEvents()`, see Reading EventBase below. The open chat's collections: `eventBase.listCollections()`. And `eventBase.updateEvent()` and `eventBase.deleteEvents()`, see Writing to VectFox below |
 
 The object is frozen, so you can't change it or add to it.
 
@@ -118,11 +119,14 @@ Think of calling a shop. "Sold out" and "we're closed" are normal answers, not a
 
 | `reason` | What it means |
 |---|---|
-| `'not-ready'` | VectFox hasn't finished starting up. `getChatId`, `getCollectionInUse`, `getSettingsSnapshot` and `listEvents` say this until `vectfox_ready`, so wait for it and ask again. `on`, `off` and `registerMessageSource` work before that |
-| `'no-chat'` | No chat is open. From `listEvents`, it can also mean the chat you named isn't the open one |
+| `'not-ready'` | VectFox hasn't finished starting up. Every call but `on`, `off` and `registerMessageSource` says this until `vectfox_ready`, so wait for it and ask again |
+| `'no-chat'` | No chat is open. From `listEvents` and `listCollections`, it can also mean the chat you named isn't the open one |
 | `'no-collection'` | A chat is open, but it uses no EventBase collection. From `listEvents`, it can also mean the collection you named isn't the chat's you named |
-| `'backend-unsupported'` | The chat's events live somewhere with no change numbers, so there's no feed to read. See Reading EventBase |
+| `'backend-unsupported'` | The chat's events live somewhere with no change numbers, so there's no feed to read, and `updateEvent` and `deleteEvents` don't write there either. See Reading EventBase |
 | `'read-failed'` | The read didn't get through, like Qdrant being down or SillyTavern having just restarted. The console says why. Ask again in a bit |
+| `'declined'` | The user said no to this write, or to your extension's writes this page load. See Writing to VectFox |
+| `'no-event'` | The collection holds no event with the `eventId` you named. It may have gone since you read it, so read the feed again |
+| `'write-failed'` | The write didn't get through, like Qdrant being down or the embedding provider failing. The console says why. Ask again in a bit |
 
 ```js
 const answer = VectFox.chat.getChatId();
@@ -167,7 +171,7 @@ These 3 tell you when what you read from EventBase changed.
 
 When you hear it, read the feed from your cursor (Reading EventBase below). That gives you exactly what the run changed, and a read with nothing new answers fast, with nothing in it.
 
-`vectfox_eventbase_events_deleted` comes when events go: a window read again replacing its old events, Compact collection, Start over, a delete in the Database Browser, a deleted collection, or an import over one. `eventIds` lists the events removed, or is `null` when the whole collection was emptied. You only hear it in the tab that removed them. A removal that fails part way says nothing, so treat this event as "read again", not as the full list of what's gone.
+`vectfox_eventbase_events_deleted` comes when events go: a window read again replacing its old events, Compact collection, Start over, a delete in the Database Browser or through `deleteEvents`, a deleted collection, or an import over one. `eventIds` lists the events removed, or is `null` when the whole collection was emptied. You only hear it in the tab that removed them. A removal that fails part way says nothing, so treat this event as "read again", not as the full list of what's gone.
 
 `vectfox_eventbase_collection_changed` comes when the chat starts using another collection, stops using one, or you open another chat. `collectionId` is `null` when the chat uses none. Think of it like a TV that switched channel: whatever you were following, you're now watching something else, so start following the new one. It never comes for a change that left everything where it was.
 
@@ -198,6 +202,19 @@ VectFox.on('vectfox_eventbase_collection_changed', () => {
 });
 ```
 
+### All of the chat's collections
+
+`eventBase.listCollections()` answers `{ ok: true, chatId, collections }`: every EventBase collection of the open chat, the same list as Collection in use here on the AutoSync page. Each one is `{ collectionId, name, isInUse }`. `name` is what the Database Browser calls it, and `isInUse` is `true` for the one the chat uses right now. `capabilities` has `'eventbase.collections'` when this VectFox has it.
+
+It only answers for the open chat. VectFox remembers which collection a chat uses by its chat file, and it only knows that file for the chat that's open. So you can pass `{ chatId }` as a safety check, and you get `'no-chat'` when another chat is open, or none.
+
+```js
+const answer = VectFox.eventBase.listCollections();
+if (answer.ok) {
+    for (const { name, isInUse } of answer.collections) console.log(isInUse ? `${name} (in use)` : name);
+}
+```
+
 ### The settings snapshot
 
 `getSettingsSnapshot()` answers `{ ok: true, settings }`. It's a frozen copy of the settings that decide what VectFox does to the prompt, how often it reads the chat, and whether it marks its LLM requests.
@@ -217,6 +234,7 @@ It's a copy of the moment you ask, and the user can change a setting any time. S
 | `autoSyncWindowTurns` | How many turns auto-sync reads at a time. While Summarizer Injection is on, it's held at 1 |
 | `autoSyncSettleLag` | `true` when auto-sync waits for a turn to stop being swipeable before it reads it |
 | `requestMarkEnabled` | `true` when VectFox puts its mark on its LLM requests (see VectFox's own LLM calls). It's the user's switch, so you can read it, but nothing in the API changes it |
+| `writeQuestionsSuppressed` | `true` when the user has Suppress all warnings on, so other extensions' writes go through with no question, deletes included (see Writing to VectFox). It's the user's setting too, and nothing in the API changes it |
 
 ```js
 const answer = VectFox.getSettingsSnapshot();
@@ -299,7 +317,7 @@ So to find the chat message an event came from, go through the chat from the sta
 
 ### An event can come again
 
-An edit gives an event a new number. So an event you already have can show up again with a higher `cursor`: StoryArc linking it to another event, or the user fixing it in the Database Browser. Some edits change a field you don't get, so it can look exactly the same. That's why you keep events by `eventId` and just replace your copy.
+An edit gives an event a new number. So an event you already have can show up again with a higher `cursor`: StoryArc linking it to another event, the user fixing it in the Database Browser, or an extension's `updateEvent`. Some edits change a field you don't get, so it can look exactly the same. That's why you keep events by `eventId` and just replace your copy.
 
 ### Start with a full read
 
@@ -307,7 +325,7 @@ Events VectFox stored before change numbers existed have `cursor` `0`. Only a fu
 
 ### Removed and emptied
 
-`removedEventIds` comes from a window read again replacing its old events, Compact collection merging events, or a delete in the Database Browser. Drop each of them.
+`removedEventIds` comes from a window read again replacing its old events, Compact collection merging events, a delete in the Database Browser, or an extension's `deleteEvents`. Drop each of them.
 
 `emptied` comes from Start over, a deleted collection, or an import over one. You throw away everything you kept from that collection, then take `events`, which is only what came after.
 
@@ -353,7 +371,7 @@ The numbers live on the server, in the Similharity plugin, not in your page. So 
 ### Which collection it reads
 
 - No `collectionId`: the collection the open chat uses, the same one `chat.getCollectionInUse()` gives. With no chat open you get `'no-chat'`, and with none in use `'no-collection'`.
-- `collectionId`: that collection, from any chat, even with no chat open. Use the IDs VectFox gives you, from `chat.getCollectionInUse()` or an event's payload. There's no call that lists all of a chat's collections, so keep the IDs you hear.
+- `collectionId`: that collection, from any chat, even with no chat open. Use the IDs VectFox gives you: `eventBase.listCollections()` lists the open chat's, and `chat.getCollectionInUse()` and the events' payloads give them too. For a chat that isn't open, keep the IDs you hear.
 - `chatId`: the chat the read is about, a safety check for when the user switches chats between your decision and your call. Without `collectionId`, that chat has to be the open one, or you get `'no-chat'`. With `collectionId`, the collection has to be that chat's, or you get `'no-collection'`.
 
 ### When it says no
@@ -363,6 +381,77 @@ The numbers live on the server, in the Similharity plugin, not in your page. So 
 `'read-failed'` means the read didn't get through, like Qdrant being down, or SillyTavern having just restarted. The console says why, and asking again in a bit usually works.
 
 `listEvents` only rejects for a call that can't be right, with a `TypeError`: a request that's there but isn't an object, a `collectionId` that isn't shaped like an EventBase collection's ID, a `chatId` that's empty or isn't a string, or an `after` that isn't a whole number of 0 or more. Leaving any of them out is fine, and so is `undefined`, which is how the first read passes `after`.
+
+## Writing to VectFox
+
+Your extension can change EventBase's events too. `eventBase.updateEvent()` edits an event, and `eventBase.deleteEvents()` deletes events. `capabilities` has `'eventbase.write'` when this VectFox has them.
+
+Each write goes through the exact same code as the Database Browser's Save and Delete. So VectFox's own pages see your change, and every reader of the feed gets it with a new `cursor`, in every tab.
+
+### The user says yes first
+
+SillyTavern gives every extension the same access, so VectFox can't tell your extension from any other one. What it can do is ask the user. The first time your extension writes, VectFox opens its own question:
+
+> Lore Organizer wants to change your EventBase events.
+> It can change them until you reload SillyTavern.
+
+Allow, and every later write from your extension goes through with no question, until the page reloads. Deny, or closing the question, and that write and every later one answers `{ ok: false, reason: 'declined' }` right away, with no question. A reload forgets every answer, so after one, your next write asks again.
+
+Think of a hotel key card. Reception checks you in once, and the card opens your door for the whole stay. When you check out, the card stops working, and next time you go to reception again.
+
+`owner` is the name the question shows, so give your extension's real name, the same in every call. Every write needs it, and the console says which `owner` made each write and what it changed.
+
+The question waits as long as the user does, and so does your promise. Questions open one at a time, in the order the writes came, so 2 extensions writing at once never stack 2 questions. SillyTavern's popups sit in the browser's top layer, so the question opens over everything, your own popups too.
+
+The one place the user won't see it is a GUI in its own browser window, as the question opens in SillyTavern's tab. So write only when your user just did something, and the question never comes out of nowhere.
+
+### A delete asks every time
+
+`deleteEvents` asks every single time, even after Allow, because a delete can't be undone. Its question names how many events go, from which collection, and the first 3 by their summaries. The user's answer counts for that one delete. And after a Deny of your writes, a delete answers `'declined'` right away too, with no question.
+
+### Suppress all warnings
+
+VectFox has one setting that switches every one of these questions off, deletes included: Suppress all warnings. While it's on, every write goes through with no question. A Deny the user already gave still holds, as that's an answer, not a question.
+
+`getSettingsSnapshot()` gives it as `writeQuestionsSuppressed`. So if it's on, you can tell your users that nothing stands between your extension and their events but your own code.
+
+### Editing an event
+
+`eventBase.updateEvent({ owner, collectionId, eventId, changes })` changes some of an event's fields. `changes` takes any of `summary`, `cause`, `result`, `characters`, `locations`, `importance`, `storyTime` and `sceneTime`, by the names `listEvents` gives them, and nothing else.
+
+```js
+const answer = await VectFox.eventBase.updateEvent({
+    owner: 'Lore Organizer',
+    collectionId,
+    eventId: 'evt-compass',
+    changes: { summary: 'Mira promised Oren she would find the brass compass', importance: 8 },
+});
+if (!answer.ok) console.log(`Not changed: ${answer.reason}`);
+```
+
+It answers `{ ok: true }` once the change is stored. Every field but `importance` is part of the event's text, the text EventBase searches by. So a change to one of them builds that text again and embeds it, 1 call to the user's embedding model, and the event keeps its `eventId`. A change to `importance` alone is just stored, with no embedding call.
+
+VectFox stores your values the way EventBase stores the ones it reads itself: text trimmed, names without blanks or repeats, and `storyTime` as an ISO date and time, or `null` to clear it.
+
+A call that can't be right rejects with a `TypeError`: no `owner`, a `collectionId` that isn't shaped like an EventBase collection's ID, no `eventId`, a field it doesn't take, an `importance` that isn't a whole number from 1 to 10, an empty `summary`, a line break in a text field or a name, or a `sceneTime` over 100 characters. Each field is a line of the event's text, which is why a line break can't go in.
+
+Your edit leaves StoryArc's links between events exactly as they are. This version doesn't show them to you, and `updateEvent` never writes them.
+
+### Deleting events
+
+`eventBase.deleteEvents({ owner, collectionId, eventIds })` deletes 1 to 100 events. Every event you name has to be in the collection, or nothing is deleted and you get `'no-event'`.
+
+The windows those events were read from stay read, so EventBase doesn't read them back in on its next run. And `vectfox_eventbase_events_deleted` gives their IDs, like any other delete.
+
+A call that can't be right rejects with a `TypeError`: no `owner`, a `collectionId` that isn't shaped like an EventBase collection's ID, or `eventIds` that isn't a list of 1 to 100 IDs.
+
+### When a write says no
+
+Both writes work on Qdrant only, where the feed is, and answer `'backend-unsupported'` anywhere else. `'no-event'` means the event isn't there anymore, maybe because another tab deleted it, so read the feed again. `'write-failed'` means it didn't get through, like Qdrant being down, or the embedding provider failing on an edit. The console says why, and asking again in a bit usually works.
+
+### What the question doesn't stop
+
+The question gives the user a say over what a well-meaning extension changes. It doesn't stop one that means harm. Any extension can call the Similharity plugin itself, or pass another extension's `owner`. SillyTavern trusts every extension the same, and VectFox can't change that.
 
 ## Message sources
 
@@ -613,4 +702,4 @@ A long chat doesn't need a summarizer that hides old messages just to keep the p
 
 And if your users run a summarizer anyway, a message source makes the two work together (see Message sources above).
 
-Basically, check `isReady()`, wait for `vectfox_ready` if you have to, and from there everything goes through the one object. The mark is the only thing outside it: your users switch it on, and you read it right off the request's signal. And before you write any of it, look at the list right above... what you need may already be a setting.
+Basically, check `isReady()`, wait for `vectfox_ready` if you have to, and from there everything goes through the one object, your writes too, after the user says yes. The mark is the only thing outside it: your users switch it on, and you read it right off the request's signal. And before you write any of it, look at the list right above... what you need may already be a setting.

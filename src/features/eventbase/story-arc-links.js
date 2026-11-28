@@ -10,7 +10,7 @@
  * stored as it finishes, so a stopped pass keeps its work.
  * A collection's links can also be saved to a file, put back, deleted, or moved off the events
  * Compact collection removes, with no LLM call.
- * Every link write goes through _storeEventLinks, in its turn with the text
+ * Every link write goes through writeStoredFields, in its turn with the text
  * edits of the collection's events (eventbase-write-turns.js), so an edit that
  * writes an event's whole point again never puts back links read before it.
  *
@@ -21,7 +21,6 @@
 import { fetchPortableChunks } from '../collections/index.js';
 import { exportFileHeader } from '../../shared/export-file-header.js';
 import { resolveStoryArcMaxTokens } from '../../shared/retrieval-budget.js';
-import { updateChunkMetadata } from '../vector-backend/index.js';
 import { searchEventCollection } from './eventbase-search.js';
 import { isInvalidModelConfigError, notifyInvalidModel } from '../../shared/model-config-notifier.js';
 import { LLM_CALL_FEATURES, readOpenRouterModelPrice } from '../llm-provider/index.js';
@@ -29,7 +28,7 @@ import { progressTracker } from '../../shared/progress-tracker.js';
 import { log } from '../../sillytavern/log.js';
 import { callLlmForJson, resolveStoryLinkLlmConfig } from './agentic-retrieval.js';
 import { collectionInUse, noCollectionInUseText } from './eventbase-chat-collections.js';
-import { inStoryLinkWriteTurn } from './eventbase-write-turns.js';
+import { writeStoredFields } from './eventbase-write-turns.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
 import { isStoryArcActive } from './story-arc-core.js';
 import {
@@ -86,9 +85,9 @@ async function _decideLinks(event, candidates, llmConnection, settings) {
 }
 
 /**
- * Store one event's links, `story_links` alone, on its own point: in its turn with the collection's text edits, which
- * write an event's whole point again (inStoryLinkWriteTurn). Each attempt takes its own turn, so an edit never waits
- * through a retry.
+ * Store one event's links, `story_links` alone, on its own point, through writeStoredFields: in its turn with the
+ * collection's text edits, which write an event's whole point again. Each attempt takes its own turn, so an edit never
+ * waits through a retry.
  *
  * @param {string} collectionId
  * @param {{_hash: number}} event
@@ -97,7 +96,7 @@ async function _decideLinks(event, candidates, llmConnection, settings) {
  * @returns {Promise<unknown>}
  */
 function _storeEventLinks(collectionId, event, links, settings) {
-    return inStoryLinkWriteTurn(collectionId, () => updateChunkMetadata(collectionId, event._hash, { story_links: links }, settings));
+    return writeStoredFields(collectionId, event._hash, { story_links: links }, settings);
 }
 
 /**

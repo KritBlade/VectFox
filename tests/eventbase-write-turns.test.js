@@ -1,13 +1,17 @@
 /**
  * The turns of the writes to a collection's events that must never cross (src/features/eventbase/eventbase-write-turns.js):
- * StoryArc's link writes go on together; a text edit waits for the link writes under way, and the link writes that
- * come while it runs wait for it; text edits of one collection go one at a time, in the order they came; another
- * collection never waits; and a failed write ends its turn all the same.
+ * field writes, StoryArc's links among them, go on together; a text edit waits for the field writes under way, and the
+ * field writes that come while it runs wait for it; text edits of one collection go one at a time, in the order they
+ * came; another collection never waits; a failed write ends its turn all the same; and writeStoredFields sets a
+ * point's fields through the payload route in its turn.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-const { inStoryLinkWriteTurn, inTextEditTurn } = await import('../src/features/eventbase/eventbase-write-turns.js');
+const updateChunkMetadata = vi.fn(async () => ({}));
+vi.mock('../src/features/vector-backend/index.js', () => ({ updateChunkMetadata: (...args) => updateChunkMetadata(...args) }));
+
+const { inFieldWriteTurn, inTextEditTurn, writeStoredFields } = await import('../src/features/eventbase/eventbase-write-turns.js');
 
 /** A write that ends when the test says so, and says when it started. */
 function heldWrite() {
@@ -23,54 +27,68 @@ function heldWrite() {
 /** Let every write that can move on do so. */
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
 
-describe('StoryArc link writes', () => {
+describe('field writes', () => {
     it('go on together in one collection', async () => {
         const first = heldWrite();
         const second = heldWrite();
-        const writes = [inStoryLinkWriteTurn('links-together', first.run), inStoryLinkWriteTurn('links-together', second.run)];
+        const writes = [inFieldWriteTurn('fields-together', first.run), inFieldWriteTurn('fields-together', second.run)];
         await settle();
         expect([first.hasStarted, second.hasStarted]).toEqual([true, true]);
         first.end('first');
         second.end('second');
         expect(await Promise.all(writes)).toEqual(['first', 'second']);
     });
+
+    it('set a point\'s fields through the payload route, after a text edit that holds the collection', async () => {
+        const edit = heldWrite();
+        const edited = inTextEditTurn('fields-after-edit', edit.run);
+        await settle();
+        const settings = { vector_backend: 'qdrant' };
+        const written = writeStoredFields('fields-after-edit', 7001, { importance: 9 }, settings);
+        await settle();
+        expect(updateChunkMetadata).not.toHaveBeenCalled();
+        edit.end();
+        await edited;
+        await written;
+        expect(updateChunkMetadata).toHaveBeenCalledWith('fields-after-edit', 7001, { importance: 9 }, settings);
+    });
 });
 
 describe('a text edit', () => {
-    it('waits for the link writes under way, and starts once the last one ends', async () => {
-        const firstLink = heldWrite();
-        const secondLink = heldWrite();
+    it('waits for the field writes under way, and starts once the last one ends', async () => {
+        const firstField = heldWrite();
+        const secondField = heldWrite();
         const edit = heldWrite();
-        const links = [inStoryLinkWriteTurn('edit-after-links', firstLink.run), inStoryLinkWriteTurn('edit-after-links', secondLink.run)];
-        const edited = inTextEditTurn('edit-after-links', edit.run);
+        const fields = [inFieldWriteTurn('edit-after-fields', firstField.run), inFieldWriteTurn('edit-after-fields', secondField.run)];
+        const edited = inTextEditTurn('edit-after-fields', edit.run);
         await settle();
         expect(edit.hasStarted).toBe(false);
-        firstLink.end();
+        firstField.end();
         await settle();
         expect(edit.hasStarted).toBe(false);
-        secondLink.end();
+        secondField.end();
         await settle();
         expect(edit.hasStarted).toBe(true);
         edit.end('edited');
         expect(await edited).toBe('edited');
-        await Promise.all(links);
+        await Promise.all(fields);
     });
 
-    it('holds back the link writes that come while it runs, until it ends', async () => {
+    it('holds back the field writes that come while it runs, until it ends', async () => {
         const edit = heldWrite();
-        const link = heldWrite();
-        const edited = inTextEditTurn('links-after-edit', edit.run);
+        const field = heldWrite();
+        const edited = inTextEditTurn('fields-during-edit', edit.run);
         await settle();
         expect(edit.hasStarted).toBe(true);
-        const linked = inStoryLinkWriteTurn('links-after-edit', link.run);
+        const written = inFieldWriteTurn('fields-during-edit', field.run);
         await settle();
-        expect(link.hasStarted).toBe(false);
+        expect(field.hasStarted).toBe(false);
         edit.end();
         await edited;
         await settle();
-        expect(link.hasStarted).toBe(true);
-        link.end();
-        await linked;
+        expect(field.hasStarted).toBe(true);
+        field.end();
+        await written;
     });
 
     it('goes after the text edits of its collection that came before it, one at a time', async () => {
@@ -87,15 +105,15 @@ describe('a text edit', () => {
     });
 
     it("never waits for another collection's writes", async () => {
-        const link = heldWrite();
+        const field = heldWrite();
         const otherEdit = heldWrite();
-        const linked = inStoryLinkWriteTurn('harbor', link.run);
+        const written = inFieldWriteTurn('harbor', field.run);
         const edited = inTextEditTurn('lighthouse', otherEdit.run);
         await settle();
         expect(otherEdit.hasStarted).toBe(true);
         otherEdit.end();
-        link.end();
-        await Promise.all([linked, edited]);
+        field.end();
+        await Promise.all([written, edited]);
     });
 });
 
@@ -113,16 +131,16 @@ describe('a failed write', () => {
         nextEdit.end();
         await edited;
 
-        const link = heldWrite();
-        const afterLink = heldWrite();
-        const failedLink = inStoryLinkWriteTurn('after-failures', link.run);
-        const editAfterLink = inTextEditTurn('after-failures', afterLink.run);
+        const field = heldWrite();
+        const afterField = heldWrite();
+        const failedField = inFieldWriteTurn('after-failures', field.run);
+        const editAfterField = inTextEditTurn('after-failures', afterField.run);
         await settle();
-        link.fail(new Error('Qdrant is down'));
-        await expect(failedLink).rejects.toThrow('Qdrant is down');
+        field.fail(new Error('Qdrant is down'));
+        await expect(failedField).rejects.toThrow('Qdrant is down');
         await settle();
-        expect(afterLink.hasStarted).toBe(true);
-        afterLink.end();
-        await editAfterLink;
+        expect(afterField.hasStarted).toBe(true);
+        afterField.end();
+        await editAfterField;
     });
 });

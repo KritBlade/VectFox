@@ -427,6 +427,10 @@ const defaultSettings = {
     // VectFox's mark on the signal of each LLM call's request, which a usage tracker reads. Off until the user turns
     // it on: nothing else reads it (src/features/public-api/public-api.js).
     own_request_mark_enabled: false,
+    // Suppress all warnings: other extensions' writes through the public API go through with no question, deletes
+    // included. Off: the first write of a group from each extension asks, and a delete asks every time
+    // (src/features/public-api/public-api-questions-core.js).
+    public_api_write_questions_suppressed: false,
 
     // ─── Hidden / Power-User ────────────────────────────────────────────
     // SUPERADMIN MODE — no GUI toggle. Set to true by hand-editing settings.json

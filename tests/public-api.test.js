@@ -3,8 +3,10 @@
  * src/index.js is evaluated, frozen, ready once initialization ends, and `vectfox_ready` emitted once, without
  * waiting for its listeners; its events (A2, §4.3); its chat group and settings snapshot (R1, §5.2); its eventBase
  * group, the feed of a collection's events and removals (R2, §5.3), which answer `not-ready` until then; and the marker
- * that marks the LLM calls' requests while the PublicAPI page's switch is on (U1). The emitter here behaves as
- * SillyTavern's does: it awaits each listener in turn. EventBase's feed is a stand-in.
+ * that marks the LLM calls' requests while the PublicAPI page's switch is on (U1). Its writes (W2 and W6 of
+ * InternalProject/Vectfox/plans/public-api-writes.md): the open chat's collections, an event's edit and delete, each
+ * after the user's answer, and Suppress all warnings. The emitter here behaves as SillyTavern's does: it awaits each
+ * listener in turn. EventBase's feed, its route for an edit of its events and SillyTavern's popup are stand-ins.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -20,6 +22,19 @@ const host = vi.hoisted(() => ({
     feed: null,
     feedError: null,
     feedAskedWith: [],
+    // The open chat's own collections, as EventBase lists them, and the settings it was asked with.
+    ownCollections: [],
+    ownCollectionsAskedWith: [],
+    // The events EventBase's route holds, by event ID, and what it was asked to read, write and delete.
+    storedEvents: {},
+    eventReads: [],
+    fieldWrites: [],
+    deletes: [],
+    readError: null,
+    writeError: null,
+    // The questions the popup opened, each answered at once with `answer`, or held open when it is null.
+    questions: [],
+    answer: true,
 }));
 
 vi.mock('../src/sillytavern/events.js', () => ({
@@ -60,6 +75,34 @@ vi.mock('../src/features/eventbase/index.js', () => ({
         if (host.feedError) throw host.feedError;
         return host.feed;
     },
+    chatOwnCollections: (settings) => {
+        host.ownCollectionsAskedWith.push(settings);
+        return host.ownCollections;
+    },
+    readEventsById: async (collectionId, eventIds) => {
+        host.eventReads.push({ collectionId, eventIds });
+        if (host.readError) throw host.readError;
+        return eventIds.map(eventId => host.storedEvents[eventId] ?? null);
+    },
+    writeEventFields: async (collectionId, eventId, fields) => {
+        host.fieldWrites.push({ collectionId, eventId, fields });
+        if (host.writeError) throw host.writeError;
+        return Object.hasOwn(host.storedEvents, eventId);
+    },
+    deleteEventPoints: async (collectionId, points) => {
+        host.deletes.push({ collectionId, points });
+        if (host.writeError) throw host.writeError;
+    },
+}));
+// The name the Database Browser gives a collection, by its registry key.
+vi.mock('../src/features/collections/index.js', () => ({ collectionNameOf: registryKey => `Harbor events (${registryKey})` }));
+// SillyTavern's popup: each question kept with its lines as the dialog shows them.
+vi.mock('../src/sillytavern/popup.js', () => ({
+    confirmPopup: (lines, options) => new Promise((resolve) => {
+        const text = lines.map(line => (line.parts ? line.parts.map(part => part.text ?? part.name).join('') : [line.text, line.name].filter(Boolean).join(' ')));
+        host.questions.push({ text, options, answer: resolve });
+        if (host.answer !== null) resolve(host.answer);
+    }),
 }));
 
 const HARBOR_UUID = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
@@ -96,6 +139,16 @@ beforeEach(() => {
     host.feed = null;
     host.feedError = null;
     host.feedAskedWith = [];
+    host.ownCollections = [];
+    host.ownCollectionsAskedWith = [];
+    host.storedEvents = {};
+    host.eventReads = [];
+    host.fieldWrites = [];
+    host.deletes = [];
+    host.readError = null;
+    host.writeError = null;
+    host.questions = [];
+    host.answer = true;
     delete globalThis.VectFox;
 });
 
@@ -460,7 +513,7 @@ describe('the chat group and the settings snapshot (R1, §5.2)', () => {
             settings: {
                 enabled: true, ghostingEnabled: true, ghostingKeepRecent: 4, ghostingBatchSize: 6, summarizerInjectionEnabled: true,
                 summarizerInjectionCount: 15, summarizerInjectionFullDetail: false, summarizerInjectionMaxChars: 10000,
-                autoSyncWindowTurns: 1, autoSyncSettleLag: true, requestMarkEnabled: false,
+                autoSyncWindowTurns: 1, autoSyncSettleLag: true, requestMarkEnabled: false, writeQuestionsSuppressed: false,
             },
         });
         expect(after.settings).toMatchObject({ ghostingBatchSize: 10, summarizerInjectionMaxChars: null });
@@ -705,5 +758,332 @@ describe('the eventBase group: EventBase\'s feed (R2, §5.3)', () => {
 
         expect(answer).toMatchObject({ ok: true, collectionId: HARBOR_LATER_EVENTS });
         expect(host.feedAskedWith.map(({ read }) => read.collectionId)).toEqual([HARBOR_LATER_EVENTS]);
+    });
+});
+
+describe('the eventBase group: the open chat\'s collections (§3.3 of the writes plan)', () => {
+    const harbor = { registryKey: `qdrant:${HARBOR_EVENTS}`, collectionId: HARBOR_EVENTS, backend: 'qdrant', name: 'Harbor', isLockedHere: false, isPaused: false, isAutoSyncOn: true };
+    const harborLater = { ...harbor, registryKey: `qdrant:${HARBOR_LATER_EVENTS}`, collectionId: HARBOR_LATER_EVENTS, name: 'Harbor, later', isLockedHere: true };
+
+    it('lists the open chat\'s own collections, each by its ID and name, with whether the chat uses it, frozen', async () => {
+        const { api, store } = await readyPublicApi();
+        host.inUse = { chatId: HARBOR_UUID, collectionId: HARBOR_LATER_EVENTS };
+        host.ownCollections = [harbor, harborLater];
+
+        const answer = api.eventBase.listCollections();
+        const ofThisChat = api.eventBase.listCollections({ chatId: HARBOR_UUID });
+
+        expect(answer).toEqual({
+            ok: true,
+            chatId: HARBOR_UUID,
+            collections: [
+                { collectionId: HARBOR_EVENTS, name: 'Harbor', isInUse: false },
+                { collectionId: HARBOR_LATER_EVENTS, name: 'Harbor, later', isInUse: true },
+            ],
+        });
+        expect(ofThisChat).toEqual(answer);
+        expect([answer, answer.collections, ...answer.collections].every(Object.isFrozen)).toBe(true);
+        expect(host.ownCollectionsAskedWith.every(settings => settings === store)).toBe(true);
+    });
+
+    it('answers not-ready until VectFox is ready, and no-chat with none open or another chat named', async () => {
+        const { publishPublicApi, announcePublicApiReady } = await loadPublicApi();
+        publishPublicApi();
+        host.inUse = { chatId: HARBOR_UUID, collectionId: HARBOR_EVENTS };
+        const notReady = globalThis.VectFox.eventBase.listCollections();
+        await announcePublicApiReady(settingsStore());
+        const anotherChat = globalThis.VectFox.eventBase.listCollections({ chatId: ARCHIVE_UUID });
+        host.inUse = { chatId: null, collectionId: null };
+        const noneOpen = globalThis.VectFox.eventBase.listCollections();
+
+        expect([notReady, anotherChat, noneOpen]).toEqual([
+            { ok: false, reason: 'not-ready' }, { ok: false, reason: 'no-chat' }, { ok: false, reason: 'no-chat' },
+        ]);
+        expect(host.ownCollectionsAskedWith).toEqual([]);
+    });
+
+    it('throws a TypeError for a request that cannot be right', async () => {
+        const { api } = await readyPublicApi();
+        for (const request of ['harbor', null, [], { chatId: '' }, { chatId: 7 }]) {
+            expect(() => api.eventBase.listCollections(request), JSON.stringify(request)).toThrow(TypeError);
+        }
+    });
+});
+
+/** The object published and ready on Qdrant, where EventBase's events can be written. */
+async function writableApi() {
+    const ready = await readyPublicApi();
+    ready.store.vector_backend = 'qdrant';
+    return ready;
+}
+
+/** An edit of the pier event by the Lore Organizer, with the parts given in place of its own. */
+const pierEdit = parts => ({
+    owner: 'Lore Organizer', collectionId: HARBOR_EVENTS, eventId: 'eb-pier', changes: { summary: 'Mara finds a silver key under the pier' }, ...parts,
+});
+
+/** An event as EventBase's route reads it by its ID. */
+const storedEvent = (hash, summary) => ({ hash, summary, metadata: { event_id: `eb-${hash}`, source_window_start: hash } });
+
+/** Let every question that can open do so. */
+const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+
+describe('the eventBase group: an event\'s edit (§4.3 of the writes plan)', () => {
+    it('asks the eventbase question once for an extension, then writes each edit by stored names through EventBase\'s route', async () => {
+        const { api, log } = await writableApi();
+        host.storedEvents = { 'eb-pier': storedEvent(1, 'Mara finds a brass key under the pier') };
+
+        const first = await api.eventBase.updateEvent(pierEdit({
+            changes: { summary: ' Mara finds a silver key under the pier ', storyTime: '1802-04-12T06:00:00Z', characters: [' Mara ', 'Tobin', 'Mara', ''] },
+        }));
+        const second = await api.eventBase.updateEvent(pierEdit({ changes: { importance: 8, sceneTime: 'dawn after the storm', cause: '', result: 'Tobin keeps the key', locations: ['Saltmarsh harbor'] } }));
+
+        expect([first, second]).toEqual([{ ok: true }, { ok: true }]);
+        expect([first, second].every(Object.isFrozen)).toBe(true);
+        expect(host.questions.map(question => question.text)).toEqual([[
+            'Lore Organizer wants to change your EventBase events.',
+            'It can change them until you reload SillyTavern.',
+            'Allow lets it. Deny refuses this change and the next ones.',
+        ]]);
+        expect(host.questions[0].options).toEqual({ okButton: 'Allow', cancelButton: 'Deny', isDestructive: true });
+        expect(host.fieldWrites).toEqual([
+            { collectionId: HARBOR_EVENTS, eventId: 'eb-pier', fields: { summary: 'Mara finds a silver key under the pier', DateTime: '1802-04-12T06:00:00.000Z', characters: ['Mara', 'Tobin'] } },
+            { collectionId: HARBOR_EVENTS, eventId: 'eb-pier', fields: { importance: 8, scene_time: 'dawn after the storm', cause: '', result: 'Tobin keeps the key', locations: ['Saltmarsh harbor'] } },
+        ]);
+        expect(log.lifecycle).toHaveBeenCalledWith(`VectFox public API: Lore Organizer changed importance, sceneTime, cause, result, locations of event eb-pier in ${HARBOR_EVENTS}`);
+    });
+
+    it('clears a story time given as null', async () => {
+        const { api } = await writableApi();
+        host.storedEvents = { 'eb-pier': storedEvent(1, 'Mara finds a brass key under the pier') };
+
+        expect(await api.eventBase.updateEvent(pierEdit({ changes: { storyTime: null } }))).toEqual({ ok: true });
+        expect(host.fieldWrites[0].fields).toEqual({ DateTime: null });
+    });
+
+    it('answers declined after Deny, writing nothing, with no question for that extension\'s later edits, while another one is asked its own', async () => {
+        const { api } = await writableApi();
+        host.storedEvents = { 'eb-pier': storedEvent(1, 'Mara finds a brass key under the pier') };
+        host.answer = false;
+
+        const denied = await api.eventBase.updateEvent(pierEdit());
+        const deniedAgain = await api.eventBase.updateEvent(pierEdit({ changes: { importance: 3 } }));
+        host.answer = true;
+        const sorter = await api.eventBase.updateEvent(pierEdit({ owner: 'Tide Sorter' }));
+
+        expect([denied, deniedAgain, sorter]).toEqual([{ ok: false, reason: 'declined' }, { ok: false, reason: 'declined' }, { ok: true }]);
+        expect(host.questions.map(question => question.text[0])).toEqual([
+            'Lore Organizer wants to change your EventBase events.', 'Tide Sorter wants to change your EventBase events.',
+        ]);
+        expect(host.fieldWrites.map(write => write.eventId)).toEqual(['eb-pier']);
+    });
+
+    it('waits as long as the question stays open, and opens the next extension\'s question once it closes', async () => {
+        const { api } = await writableApi();
+        host.storedEvents = { 'eb-pier': storedEvent(1, 'Mara finds a brass key under the pier') };
+        host.answer = null;
+
+        const organizer = api.eventBase.updateEvent(pierEdit());
+        const sorter = api.eventBase.updateEvent(pierEdit({ owner: 'Tide Sorter' }));
+        await settle();
+        expect(host.questions).toHaveLength(1);
+        expect(host.fieldWrites).toEqual([]);
+
+        host.questions[0].answer(true);
+        expect(await organizer).toEqual({ ok: true });
+        await settle();
+        expect(host.questions.map(question => question.text[0])).toEqual([
+            'Lore Organizer wants to change your EventBase events.', 'Tide Sorter wants to change your EventBase events.',
+        ]);
+        host.questions[1].answer(null);
+        expect(await sorter).toEqual({ ok: false, reason: 'declined' });
+    });
+
+    it('rejects with a TypeError an edit that cannot be right, ready or not, asking and writing nothing', async () => {
+        const { publishPublicApi, announcePublicApiReady } = await loadPublicApi();
+        publishPublicApi();
+        const { updateEvent } = globalThis.VectFox.eventBase;
+        const wrong = [
+            undefined, 'eb-pier', [], pierEdit({ owner: undefined }), pierEdit({ owner: '  ' }), pierEdit({ collectionId: HARBOR_LORE }),
+            pierEdit({ collectionId: undefined }), pierEdit({ eventId: '' }), pierEdit({ eventId: 4 }), pierEdit({ changes: undefined }),
+            pierEdit({ changes: {} }), pierEdit({ changes: { story_links: [] } }), pierEdit({ changes: { storyLinks: [] } }),
+            pierEdit({ changes: { eventId: 'eb-ferry' } }), pierEdit({ changes: { cursor: 9 } }), pierEdit({ changes: { importance: 11 } }),
+            pierEdit({ changes: { importance: 0 } }), pierEdit({ changes: { importance: 2.5 } }), pierEdit({ changes: { importance: '6' } }),
+            pierEdit({ changes: { summary: '   ' } }), pierEdit({ changes: { summary: 'Mara finds a key\nTobin keeps it' } }),
+            pierEdit({ changes: { cause: 4 } }), pierEdit({ changes: { characters: 'Mara' } }), pierEdit({ changes: { characters: ['Mara', 3] } }),
+            pierEdit({ changes: { locations: ['Saltmarsh\nharbor'] } }), pierEdit({ changes: { storyTime: 'the night of the storm' } }),
+            pierEdit({ changes: { storyTime: 1802 } }), pierEdit({ changes: { sceneTime: 'dusk'.repeat(26) } }),
+        ];
+
+        for (const request of wrong) await expect(updateEvent(request), JSON.stringify(request)).rejects.toThrow(TypeError);
+        const store = settingsStore();
+        store.vector_backend = 'qdrant';
+        await announcePublicApiReady(store);
+        for (const request of wrong) await expect(updateEvent(request), JSON.stringify(request)).rejects.toThrow(TypeError);
+        await expect(updateEvent(pierEdit({ changes: { story_links: [] } }))).rejects.toThrow("StoryArc's links are not written through it");
+        expect(host.questions).toEqual([]);
+        expect(host.fieldWrites).toEqual([]);
+    });
+
+    it('answers not-ready before VectFox is ready, and backend-unsupported off Qdrant, each with no question', async () => {
+        const { publishPublicApi, announcePublicApiReady } = await loadPublicApi();
+        publishPublicApi();
+        const notReady = await globalThis.VectFox.eventBase.updateEvent(pierEdit());
+        await announcePublicApiReady({ ...settingsStore(), vector_backend: 'standard' });
+        const offQdrant = await globalThis.VectFox.eventBase.updateEvent(pierEdit());
+
+        expect([notReady, offQdrant]).toEqual([{ ok: false, reason: 'not-ready' }, { ok: false, reason: 'backend-unsupported' }]);
+        expect(host.questions).toEqual([]);
+        expect(host.fieldWrites).toEqual([]);
+    });
+
+    it('answers no-event for an event the collection does not hold, and write-failed for a write that did not get through, saying why', async () => {
+        const { api, log } = await writableApi();
+
+        const missing = await api.eventBase.updateEvent(pierEdit());
+        host.storedEvents = { 'eb-pier': storedEvent(1, 'Mara finds a brass key under the pier') };
+        host.writeError = new Error('[Qdrant] Failed to insert 1 vectors: 500 Internal Server Error');
+        const failed = await api.eventBase.updateEvent(pierEdit());
+
+        expect([missing, failed]).toEqual([{ ok: false, reason: 'no-event' }, { ok: false, reason: 'write-failed' }]);
+        expect([missing, failed].every(Object.isFrozen)).toBe(true);
+        expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('Lore Organizer\'s updateEvent of event eb-pier'), host.writeError);
+    });
+});
+
+/** A delete of events by the Lore Organizer, with the parts given in place of its own. */
+const harborDelete = parts => ({ owner: 'Lore Organizer', collectionId: HARBOR_EVENTS, eventIds: ['eb-1'], ...parts });
+
+describe('the eventBase group: an event\'s delete (§4.3 of the writes plan)', () => {
+    beforeEach(() => {
+        host.storedEvents = Object.fromEntries([1, 2, 3, 4, 5].map(number => [`eb-${number}`, storedEvent(number, `Harbor event ${number}`)]));
+    });
+
+    it('asks every time, after the group\'s Allow too, naming the collection, how many go and the first three, then deletes them by their points', async () => {
+        const { api, log } = await writableApi();
+        await api.eventBase.updateEvent(pierEdit({ eventId: 'eb-1' }));
+
+        const many = await api.eventBase.deleteEvents(harborDelete({ eventIds: ['eb-1', 'eb-2', 'eb-3', 'eb-4', 'eb-5', 'eb-2'] }));
+        const one = await api.eventBase.deleteEvents(harborDelete({ eventIds: ['eb-4'] }));
+
+        expect([many, one]).toEqual([{ ok: true }, { ok: true }]);
+        expect(host.questions.map(question => question.options.okButton)).toEqual(['Allow', 'Delete', 'Delete']);
+        expect(host.questions[1].text).toEqual([
+            'Lore Organizer wants to delete 5 events.',
+            `Collection: Harbor events (qdrant:${HARBOR_EVENTS})`,
+            'Events: Harbor event 1; Harbor event 2; Harbor event 3; and 2 more',
+            'Lost: their text and vectors. It cannot be undone.',
+            'Delete removes them. Cancel keeps them.',
+        ]);
+        expect(host.questions[1].options).toEqual({ okButton: 'Delete', cancelButton: 'Cancel', isDestructive: true });
+        expect(host.eventReads[0]).toEqual({ collectionId: HARBOR_EVENTS, eventIds: ['eb-1', 'eb-2', 'eb-3', 'eb-4', 'eb-5'] });
+        expect(host.deletes[0]).toEqual({
+            collectionId: HARBOR_EVENTS,
+            points: [1, 2, 3, 4, 5].map(number => ({ hash: number, metadata: { event_id: `eb-${number}`, source_window_start: number } })),
+        });
+        expect(log.lifecycle).toHaveBeenCalledWith(`VectFox public API: Lore Organizer deleted 5 events from ${HARBOR_EVENTS}`);
+    });
+
+    it('declines on Cancel, deleting nothing; and after a Deny of the group, declines with no question', async () => {
+        const { api } = await writableApi();
+        host.answer = false;
+
+        const cancelled = await api.eventBase.deleteEvents(harborDelete());
+        await api.eventBase.updateEvent(pierEdit({ eventId: 'eb-1' }));
+        const afterDeny = await api.eventBase.deleteEvents(harborDelete());
+
+        expect([cancelled, afterDeny]).toEqual([{ ok: false, reason: 'declined' }, { ok: false, reason: 'declined' }]);
+        expect(host.questions.map(question => question.options.okButton)).toEqual(['Delete', 'Allow']);
+        expect(host.deletes).toEqual([]);
+    });
+
+    it('answers no-event, asking and deleting nothing, when one event named is not stored', async () => {
+        const { api } = await writableApi();
+
+        const answer = await api.eventBase.deleteEvents(harborDelete({ eventIds: ['eb-1', 'eb-gone'] }));
+
+        expect(answer).toEqual({ ok: false, reason: 'no-event' });
+        expect(host.questions).toEqual([]);
+        expect(host.deletes).toEqual([]);
+    });
+
+    it('answers write-failed when the events cannot be read or the delete does not get through, saying why', async () => {
+        const { api, log } = await writableApi();
+
+        const readError = new Error('Qdrant not initialized');
+        const deleteError = new Error('Qdrant is down');
+        host.readError = readError;
+        const unread = await api.eventBase.deleteEvents(harborDelete());
+        host.readError = null;
+        host.writeError = deleteError;
+        const undeleted = await api.eventBase.deleteEvents(harborDelete());
+
+        expect([unread, undeleted]).toEqual([{ ok: false, reason: 'write-failed' }, { ok: false, reason: 'write-failed' }]);
+        expect(host.questions).toHaveLength(1);
+        expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('could not read the events'), readError);
+        expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('nothing was deleted'), deleteError);
+    });
+
+    it('rejects with a TypeError a delete that cannot be right, asking and deleting nothing', async () => {
+        const { api } = await writableApi();
+        const tooMany = Array.from({ length: 101 }, (_, index) => `eb-${index}`);
+        const wrong = [
+            undefined, harborDelete({ owner: '' }), harborDelete({ collectionId: HARBOR_LORE }), harborDelete({ eventIds: [] }),
+            harborDelete({ eventIds: 'eb-1' }), harborDelete({ eventIds: tooMany }), harborDelete({ eventIds: ['eb-1', 7] }),
+            harborDelete({ eventIds: [''] }),
+        ];
+
+        for (const request of wrong) await expect(api.eventBase.deleteEvents(request), JSON.stringify(request)).rejects.toThrow(TypeError);
+        expect(await api.eventBase.deleteEvents(harborDelete({ eventIds: tooMany.slice(0, 100) }))).toEqual({ ok: false, reason: 'no-event' });
+        expect(host.questions).toEqual([]);
+        expect(host.deletes).toEqual([]);
+    });
+});
+
+describe('Suppress all warnings (§2.3 of the writes plan)', () => {
+    beforeEach(() => {
+        host.storedEvents = { 'eb-1': storedEvent(1, 'Harbor event 1') };
+    });
+
+    it('lets an edit and a delete through with no question while on, keeps no answer, and the snapshot says so', async () => {
+        const { api, store } = await writableApi();
+        store.public_api_write_questions_suppressed = true;
+
+        const edited = await api.eventBase.updateEvent(pierEdit({ eventId: 'eb-1' }));
+        const deleted = await api.eventBase.deleteEvents(harborDelete());
+        const snapshot = api.getSettingsSnapshot();
+        store.public_api_write_questions_suppressed = false;
+        host.answer = false;
+        const askedOnceOff = await api.eventBase.updateEvent(pierEdit({ eventId: 'eb-1' }));
+
+        expect([edited, deleted, askedOnceOff]).toEqual([{ ok: true }, { ok: true }, { ok: false, reason: 'declined' }]);
+        expect(snapshot.settings.writeQuestionsSuppressed).toBe(true);
+        expect(api.getSettingsSnapshot().settings.writeQuestionsSuppressed).toBe(false);
+        expect(host.questions.map(question => question.options.okButton)).toEqual(['Allow']);
+    });
+
+    it('reads off for a store that holds anything but true', async () => {
+        const { api, store } = await writableApi();
+        store.public_api_write_questions_suppressed = 'true';
+
+        await api.eventBase.updateEvent(pierEdit({ eventId: 'eb-1' }));
+
+        expect(api.getSettingsSnapshot().settings.writeQuestionsSuppressed).toBe(false);
+        expect(host.questions).toHaveLength(1);
+    });
+
+    it('keeps a Deny given before it was turned on', async () => {
+        const { api, store } = await writableApi();
+        host.answer = false;
+        await api.eventBase.updateEvent(pierEdit({ eventId: 'eb-1' }));
+        store.public_api_write_questions_suppressed = true;
+
+        const edited = await api.eventBase.updateEvent(pierEdit({ eventId: 'eb-1' }));
+        const deleted = await api.eventBase.deleteEvents(harborDelete());
+
+        expect([edited, deleted]).toEqual([{ ok: false, reason: 'declined' }, { ok: false, reason: 'declined' }]);
+        expect(host.questions).toHaveLength(1);
+        expect(host.fieldWrites).toEqual([]);
+        expect(host.deletes).toEqual([]);
     });
 });

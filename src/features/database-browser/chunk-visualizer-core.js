@@ -10,6 +10,8 @@
  * ============================================================================
  */
 
+import { textPreview } from '../../shared/text-preview.js';
+
 /** How many rows the list shows at first, and how many more each "Show more" adds. */
 export const LIST_PAGE_SIZE = 50;
 
@@ -141,18 +143,6 @@ export function originLine(chunk) {
 }
 
 /**
- * The start of a text on one line, for a chunk with no name.
- *
- * @param {string} text
- * @param {number} [length]
- * @returns {string}
- */
-export function textPreview(text, length = PREVIEW_LENGTH) {
-    const line = String(text ?? '').replace(/\s+/g, ' ').trim();
-    return line.length > length ? `${line.slice(0, length)}…` : line;
-}
-
-/**
  * A chunk's title in the list: its name; for a LoreBase part, its entry's title, the first line LoreBase writes it
  * with; else the start of its text.
  *
@@ -163,7 +153,7 @@ export function chunkTitle(chunk) {
     const { name, text } = chunk.fields;
     if (name) return name;
     const entryTitle = isLoreBasePart(chunk) ? text.split('\n', 1)[0].trim() : '';
-    return entryTitle || textPreview(text) || 'No text';
+    return entryTitle || textPreview(text, PREVIEW_LENGTH) || 'No text';
 }
 
 const lengthOf = chunk => chunk.fields.text.length;

@@ -1,16 +1,19 @@
 /**
  * The public API's pure parts: its version, the events it emits, the groups it serves, the reasons, settings and
- * EventBase events its calls answer with, what a message source's answer says, the mark on VectFox's own requests,
- * readiness and the shape of the `VectFox` object (§4, §5.2, §5.3 and §5.4 of
- * InternalProject/Vectfox/plans/executed/vectfox-public-api.md). No host imports: public-api.js publishes the object, answers its
+ * EventBase events its calls answer with, the changes an event's edit takes, what a message source's answer says, the
+ * mark on VectFox's own requests, readiness and the shape of the `VectFox` object (§4, §5.2, §5.3 and §5.4 of
+ * InternalProject/Vectfox/plans/executed/vectfox-public-api.md, and §3 to §5 of
+ * InternalProject/Vectfox/plans/public-api-writes.md). No host imports: public-api.js publishes the object, answers its
  * calls, asks the message sources and emits the events.
  */
+
+import { normalizeStringList } from '../../shared/string-list.js';
 
 /**
  * The API's version, semver. A minor version only adds a method, event, field or reason; a removed, renamed or changed
  * name raises the major version at once, and no code keeps the old name working. A reader compares the major only.
  */
-export const PUBLIC_API_VERSION = '1.4.0';
+export const PUBLIC_API_VERSION = '1.5.0';
 
 /** The events VectFox emits on SillyTavern's eventSource, by name. */
 export const PUBLIC_EVENTS = Object.freeze({
@@ -22,12 +25,15 @@ export const PUBLIC_EVENTS = Object.freeze({
 });
 
 /** The groups this build serves, so a consumer checks once instead of probing each method. */
-export const PUBLIC_API_CAPABILITIES = Object.freeze(['events', 'chat', 'settings', 'eventbase.read', 'chat.messageSource']);
+export const PUBLIC_API_CAPABILITIES = Object.freeze([
+    'events', 'chat', 'settings', 'eventbase.read', 'chat.messageSource', 'eventbase.collections', 'eventbase.write',
+]);
 
 /**
- * Why a call answered no (§4.2): VectFox has not finished starting up; no chat is open, or not the one named; the chat
- * uses no collection, or the one named is not the chat's; the backend keeps no change numbers to read EventBase's feed
- * by; or the read did not reach the events.
+ * Why a call answered no (§4.2, and §5 of the writes plan): VectFox has not finished starting up; no chat is open, or
+ * not the one named; the chat uses no collection, or the one named is not the chat's; the backend keeps no change
+ * numbers to read EventBase's feed by; the read did not reach the events; the user said no to this write, or to its
+ * group this page load; the collection holds no event of the ID named; or the write did not get through.
  */
 export const PUBLIC_API_REASONS = Object.freeze({
     notReady: 'not-ready',
@@ -35,6 +41,9 @@ export const PUBLIC_API_REASONS = Object.freeze({
     noCollection: 'no-collection',
     backendUnsupported: 'backend-unsupported',
     readFailed: 'read-failed',
+    declined: 'declined',
+    noEvent: 'no-event',
+    writeFailed: 'write-failed',
 });
 
 /**
@@ -57,11 +66,20 @@ export const PUBLIC_EVENT_FIELDS = Object.freeze({
 });
 
 /**
+ * The fields `eventBase.updateEvent()` takes, by their public names (PUBLIC_EVENT_FIELDS): an event's story. Its ID,
+ * its windows and its cursor are VectFox's, and StoryArc's links are not among them.
+ */
+export const PUBLIC_EDITABLE_EVENT_FIELDS = Object.freeze([
+    'summary', 'cause', 'result', 'characters', 'locations', 'importance', 'storyTime', 'sceneTime',
+]);
+
+/**
  * The settings getSettingsSnapshot() reads by key, each public name with the setting it reads: ghosting, Summarizer
  * Injection and auto-sync's window. Beside them the snapshot gives `enabled`, VectFox's own switch, which is read
- * through its gate, and `requestMarkEnabled`, the PublicAPI page's switch, read as the marker reads it
- * (isOwnRequestMarkOn). A public name stays when its setting is renamed inside VectFox, and none of them is a key or key
- * ID.
+ * through its gate, `requestMarkEnabled`, the PublicAPI page's switch, read as the marker reads it
+ * (isOwnRequestMarkOn), and `writeQuestionsSuppressed`, Suppress all warnings, read as the write questions read it
+ * (areWriteQuestionsSuppressed). A public name stays when its setting is renamed inside VectFox, and none of them is a
+ * key or key ID.
  */
 export const PUBLIC_SETTINGS = Object.freeze({
     ghostingEnabled: 'eventbase_ghost_enabled',
@@ -189,6 +207,17 @@ export function isOwnRequestMarkOn(settings) {
 }
 
 /**
+ * Whether other extensions' writes go through with no question: Suppress all warnings,
+ * `public_api_write_questions_suppressed`, on only when set to true, so a store that never saved it reads off. The
+ * write questions and the settings snapshot both ask here. Only the user changes it: the API has no call for it.
+ * @param {object|null} settings - VectFox settings
+ * @returns {boolean}
+ */
+export function areWriteQuestionsSuppressed(settings) {
+    return settings?.public_api_write_questions_suppressed === true;
+}
+
+/**
  * A call's answer of no, frozen. A call never throws for a state it expects (§4.2).
  * @param {string} reason - One of PUBLIC_API_REASONS
  * @returns {Readonly<{ok: false, reason: string}>}
@@ -219,8 +248,9 @@ export function collectionInUseAnswer({ chatId, collectionId }) {
 
 /**
  * The answer of `getSettingsSnapshot()`: whether VectFox is switched on, the settings PUBLIC_SETTINGS lists, as they
- * are when asked, by their public names, and whether VectFox marks its LLM calls' requests, frozen. A setting VectFox
- * does not hold reads as null. A copy: nothing written to it reaches VectFox's settings.
+ * are when asked, by their public names, whether VectFox marks its LLM calls' requests, and whether other extensions'
+ * writes go through with no question, frozen. A setting VectFox does not hold reads as null. A copy: nothing written to
+ * it reaches VectFox's settings.
  * @param {object} settings - VectFox settings
  * @param {{isEnabled: boolean}} gate - isEnabled: VectFox's switch, as its gate reads it
  * @returns {Readonly<{ok: true, settings: Readonly<object>}>}
@@ -229,7 +259,10 @@ export function settingsSnapshotAnswer(settings, { isEnabled }) {
     const listed = Object.fromEntries(Object.entries(PUBLIC_SETTINGS).map(([name, key]) => [name, settings[key] ?? null]));
     return Object.freeze({
         ok: true,
-        settings: Object.freeze({ enabled: isEnabled, ...listed, requestMarkEnabled: isOwnRequestMarkOn(settings) }),
+        settings: Object.freeze({
+            enabled: isEnabled, ...listed, requestMarkEnabled: isOwnRequestMarkOn(settings),
+            writeQuestionsSuppressed: areWriteQuestionsSuppressed(settings),
+        }),
     });
 }
 
@@ -293,6 +326,96 @@ export function eventFeedAnswer({ collectionId, schemaVersion, events, removedEv
 }
 
 /**
+ * The answer of `eventBase.listCollections()`: the open chat's own EventBase collections, each by its ID and name, and
+ * whether it is the one the chat uses, frozen throughout.
+ * @param {{chatId: string, collections: Array<{collectionId: string, name: string, isInUse: boolean}>}} listing
+ * @returns {Readonly<object>} `{ ok: true, chatId, collections }`
+ */
+export function collectionsAnswer({ chatId, collections }) {
+    return Object.freeze({
+        ok: true,
+        chatId,
+        collections: Object.freeze(collections.map(({ collectionId, name, isInUse }) => Object.freeze({ collectionId, name, isInUse }))),
+    });
+}
+
+/**
+ * The answer of a write that went through, frozen.
+ * @returns {Readonly<{ok: true}>}
+ */
+export function writtenAnswer() {
+    return Object.freeze({ ok: true });
+}
+
+/** How many characters an event's scene time holds, as EventBase stores it (validateEvent). */
+const SCENE_TIME_MAX_LENGTH = 100;
+
+/** The fields of an event's text that hold a line each, so a value of theirs must be one line. */
+const ONE_LINE_FIELDS = new Set(['summary', 'cause', 'result', 'sceneTime']);
+
+/**
+ * One changed field's value as EventBase stores it, read from what `eventBase.updateEvent()` was given.
+ * @param {string} name - A public name of PUBLIC_EDITABLE_EVENT_FIELDS
+ * @param {unknown} value
+ * @returns {unknown}
+ * @throws {TypeError} When the value cannot be the field's
+ */
+function storedEventValueOf(name, value) {
+    const call = 'VectFox.eventBase.updateEvent()';
+    if (name === 'importance') {
+        if (!Number.isInteger(value) || value < 1 || value > 10) throw new TypeError(`${call}: importance must be a whole number from 1 to 10`);
+        return value;
+    }
+    if (name === 'characters' || name === 'locations') {
+        if (!Array.isArray(value) || value.some(member => typeof member !== 'string' || /[\r\n]/.test(member))) {
+            throw new TypeError(`${call}: ${name} must be a list of names, each a string on one line`);
+        }
+        return normalizeStringList(value);
+    }
+    if (name === 'storyTime') {
+        if (value === null || value === '') return null;
+        const time = typeof value === 'string' ? Date.parse(value) : Number.NaN;
+        if (Number.isNaN(time)) throw new TypeError(`${call}: storyTime must be an ISO 8601 date and time, or null to clear it`);
+        return new Date(time).toISOString();
+    }
+    if (typeof value !== 'string') throw new TypeError(`${call}: ${name} must be a string`);
+    if (ONE_LINE_FIELDS.has(name) && /[\r\n]/.test(value)) {
+        throw new TypeError(`${call}: ${name} must be one line, as each field is a line of the event's stored text`);
+    }
+    const text = value.trim();
+    if (name === 'summary' && !text) throw new TypeError(`${call}: summary must not be empty`);
+    if (name === 'sceneTime' && Array.from(text).length > SCENE_TIME_MAX_LENGTH) {
+        throw new TypeError(`${call}: sceneTime must be at most ${SCENE_TIME_MAX_LENGTH} characters`);
+    }
+    return text;
+}
+
+/**
+ * The changes `eventBase.updateEvent()` was given, by their stored names (PUBLIC_EVENT_FIELDS), each as EventBase
+ * stores it: strings trimmed, name lists without blanks or repeats, a story time as ISO 8601.
+ * @param {unknown} changes - Some of PUBLIC_EDITABLE_EVENT_FIELDS, by their public names
+ * @returns {object}
+ * @throws {TypeError} When the changes cannot be right, a bug in the calling code: not an object, no field, a field
+ *   it does not take (StoryArc's links among them), or a value the field cannot hold
+ */
+export function eventChangesOf(changes) {
+    const call = 'VectFox.eventBase.updateEvent()';
+    if (!changes || typeof changes !== 'object' || Array.isArray(changes)) {
+        throw new TypeError(`${call}: changes must be an object of the fields to change, by their names in listEvents`);
+    }
+    const names = Object.keys(changes);
+    if (!names.length) throw new TypeError(`${call}: changes holds no field to change`);
+    const fields = {};
+    for (const name of names) {
+        if (!PUBLIC_EDITABLE_EVENT_FIELDS.includes(name)) {
+            throw new TypeError(`${call}: '${name}' is not a field it changes. It takes ${PUBLIC_EDITABLE_EVENT_FIELDS.join(', ')}; StoryArc's links are not written through it`);
+        }
+        fields[PUBLIC_EVENT_FIELDS[name]] = storedEventValueOf(name, changes[name]);
+    }
+    return fields;
+}
+
+/**
  * Readiness: false until VectFox's initialization ends, then true for good. `whenReady()` gives one promise, which
  * resolves then; `markReady()` says whether this call made VectFox ready, so it is announced once.
  * @returns {{isReady: () => boolean, whenReady: () => Promise<void>, markReady: () => boolean}}
@@ -314,8 +437,8 @@ export function createReadiness() {
 }
 
 /**
- * The frozen `VectFox` object (§4.1, §5.2, §5.3, §5.4). `extensionVersion` is read when asked: the manifest's version
- * once start-up has read it, null before then or when it could not be read.
+ * The frozen `VectFox` object (§4.1, §5.2, §5.3, §5.4, and §3.3 and §4.3 of the writes plan). `extensionVersion` is
+ * read when asked: the manifest's version once start-up has read it, null before then or when it could not be read.
  * @param {object} parts
  * @param {ReturnType<typeof createReadiness>} parts.readiness
  * @param {() => (string|null)} parts.readExtensionVersion
@@ -324,7 +447,9 @@ export function createReadiness() {
  * @param {{getChatId: () => object, getCollectionInUse: () => object,
  *   registerMessageSource: (source: object) => (() => void)}} parts.chat - The `chat` group's calls
  * @param {() => object} parts.getSettingsSnapshot
- * @param {{listEvents: (request?: object) => Promise<object>}} parts.eventBase - The `eventBase` group's calls
+ * @param {{listEvents: (request?: object) => Promise<object>, listCollections: (request?: object) => object,
+ *   updateEvent: (request: object) => Promise<object>, deleteEvents: (request: object) => Promise<object>}} parts.eventBase -
+ *   The `eventBase` group's calls
  * @returns {Readonly<object>}
  */
 export function buildPublicApi({ readiness, readExtensionVersion, on, off, chat, getSettingsSnapshot, eventBase }) {
@@ -344,6 +469,11 @@ export function buildPublicApi({ readiness, readExtensionVersion, on, off, chat,
             registerMessageSource: chat.registerMessageSource,
         }),
         getSettingsSnapshot,
-        eventBase: Object.freeze({ listEvents: eventBase.listEvents }),
+        eventBase: Object.freeze({
+            listEvents: eventBase.listEvents,
+            listCollections: eventBase.listCollections,
+            updateEvent: eventBase.updateEvent,
+            deleteEvents: eventBase.deleteEvents,
+        }),
     });
 }

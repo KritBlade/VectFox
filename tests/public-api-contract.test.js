@@ -2,7 +2,8 @@
  * The public API's contract (A3 of InternalProject/Vectfox/plans/executed/vectfox-public-api.md): every name another extension
  * reads, pinned in CONTRACT. The test goes red when a member of the `VectFox` object or of one of its groups, an event, a
  * payload field, a capability, a reason, a field of a call's answer, a setting of the snapshot, a field of an EventBase
- * event listEvents gives, a value an LLM call's report names, a field of a message source or of what it is asked with,
+ * event listEvents gives or of a collection listCollections gives, a field of a write's request or a change
+ * updateEvent takes, a value an LLM call's report names, a field of a message source or of what it is asked with,
  * how deep story order opens summaries, or the key, place, fields or label of the mark on VectFox's own requests is
  * renamed, removed or added, when `apiVersion` differs from the contract's, and when the developer page
  * (Doc/public-api.md) leaves a name out or names an event VectFox does not emit. A change to CONTRACT follows the version
@@ -14,7 +15,7 @@ import { fileURLToPath } from 'url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const CONTRACT = Object.freeze({
-    apiVersion: '1.4.0',
+    apiVersion: '1.5.0',
     // Each member of globalThis.VectFox and what it is.
     members: {
         apiVersion: 'string',
@@ -31,14 +32,14 @@ const CONTRACT = Object.freeze({
     // Each group's members.
     groups: {
         chat: { getChatId: 'method', getCollectionInUse: 'method', registerMessageSource: 'method' },
-        eventBase: { listEvents: 'method' },
+        eventBase: { listEvents: 'method', listCollections: 'method', updateEvent: 'method', deleteEvents: 'method' },
     },
-    capabilities: ['events', 'chat', 'settings', 'eventbase.read', 'chat.messageSource'],
+    capabilities: ['events', 'chat', 'settings', 'eventbase.read', 'chat.messageSource', 'eventbase.collections', 'eventbase.write'],
     // A message source (§5.4): the fields registerMessageSource takes, the fields of what originalsOf is asked with
     // beside the message, and how many summaries deep story order opens.
     messageSource: { registration: ['owner', 'originalsOf'], asked: ['chatMetadata'], maxSummaryDepth: 64 },
-    // Why a call answers no (§4.2).
-    reasons: ['not-ready', 'no-chat', 'no-collection', 'backend-unsupported', 'read-failed'],
+    // Why a call answers no (§4.2, and §5 of the writes plan).
+    reasons: ['not-ready', 'no-chat', 'no-collection', 'backend-unsupported', 'read-failed', 'declined', 'no-event', 'write-failed'],
     // The fields of each answer: a refusal, and each call's answer of yes.
     answers: {
         refusal: ['ok', 'reason'],
@@ -46,12 +47,23 @@ const CONTRACT = Object.freeze({
         getCollectionInUse: ['ok', 'collectionId'],
         getSettingsSnapshot: ['ok', 'settings'],
         listEvents: ['ok', 'schemaVersion', 'collectionId', 'events', 'removedEventIds', 'emptied', 'cursor', 'hasMore'],
+        listCollections: ['ok', 'chatId', 'collections'],
+        updateEvent: ['ok'],
+        deleteEvents: ['ok'],
     },
+    // The fields of each collection listCollections() gives.
+    collectionFields: ['collectionId', 'name', 'isInUse'],
+    // The fields of each write's request, every one needed, and the changes updateEvent() takes, by their public names.
+    writeRequests: {
+        updateEvent: ['owner', 'collectionId', 'eventId', 'changes'],
+        deleteEvents: ['owner', 'collectionId', 'eventIds'],
+    },
+    eventChanges: ['summary', 'cause', 'result', 'characters', 'locations', 'importance', 'storyTime', 'sceneTime'],
     // The settings getSettingsSnapshot() gives, by their public names.
     settings: [
         'enabled', 'ghostingEnabled', 'ghostingKeepRecent', 'ghostingBatchSize', 'summarizerInjectionEnabled',
         'summarizerInjectionCount', 'summarizerInjectionFullDetail', 'summarizerInjectionMaxChars', 'autoSyncWindowTurns',
-        'autoSyncSettleLag', 'requestMarkEnabled',
+        'autoSyncSettleLag', 'requestMarkEnabled', 'writeQuestionsSuppressed',
     ],
     // The fields of each EventBase event listEvents() gives.
     eventFields: [
@@ -78,7 +90,10 @@ const CONTRACT = Object.freeze({
     ownRequestMark: { key: 'vectfox.internal-request', readFrom: 'init.signal', fields: ['label'], label: 'VectFox <feature>' },
 });
 
-const host = vi.hoisted(() => ({ listeners: {}, chatMetadata: {}, context: {}, inUse: { chatId: null, collectionId: null }, feed: null, feedError: null }));
+const host = vi.hoisted(() => ({
+    listeners: {}, chatMetadata: {}, context: {}, inUse: { chatId: null, collectionId: null }, feed: null, feedError: null,
+    ownCollections: [], storedEvents: {}, writeError: null, answer: true,
+}));
 
 vi.mock('../src/sillytavern/events.js', () => ({
     eventSource: {
@@ -105,10 +120,25 @@ vi.mock('../src/features/eventbase/index.js', () => ({
         if (host.feedError) throw host.feedError;
         return host.feed;
     },
+    chatOwnCollections: () => host.ownCollections,
+    readEventsById: async (collectionId, eventIds) => eventIds.map(eventId => host.storedEvents[eventId] ?? null),
+    writeEventFields: async (collectionId, eventId) => {
+        if (host.writeError) throw host.writeError;
+        return Object.hasOwn(host.storedEvents, eventId);
+    },
+    deleteEventPoints: async () => {
+        if (host.writeError) throw host.writeError;
+    },
 }));
+vi.mock('../src/features/collections/index.js', () => ({ collectionNameOf: () => 'Lantern events' }));
+// SillyTavern's popup, its every question answered with host.answer.
+vi.mock('../src/sillytavern/popup.js', () => ({ confirmPopup: async () => host.answer }));
 
 const LANTERN_UUID = 'cccccccc-3333-4333-8333-cccccccccccc';
 const LANTERN_EVENTS = `vf_eventbase_qdrant_wren_lantern_${LANTERN_UUID}`;
+
+/** What every write of the contract's checks names: who writes, and the collection. */
+const LAMP_WRITE = Object.freeze({ owner: 'Lantern Keeper', collectionId: LANTERN_EVENTS });
 
 /** A made-up event as EventBase's feed gives one. */
 const LANTERN_EVENT = Object.freeze({
@@ -164,6 +194,10 @@ beforeEach(() => {
     host.inUse = { chatId: null, collectionId: null };
     host.feed = null;
     host.feedError = null;
+    host.ownCollections = [];
+    host.storedEvents = {};
+    host.writeError = null;
+    host.answer = true;
     delete globalThis.VectFox;
 });
 
@@ -223,10 +257,14 @@ describe('the contract of the calls', () => {
             getCollectionInUse: () => api.chat.getCollectionInUse(),
             getSettingsSnapshot: () => api.getSettingsSnapshot(),
             listEvents: () => api.eventBase.listEvents(),
+            listCollections: () => api.eventBase.listCollections(),
+            updateEvent: () => api.eventBase.updateEvent({ ...LAMP_WRITE, eventId: 'evt-lamp', changes: { importance: 5 } }),
+            deleteEvents: () => api.eventBase.deleteEvents({ ...LAMP_WRITE, eventIds: ['evt-lamp'] }),
         };
         const refusals = await Promise.all(Object.values(calls).map(call => call()));
-        await publicApi.announcePublicApiReady({ enabled: true });
-        const refusedWithNoChat = [calls.getChatId(), calls.getCollectionInUse(), await calls.listEvents()];
+        const store = { enabled: true };
+        await publicApi.announcePublicApiReady(store);
+        const refusedWithNoChat = [calls.getChatId(), calls.getCollectionInUse(), await calls.listEvents(), calls.listCollections()];
         host.chatMetadata.integrity = LANTERN_UUID;
         host.inUse = { chatId: LANTERN_UUID, collectionId: null };
         refusals.push(calls.getCollectionInUse(), ...refusedWithNoChat);
@@ -237,6 +275,17 @@ describe('the contract of the calls', () => {
         refusals.push(await calls.listEvents());
         host.feedError = null;
         host.feed = { supported: true, schemaVersion: 1.3, events: [LANTERN_EVENT], removedEventIds: ['evt-wick'], emptied: false, cursor: 8, hasMore: false };
+        refusals.push(await calls.updateEvent());
+        store.vector_backend = 'qdrant';
+        refusals.push(await calls.deleteEvents());
+        host.storedEvents = { 'evt-lamp': { hash: 8, summary: LANTERN_EVENT.summary, metadata: { event_id: 'evt-lamp' } } };
+        host.answer = false;
+        refusals.push(await calls.deleteEvents());
+        host.answer = true;
+        host.writeError = new Error('Qdrant is down');
+        refusals.push(await calls.updateEvent());
+        host.writeError = null;
+        host.ownCollections = [{ registryKey: `qdrant:${LANTERN_EVENTS}`, collectionId: LANTERN_EVENTS, backend: 'qdrant', name: 'Lantern', isLockedHere: true, isPaused: false, isAutoSyncOn: true }];
 
         for (const refusal of refusals) {
             expect(sorted(Object.keys(refusal))).toEqual(sorted(CONTRACT.answers.refusal));
@@ -254,6 +303,29 @@ describe('the contract of the calls', () => {
         const [event] = (await calls.listEvents()).events;
         expect(sorted(Object.keys(event))).toEqual(sorted(CONTRACT.eventFields));
         expect(Object.isFrozen(event)).toBe(true);
+        const [collection] = calls.listCollections().collections;
+        expect(sorted(Object.keys(collection))).toEqual(sorted(CONTRACT.collectionFields));
+        expect(Object.isFrozen(collection)).toBe(true);
+    });
+
+    it('takes exactly the contract\'s changes in updateEvent, and needs every field of each write\'s request', async () => {
+        const { api, core, publicApi } = await loadPublishedApi();
+        await publicApi.announcePublicApiReady({ enabled: true, vector_backend: 'qdrant' });
+        host.storedEvents = { 'evt-lamp': { hash: 8, summary: LANTERN_EVENT.summary, metadata: { event_id: 'evt-lamp' } } };
+        const requests = {
+            updateEvent: { ...LAMP_WRITE, eventId: 'evt-lamp', changes: { importance: 5 } },
+            deleteEvents: { ...LAMP_WRITE, eventIds: ['evt-lamp'] },
+        };
+
+        expect(core.PUBLIC_EDITABLE_EVENT_FIELDS).toEqual(CONTRACT.eventChanges);
+        for (const [name, request] of Object.entries(requests)) {
+            expect(sorted(Object.keys(request)), name).toEqual(sorted(CONTRACT.writeRequests[name]));
+            expect(await api.eventBase[name](request), name).toEqual({ ok: true });
+            for (const field of CONTRACT.writeRequests[name]) {
+                const { [field]: _left, ...without } = request;
+                await expect(api.eventBase[name](without), `${name} without ${field}`).rejects.toThrow(TypeError);
+            }
+        }
     });
 });
 
@@ -344,7 +416,7 @@ describe('the developer page', () => {
     const escaped = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const isNamed = name => inlineCode.some(code => new RegExp(`(^|[^A-Za-z0-9_])${escaped(name)}($|[^A-Za-z0-9_])`).test(code));
 
-    it('names every member, group member, capability, reason, answer field, setting, event field, event, payload field, value, message source field and mark of the contract', () => {
+    it('names every member, group member, capability, reason, answer field, collection field, write request field, change, setting, event field, event, payload field, value, message source field and mark of the contract', () => {
         const quoted = value => `'${value}'`;
         const names = [
             ...Object.keys(CONTRACT.members),
@@ -354,6 +426,9 @@ describe('the developer page', () => {
             ...CONTRACT.messageSource.asked,
             ...CONTRACT.reasons.map(quoted),
             ...Object.values(CONTRACT.answers).flat(),
+            ...CONTRACT.collectionFields,
+            ...Object.values(CONTRACT.writeRequests).flat(),
+            ...CONTRACT.eventChanges,
             ...CONTRACT.settings,
             ...CONTRACT.eventFields,
             ...Object.entries(CONTRACT.events).flatMap(([name, fields]) => [name, ...fields]),

@@ -21,7 +21,6 @@ import {
     reopenedChunk,
     saveProblem,
     savedChunkFields,
-    textPreview,
     tokenizerLockOf,
     visibleChunks,
 } from '../src/features/database-browser/chunk-visualizer-core.js';
@@ -60,7 +59,6 @@ describe('what a chunk holds', () => {
         expect(originLine({ index: 12, metadata: {} })).toEqual({ text: 'Message', name: '12' });
         expect(originLine({ metadata: { source_window_start: 40, source_window_end: 44, window_event_order: 2 } }))
             .toEqual({ text: 'Messages', name: '40 to 44, event 3' });
-        expect(textPreview('  The   tide\ncame  in.  ', 8)).toBe('The tide…');
     });
 
     it("names a LoreBase part by its entry and part, and titles it by its entry's title, its first line", () => {

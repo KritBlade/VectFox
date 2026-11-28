@@ -6,9 +6,10 @@
  * Browser (chunk-visualizer-markup.js draws it, chunk-visualizer-core.js holds
  * its rules). It loads them from Similharity and lists them by the search,
  * filter and order chosen; one opens in a form that one Save writes, embedding
- * the text again first when it changed. A new text and a delete go through
- * EventBase's route for an edit of its events (writeEventText,
- * deleteEventPoints). Leaving one or closing with unsaved edits asks first.
+ * the text again first when it changed. A new text, a field saved alone and a
+ * delete go through EventBase's route for an edit of its events (writeEventText,
+ * writeStoredFields, deleteEventPoints). Leaving one or closing with unsaved
+ * edits asks first.
  * Ticked ones are deleted together. The backend payload holds every field. A Qdrant collection made with another CJK tokenizer than VectFox
  * is set to takes no new vector, so there the text is locked. A lorebook's
  * LoreBase parts open read only, in their entries' order: LoreBase writes them
@@ -18,8 +19,8 @@
  * ============================================================================
  */
 
-import { qdrantTarget, textWithoutKeywordSuffix, updateChunkMetadata } from '../vector-backend/index.js';
-import { deleteEventPoints, packTimelineSortKey, writeEventText } from '../eventbase/index.js';
+import { qdrantTarget, textWithoutKeywordSuffix } from '../vector-backend/index.js';
+import { deleteEventPoints, packTimelineSortKey, writeEventText, writeStoredFields } from '../eventbase/index.js';
 import { languageModeLabel } from '../keyword-search/index.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { log } from '../../sillytavern/log.js';
@@ -408,10 +409,13 @@ async function openChunk(root, session, key) {
 
 // ── Saving ────────────────────────────────────────────────────────────────────────────────────────────
 
-/** Write a chunk whose text is unchanged: the payload fields the form changed. */
+/**
+ * Write a chunk whose text is unchanged: the payload fields the form changed, set alone through EventBase's route for a
+ * field write (writeStoredFields), in its turn with the collection's text edits.
+ */
 async function writeChunkChanges(session, chunk, changes) {
     if (!Object.keys(changes.payload).length) return;
-    await updateChunkMetadata(session.collection.id, chunk.hash, changes.payload, session.settings);
+    await writeStoredFields(session.collection.id, chunk.hash, changes.payload, session.settings);
     chunk.metadata = { ...chunk.metadata, ...changes.payload };
 }
 

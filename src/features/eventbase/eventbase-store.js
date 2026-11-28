@@ -8,7 +8,7 @@
  * ============================================================================
  */
 
-import { insertVectorItems, deleteVectorItems, getSavedHashes, updateChunkMetadata, qdrantTarget } from '../vector-backend/index.js';
+import { insertVectorItems, deleteVectorItems, getSavedHashes, qdrantTarget } from '../vector-backend/index.js';
 import { saveSettingsDebounced, extension_settings } from '../../sillytavern/settings.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { storyMessages } from '../../shared/chat-messages.js';
@@ -26,6 +26,7 @@ import { eventWindowsOf, everyWindowRead, isListingWithPayload, windowFingerprin
 import { log } from '../../sillytavern/log.js';
 import { readErrorBody } from '../../shared/server-error-text.js';
 import { announceEventsRemoved } from './eventbase-announcements.js';
+import { writeStoredFields } from './eventbase-write-turns.js';
 
 // ---------------------------------------------------------------------------
 // The pointer: how far EventBase has read a chat into one collection
@@ -569,7 +570,7 @@ export function createWindowReplacement({ collectionId, settings, tipAtRunStart 
             let movedCount = 0;
             for (const { event, links } of writes) {
                 try {
-                    await updateChunkMetadata(collectionId, event._hash, { story_links: links }, settings);
+                    await writeStoredFields(collectionId, event._hash, { story_links: links }, settings);
                     movedCount++;
                 } catch (err) {
                     log.warn(`[EventBase] Could not move the links of the event at message ${event.source_window_start} off replaced events:`, err);

@@ -44,6 +44,7 @@ vi.mock('../src/features/eventbase/eventbase-store.js', () => ({
 vi.mock('../src/features/eventbase/eventbase-announcements.js', () => ({ announceEventsRemoved }));
 vi.mock('../src/features/eventbase/index.js', async () => ({
     ...(await import('../src/features/eventbase/eventbase-event-edits.js')),
+    writeStoredFields: (await import('../src/features/eventbase/eventbase-write-turns.js')).writeStoredFields,
     packTimelineSortKey: (message, order) => message * 1000 + order,
 }));
 vi.mock('../src/features/keyword-search/index.js', () => ({

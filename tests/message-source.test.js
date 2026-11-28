@@ -30,6 +30,9 @@ vi.mock('../src/shared/extension-manifest.js', () => ({ loadExtensionManifest: a
 vi.mock('../src/sillytavern/chat.js', () => ({ getContext: () => host.context, getCurrentChatId: () => null, chat_metadata: host.chatMetadata }));
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: {} }));
 vi.mock('../src/features/eventbase/index.js', () => ({ openChatCollectionInUse: () => ({ chatId: null, collectionId: null }), readEventFeed: vi.fn() }));
+// The public API's writes, which these tests never make, ask in SillyTavern's popup and name a collection as the Database Browser does.
+vi.mock('../src/sillytavern/popup.js', () => ({ confirmPopup: vi.fn() }));
+vi.mock('../src/features/collections/index.js', () => ({ collectionNameOf: vi.fn() }));
 
 const { hashSourceMessage } = await import('../src/features/eventbase/eventbase-message-hash.js');
 

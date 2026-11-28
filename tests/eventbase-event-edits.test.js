@@ -1,18 +1,22 @@
 /**
  * EventBase's route for an edit of its events (src/features/eventbase/eventbase-event-edits.js), which the Database
- * Browser's Chunk Visualizer calls. A new text is written from the event as stored at that moment, so a link StoryArc
- * wrote after the caller read the event stays; an event keeps the ID EventBase gives it, and a point without an event
- * ID takes one from its text, its old copy going after; a point gone since the read, or a text that cannot be
- * embedded, writes nothing; an old copy that cannot go leaves the new text saved, and says so. A text edit takes its
- * turn with StoryArc's link writes. A delete keeps the events' windows read and tells their IDs, after the delete.
+ * Browser's Chunk Visualizer and the public API call. A new text is written from the event as stored at that moment,
+ * so a link StoryArc wrote after the caller read the event stays; an event keeps the ID EventBase gives it, and a point
+ * without an event ID takes one from its text, its old copy going after; a point gone since the read, or a text that
+ * cannot be embedded, writes nothing; an old copy that cannot go leaves the new text saved, and says so. A text edit
+ * takes its turn with the collection's field writes. An event named by its ID: a changed field of its text builds that
+ * text again from the event as stored, in place; importance alone sets that field with no embedding; an ID no stored
+ * event holds writes nothing; and events read by their IDs give their summaries. A delete keeps the events' windows
+ * read and tells their IDs, after the delete.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const backend = vi.hoisted(() => ({ getChunk: vi.fn(), insertVectorItems: vi.fn(), deleteVectorItems: vi.fn() }));
+const backend = vi.hoisted(() => ({ getChunk: vi.fn(), insertVectorItems: vi.fn(), deleteVectorItems: vi.fn(), updateChunkMetadata: vi.fn() }));
 vi.mock('../src/features/vector-backend/index.js', async () => ({
     ...backend,
     describeEmbeddingFailure: (await import('../src/features/vector-backend/embedding-failure.js')).describeEmbeddingFailure,
+    textWithoutKeywordSuffix: (await import('../src/features/vector-backend/stored-chunk.js')).textWithoutKeywordSuffix,
 }));
 vi.mock('../src/sillytavern/identifiers.js', () => ({ getStringHash: text => [...String(text)].reduce((hash, character) => (hash * 31 + character.charCodeAt(0)) % 1000003, 7) }));
 const keepWindowsOfRemovedEvents = vi.hoisted(() => vi.fn());
@@ -21,8 +25,8 @@ vi.mock('../src/features/eventbase/eventbase-store.js', () => ({ keepWindowsOfRe
 const announceEventsRemoved = vi.hoisted(() => vi.fn());
 vi.mock('../src/features/eventbase/eventbase-announcements.js', () => ({ announceEventsRemoved }));
 
-const { deleteEventPoints, writeEventText } = await import('../src/features/eventbase/eventbase-event-edits.js');
-const { inStoryLinkWriteTurn } = await import('../src/features/eventbase/eventbase-write-turns.js');
+const { deleteEventPoints, readEventsById, writeEventFields, writeEventText } = await import('../src/features/eventbase/eventbase-event-edits.js');
+const { inFieldWriteTurn } = await import('../src/features/eventbase/eventbase-write-turns.js');
 const { getStringHash } = await import('../src/sillytavern/identifiers.js');
 
 const HARBOR = 'vf_eventbase_qdrant_harbor';
@@ -98,7 +102,7 @@ describe('writeEventText', () => {
     it('waits for a link write under way in the collection, so it reads the links that write stores', async () => {
         let storedLinks = [];
         let endLinkWrite;
-        const linkWrite = inStoryLinkWriteTurn(HARBOR, () => new Promise((resolve) => {
+        const linkWrite = inFieldWriteTurn(HARBOR, () => new Promise((resolve) => {
             endLinkWrite = () => {
                 storedLinks = LINKS;
                 resolve();
@@ -112,6 +116,60 @@ describe('writeEventText', () => {
         await linkWrite;
         await written;
         expect(backend.insertVectorItems.mock.calls[0][1][0].metadata.story_links).toEqual(LINKS);
+    });
+});
+
+describe('an event named by its ID', () => {
+    /** An event as insertEvents stores it: its summary in its text alone, its keywords appended to the text. */
+    const extractedEvent = (payload = {}) => ({
+        hash: EVENT_HASH,
+        text: '[decision] Orrin hid the key.\nCAUSE: The guards came.\nCHARS: Orrin\nKEYS: key [KEYWORDS: key]',
+        metadata: {
+            hash: EVENT_HASH, event_id: 'evt-key', event_type: 'decision', importance: 6, cause: 'The guards came.',
+            characters: ['Orrin'], keywords: ['key'], messageIndex: 12, story_links: LINKS, ...payload,
+        },
+    });
+
+    it('builds its text again from the event as stored now with a changed summary, and embeds it in place, its links kept', async () => {
+        backend.getChunk.mockResolvedValue(extractedEvent());
+        expect(await writeEventFields(HARBOR, 'evt-key', { summary: 'Orrin hid the brass key.', characters: ['Orrin', 'Wren'] }, SETTINGS)).toBe(true);
+        expect(backend.getChunk).toHaveBeenCalledWith(HARBOR, EVENT_HASH, SETTINGS);
+        const [[collectionId, [item], settings]] = backend.insertVectorItems.mock.calls;
+        expect([collectionId, settings]).toEqual([HARBOR, SETTINGS]);
+        expect(item.hash).toBe(EVENT_HASH);
+        expect(item.text).toBe('[decision] Orrin hid the brass key.\nCAUSE: The guards came.\nCHARS: Orrin, Wren\nKEYS: key');
+        expect(item.metadata).toEqual({
+            event_id: 'evt-key', event_type: 'decision', importance: 6, cause: 'The guards came.', characters: ['Orrin', 'Wren'],
+            keywords: ['key'], messageIndex: 12, story_links: LINKS,
+        });
+        expect(item.index).toBeUndefined();
+        expect(backend.deleteVectorItems).not.toHaveBeenCalled();
+        expect(backend.updateChunkMetadata).not.toHaveBeenCalled();
+    });
+
+    it('sets importance alone on the stored event, with no embedding', async () => {
+        backend.getChunk.mockResolvedValue(extractedEvent());
+        expect(await writeEventFields(HARBOR, 'evt-key', { importance: 9 }, SETTINGS)).toBe(true);
+        expect(backend.updateChunkMetadata).toHaveBeenCalledWith(HARBOR, EVENT_HASH, { importance: 9 }, SETTINGS);
+        expect(backend.insertVectorItems).not.toHaveBeenCalled();
+    });
+
+    it('writes nothing for an ID no stored event holds, nor for a point of another event', async () => {
+        backend.getChunk.mockResolvedValue(null);
+        expect(await writeEventFields(HARBOR, 'evt-key', { importance: 9 }, SETTINGS)).toBe(false);
+        expect(await writeEventFields(HARBOR, 'evt-key', { cause: 'The tide rose.' }, SETTINGS)).toBe(false);
+        backend.getChunk.mockResolvedValue(extractedEvent({ event_id: 'evt-door' }));
+        expect(await writeEventFields(HARBOR, 'evt-key', { importance: 9 }, SETTINGS)).toBe(false);
+        expect(await writeEventFields(HARBOR, 'evt-key', { cause: 'The tide rose.' }, SETTINGS)).toBe(false);
+        expect(backend.updateChunkMetadata).not.toHaveBeenCalled();
+        expect(backend.insertVectorItems).not.toHaveBeenCalled();
+    });
+
+    it('reads events by their IDs, in order, each with its summary from its text, null for one no stored event holds', async () => {
+        backend.getChunk.mockImplementation(async (collectionId, hash) => (hash === EVENT_HASH ? extractedEvent() : null));
+        const events = await readEventsById(HARBOR, ['evt-gone', 'evt-key'], SETTINGS);
+        expect(backend.getChunk.mock.calls.map(([, hash]) => hash)).toEqual([pointHashOf('evt-gone'), EVENT_HASH]);
+        expect(events).toEqual([null, { hash: EVENT_HASH, summary: 'Orrin hid the key.', metadata: extractedEvent().metadata }]);
     });
 });
 
